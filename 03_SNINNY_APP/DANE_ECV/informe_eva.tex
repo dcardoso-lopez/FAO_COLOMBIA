@@ -1,0 +1,383 @@
+% Options for packages loaded elsewhere
+\PassOptionsToPackage{unicode}{hyperref}
+\PassOptionsToPackage{hyphens}{url}
+%
+\documentclass[
+  11pt,
+]{article}
+\usepackage{amsmath,amssymb}
+\usepackage{iftex}
+\ifPDFTeX
+  \usepackage[T1]{fontenc}
+  \usepackage[utf8]{inputenc}
+  \usepackage{textcomp} % provide euro and other symbols
+\else % if luatex or xetex
+  \usepackage{unicode-math} % this also loads fontspec
+  \defaultfontfeatures{Scale=MatchLowercase}
+  \defaultfontfeatures[\rmfamily]{Ligatures=TeX,Scale=1}
+\fi
+\usepackage{lmodern}
+\ifPDFTeX\else
+  % xetex/luatex font selection
+\fi
+% Use upquote if available, for straight quotes in verbatim environments
+\IfFileExists{upquote.sty}{\usepackage{upquote}}{}
+\IfFileExists{microtype.sty}{% use microtype if available
+  \usepackage[]{microtype}
+  \UseMicrotypeSet[protrusion]{basicmath} % disable protrusion for tt fonts
+}{}
+\makeatletter
+\@ifundefined{KOMAClassName}{% if non-KOMA class
+  \IfFileExists{parskip.sty}{%
+    \usepackage{parskip}
+  }{% else
+    \setlength{\parindent}{0pt}
+    \setlength{\parskip}{6pt plus 2pt minus 1pt}}
+}{% if KOMA class
+  \KOMAoptions{parskip=half}}
+\makeatother
+\usepackage{xcolor}
+\usepackage[margin=1in]{geometry}
+\usepackage{color}
+\usepackage{fancyvrb}
+\newcommand{\VerbBar}{|}
+\newcommand{\VERB}{\Verb[commandchars=\\\{\}]}
+\DefineVerbatimEnvironment{Highlighting}{Verbatim}{commandchars=\\\{\}}
+% Add ',fontsize=\small' for more characters per line
+\usepackage{framed}
+\definecolor{shadecolor}{RGB}{248,248,248}
+\newenvironment{Shaded}{\begin{snugshade}}{\end{snugshade}}
+\newcommand{\AlertTok}[1]{\textcolor[rgb]{0.94,0.16,0.16}{#1}}
+\newcommand{\AnnotationTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{\textbf{\textit{#1}}}}
+\newcommand{\AttributeTok}[1]{\textcolor[rgb]{0.13,0.29,0.53}{#1}}
+\newcommand{\BaseNTok}[1]{\textcolor[rgb]{0.00,0.00,0.81}{#1}}
+\newcommand{\BuiltInTok}[1]{#1}
+\newcommand{\CharTok}[1]{\textcolor[rgb]{0.31,0.60,0.02}{#1}}
+\newcommand{\CommentTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{\textit{#1}}}
+\newcommand{\CommentVarTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{\textbf{\textit{#1}}}}
+\newcommand{\ConstantTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{#1}}
+\newcommand{\ControlFlowTok}[1]{\textcolor[rgb]{0.13,0.29,0.53}{\textbf{#1}}}
+\newcommand{\DataTypeTok}[1]{\textcolor[rgb]{0.13,0.29,0.53}{#1}}
+\newcommand{\DecValTok}[1]{\textcolor[rgb]{0.00,0.00,0.81}{#1}}
+\newcommand{\DocumentationTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{\textbf{\textit{#1}}}}
+\newcommand{\ErrorTok}[1]{\textcolor[rgb]{0.64,0.00,0.00}{\textbf{#1}}}
+\newcommand{\ExtensionTok}[1]{#1}
+\newcommand{\FloatTok}[1]{\textcolor[rgb]{0.00,0.00,0.81}{#1}}
+\newcommand{\FunctionTok}[1]{\textcolor[rgb]{0.13,0.29,0.53}{\textbf{#1}}}
+\newcommand{\ImportTok}[1]{#1}
+\newcommand{\InformationTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{\textbf{\textit{#1}}}}
+\newcommand{\KeywordTok}[1]{\textcolor[rgb]{0.13,0.29,0.53}{\textbf{#1}}}
+\newcommand{\NormalTok}[1]{#1}
+\newcommand{\OperatorTok}[1]{\textcolor[rgb]{0.81,0.36,0.00}{\textbf{#1}}}
+\newcommand{\OtherTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{#1}}
+\newcommand{\PreprocessorTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{\textit{#1}}}
+\newcommand{\RegionMarkerTok}[1]{#1}
+\newcommand{\SpecialCharTok}[1]{\textcolor[rgb]{0.81,0.36,0.00}{\textbf{#1}}}
+\newcommand{\SpecialStringTok}[1]{\textcolor[rgb]{0.31,0.60,0.02}{#1}}
+\newcommand{\StringTok}[1]{\textcolor[rgb]{0.31,0.60,0.02}{#1}}
+\newcommand{\VariableTok}[1]{\textcolor[rgb]{0.00,0.00,0.00}{#1}}
+\newcommand{\VerbatimStringTok}[1]{\textcolor[rgb]{0.31,0.60,0.02}{#1}}
+\newcommand{\WarningTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{\textbf{\textit{#1}}}}
+\usepackage{graphicx}
+\makeatletter
+\def\maxwidth{\ifdim\Gin@nat@width>\linewidth\linewidth\else\Gin@nat@width\fi}
+\def\maxheight{\ifdim\Gin@nat@height>\textheight\textheight\else\Gin@nat@height\fi}
+\makeatother
+% Scale images if necessary, so that they will not overflow the page
+% margins by default, and it is still possible to overwrite the defaults
+% using explicit options in \includegraphics[width, height, ...]{}
+\setkeys{Gin}{width=\maxwidth,height=\maxheight,keepaspectratio}
+% Set default figure placement to htbp
+\makeatletter
+\def\fps@figure{htbp}
+\makeatother
+\setlength{\emergencystretch}{3em} % prevent overfull lines
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+\setcounter{secnumdepth}{5}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{wrapfig}
+\usepackage{float}
+\usepackage{colortbl}
+\usepackage{pdflscape}
+\usepackage{tabu}
+\usepackage{threeparttable}
+\usepackage{threeparttablex}
+\usepackage[normalem]{ulem}
+\usepackage{makecell}
+\usepackage{xcolor}
+\ifLuaTeX
+  \usepackage{selnolig}  % disable illegal ligatures
+\fi
+\usepackage{bookmark}
+\IfFileExists{xurl.sty}{\usepackage{xurl}}{} % add URL line breaks if available
+\urlstyle{same}
+\hypersetup{
+  pdftitle={Informe EVA --- Explorador territorial y aglomeración},
+  pdfauthor={Observatorio EVA},
+  hidelinks,
+  pdfcreator={LaTeX via pandoc}}
+
+\title{Informe EVA --- Explorador territorial y aglomeración}
+\author{Observatorio EVA}
+\date{15 oct 2025}
+
+\begin{document}
+\maketitle
+
+{
+\setcounter{tocdepth}{2}
+\tableofcontents
+}
+\section{1. Portada y resumen
+ejecutivo}\label{portada-y-resumen-ejecutivo}
+
+\textbf{Indicador principal:} Producción (Ton)\\
+\textbf{Ámbito geográfico:} País\\
+\textbf{Cultivo:} Todos\\
+\textbf{Año focal:}
+
+\begin{verbatim}
+## **Resumen**: No hay serie suficiente para construir un resumen cuantitativo.
+\end{verbatim}
+
+\begin{quote}
+\textbf{Lectura recomendada:} este informe prioriza la interpretación
+operativa: niveles, cambios recientes y jerarquías territoriales; no
+implica causalidad, sino \textbf{diagnóstico descriptivo} de los datos
+cargados en la app.
+\end{quote}
+
+\section{2. Contexto y alcance}\label{contexto-y-alcance}
+
+Este documento presenta un panorama del indicador \textbf{Producción
+(Ton)} en el ámbito nacional.\\
+El año focal de mapas y ranking es **** (según la selección del tab),
+mientras que la \textbf{serie temporal} resume la trayectoria anual del
+agregado bajo los filtros vigentes (país/departamento/municipio y
+cultivo).
+
+\textbf{Interpretación del indicador:}
+
+\begin{itemize}
+\tightlist
+\item
+  \emph{Área sembrada / cosechada}: suma del área reportada.\\
+\item
+  \emph{Producción}: suma de toneladas.\\
+\item
+  \emph{Rendimiento (Ton/Ha)}: \textbf{Σ Producción / Σ Área cosechada}
+  bajo el subconjunto filtrado (evita promedios simples sesgados).
+\end{itemize}
+
+\begin{quote}
+Cuando el filtro ``Departamento'' = \textbf{Todos}, las estadísticas
+representan \textbf{agregados nacionales}. Si se selecciona un
+departamento, los mapas del tab ``Explorador'' cambian a nivel municipal
+dentro de dicho departamento.
+\end{quote}
+
+\section{3. Serie temporal del
+indicador}\label{serie-temporal-del-indicador}
+
+\begin{verbatim}
+## No hay datos de serie temporal para graficar.
+\end{verbatim}
+
+\textbf{Lectura rápida de la serie:}
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Dirección reciente:} no disponible.\\
+\item
+  \textbf{Picos/vasos:} no disponible.\\
+\item
+  \textbf{Sugerencia metodológica:} contrastar con clima, precios o
+  asistencia técnica, según el caso (fuera del alcance de este informe).
+\end{itemize}
+
+\section{4. Mapa (según tab) y jerarquías
+territoriales}\label{mapa-seguxfan-tab-y-jerarquuxedas-territoriales}
+
+\begin{verbatim}
+## Mapa no proporcionado por la aplicación (parámetro `map_png` o `clusters_png`).
+\end{verbatim}
+
+\begin{quote}
+\textbf{Nota:} En ``Clusters'' los colores reflejan el tipo LISA con
+umbral \textbf{p ≤ 0.50`} (asociación espacial, \textbf{no} causalidad).
+\end{quote}
+
+\section{5. Ranking Top-10 (nivel
+municipal)}\label{ranking-top-10-nivel-municipal}
+
+\begin{verbatim}
+## No hay datos de ranking para graficar.
+\end{verbatim}
+
+\textbf{Ideas de interpretación:}
+
+\begin{itemize}
+\tightlist
+\item
+  Identificar \textbf{picos} (municipios muy por encima de la mediana
+  departamental/nacional).
+\item
+  Ver si el liderazgo proviene de \textbf{cartera amplia} de cultivos o
+  de un \textbf{cultivo dominante} (ver Tabla de detalle).
+\end{itemize}
+
+\section{6. Tabla de detalle
+(exportable)}\label{tabla-de-detalle-exportable}
+
+\begin{verbatim}
+## No hay tabla disponible.
+\end{verbatim}
+
+\section{7. Aglomeración (solo si se adjunta mapa
+LISA)}\label{aglomeraciuxf3n-solo-si-se-adjunta-mapa-lisa}
+
+\section{8. Metodología y
+consideraciones}\label{metodologuxeda-y-consideraciones}
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Fuentes y filtros:} subconjunto definido en la app
+  (Departamento, Municipio y Cultivo). Mapas/ranking con año ****; la
+  serie usa todo el rango disponible.\\
+\item
+  \textbf{Transformaciones clave:}
+
+  \begin{itemize}
+  \tightlist
+  \item
+    \emph{Rendimiento (Ton/Ha)} = \textbf{Σ Producción / Σ Área
+    cosechada}.\\
+  \item
+    \emph{Áreas y producción}: sumatorias simples según filtros.\\
+  \end{itemize}
+\item
+  \textbf{Aglomeración (LISA):} clústeres (Alto--Alto, Bajo--Bajo,
+  Alto--Bajo, Bajo--Alto, No significativo) vía contigüidad ``queen'',
+  \emph{p} 0.50.\\
+\item
+  \textbf{Limitaciones:} resultados \textbf{descriptivos}; para
+  causalidad, contrastar con clima, precios, infraestructura, crédito,
+  etc.
+\end{itemize}
+
+\section{9. Recomendaciones
+operativas}\label{recomendaciones-operativas}
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Monitoreo}: replicar en cortes trimestrales/semestrales.\\
+\item
+  \textbf{Priorización territorial}: cruzar Top-10 con clústeres LISA
+  para focalizar intervenciones.\\
+\item
+  \textbf{Validez}: revisar atípicos y consistencia con registros
+  administrativos y encuestas sectoriales.
+\end{itemize}
+
+\textbf{Fin del informe.}
+
+\subsection{\texorpdfstring{2) Pegado rápido de los
+\texttt{downloadHandler} (sustituye SOLO el \texttt{content\ =\ \{\}} en
+tu
+app)}{2) Pegado rápido de los downloadHandler (sustituye SOLO el content = \{\} en tu app)}}\label{pegado-ruxe1pido-de-los-downloadhandler-sustituye-solo-el-content-en-tu-app}
+
+2.1. En el botón \textbf{PDF --- Tab Explorador}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\CommentTok{\# PDF — Tab Explorador (Rmd)}
+\NormalTok{output}\SpecialCharTok{$}\NormalTok{dl\_pdf\_expl }\OtherTok{\textless{}{-}} \FunctionTok{downloadHandler}\NormalTok{(}
+  \AttributeTok{filename =} \ControlFlowTok{function}\NormalTok{() }\FunctionTok{paste0}\NormalTok{(}\StringTok{"EVA\_informe\_"}\NormalTok{, input}\SpecialCharTok{$}\NormalTok{f\_indicador, }\StringTok{"\_"}\NormalTok{, }\FunctionTok{Sys.Date}\NormalTok{(), }\StringTok{".pdf"}\NormalTok{),}
+  \AttributeTok{content =} \ControlFlowTok{function}\NormalTok{(file) \{}
+    \CommentTok{\# 1) Exportar PNG del mapa simple actual}
+\NormalTok{    widget  }\OtherTok{\textless{}{-}} \FunctionTok{map\_widget\_simple}\NormalTok{()}
+\NormalTok{    tmp\_html }\OtherTok{\textless{}{-}} \FunctionTok{tempfile}\NormalTok{(}\AttributeTok{fileext =} \StringTok{".html"}\NormalTok{)}
+\NormalTok{    tmp\_png  }\OtherTok{\textless{}{-}} \FunctionTok{tempfile}\NormalTok{(}\AttributeTok{fileext =} \StringTok{".png"}\NormalTok{)}
+\NormalTok{    htmlwidgets}\SpecialCharTok{::}\FunctionTok{saveWidget}\NormalTok{(widget, tmp\_html, }\AttributeTok{selfcontained =} \ConstantTok{TRUE}\NormalTok{)}
+\NormalTok{    webshot2}\SpecialCharTok{::}\FunctionTok{webshot}\NormalTok{(tmp\_html, }\AttributeTok{file =}\NormalTok{ tmp\_png, }\AttributeTok{vwidth =} \DecValTok{1200}\NormalTok{, }\AttributeTok{vheight =} \DecValTok{800}\NormalTok{, }\AttributeTok{zoom =} \DecValTok{2}\NormalTok{)}
+
+    \CommentTok{\# 2) Parámetros al Rmd}
+\NormalTok{    params }\OtherTok{\textless{}{-}} \FunctionTok{list}\NormalTok{(}
+      \AttributeTok{indicador\_label =} \FunctionTok{as.character}\NormalTok{(}\FunctionTok{isolate}\NormalTok{(}\FunctionTok{indicador\_label}\NormalTok{())),}
+      \AttributeTok{depto    =} \ControlFlowTok{if}\NormalTok{ (}\FunctionTok{is.null}\NormalTok{(}\FunctionTok{isolate}\NormalTok{(input}\SpecialCharTok{$}\NormalTok{f\_depto))) }\StringTok{"Todos"} \ControlFlowTok{else} \FunctionTok{as.character}\NormalTok{(}\FunctionTok{isolate}\NormalTok{(input}\SpecialCharTok{$}\NormalTok{f\_depto)),}
+      \AttributeTok{mpio     =} \ControlFlowTok{if}\NormalTok{ (}\FunctionTok{is.null}\NormalTok{(}\FunctionTok{isolate}\NormalTok{(input}\SpecialCharTok{$}\NormalTok{f\_mpio)))  }\StringTok{"Todos"} \ControlFlowTok{else} \FunctionTok{as.character}\NormalTok{(}\FunctionTok{isolate}\NormalTok{(input}\SpecialCharTok{$}\NormalTok{f\_mpio)),}
+      \AttributeTok{cultivo  =} \ControlFlowTok{if}\NormalTok{ (}\FunctionTok{is.null}\NormalTok{(}\FunctionTok{isolate}\NormalTok{(input}\SpecialCharTok{$}\NormalTok{f\_cultivo))) }\StringTok{"Todos"} \ControlFlowTok{else} \FunctionTok{as.character}\NormalTok{(}\FunctionTok{isolate}\NormalTok{(input}\SpecialCharTok{$}\NormalTok{f\_cultivo)),}
+      \AttributeTok{anio\_sel =} \ControlFlowTok{if}\NormalTok{ (}\FunctionTok{is.null}\NormalTok{(}\FunctionTok{isolate}\NormalTok{(input}\SpecialCharTok{$}\NormalTok{f\_anio))) }\StringTok{""} \ControlFlowTok{else} \FunctionTok{as.character}\NormalTok{(}\FunctionTok{isolate}\NormalTok{(input}\SpecialCharTok{$}\NormalTok{f\_anio)),}
+      \AttributeTok{serie    =} \FunctionTok{isolate}\NormalTok{(}\FunctionTok{series\_data}\NormalTok{()),}
+      \AttributeTok{ranking  =} \FunctionTok{isolate}\NormalTok{(}\FunctionTok{ranking\_data}\NormalTok{()),}
+      \AttributeTok{tabla    =} \FunctionTok{isolate}\NormalTok{(}\FunctionTok{tabla\_export}\NormalTok{()),}
+      \AttributeTok{map\_png  =}\NormalTok{ tmp\_png,}
+      \AttributeTok{clusters\_png =} \ConstantTok{NULL}\NormalTok{,}
+      \AttributeTok{lisa\_p =} \FloatTok{0.50}
+\NormalTok{    )}
+
+    \CommentTok{\# 3) Renderizar Rmd {-}\textgreater{} PDF}
+\NormalTok{    rmarkdown}\SpecialCharTok{::}\FunctionTok{render}\NormalTok{(}
+      \AttributeTok{input  =} \StringTok{"informe\_eva.Rmd"}\NormalTok{,}
+      \AttributeTok{output\_file =} \StringTok{"informe\_expl.pdf"}\NormalTok{,}
+      \AttributeTok{params =}\NormalTok{ params,}
+      \AttributeTok{envir  =} \FunctionTok{new.env}\NormalTok{(}\AttributeTok{parent =} \FunctionTok{globalenv}\NormalTok{())}
+\NormalTok{    )}
+    \FunctionTok{file.copy}\NormalTok{(}\StringTok{"informe\_expl.pdf"}\NormalTok{, file, }\AttributeTok{overwrite =} \ConstantTok{TRUE}\NormalTok{)}
+\NormalTok{  \}}
+\NormalTok{)}
+\end{Highlighting}
+\end{Shaded}
+
+2.2. En el botón \textbf{PDF --- Tab Clusters}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\CommentTok{\# PDF — Tab Clusters (Rmd)}
+\NormalTok{output}\SpecialCharTok{$}\NormalTok{dl\_pdf\_clus }\OtherTok{\textless{}{-}} \FunctionTok{downloadHandler}\NormalTok{(}
+  \AttributeTok{filename =} \ControlFlowTok{function}\NormalTok{() }\FunctionTok{paste0}\NormalTok{(}\StringTok{"EVA\_informe\_"}\NormalTok{, input}\SpecialCharTok{$}\NormalTok{clus\_indicador, }\StringTok{"\_"}\NormalTok{, }\FunctionTok{Sys.Date}\NormalTok{(), }\StringTok{"\_clusters.pdf"}\NormalTok{),}
+  \AttributeTok{content =} \ControlFlowTok{function}\NormalTok{(file) \{}
+    \CommentTok{\# 1) Exportar PNG del mapa LISA simple}
+\NormalTok{    widget  }\OtherTok{\textless{}{-}} \FunctionTok{map\_clusters\_simple}\NormalTok{()}
+\NormalTok{    tmp\_html }\OtherTok{\textless{}{-}} \FunctionTok{tempfile}\NormalTok{(}\AttributeTok{fileext =} \StringTok{".html"}\NormalTok{)}
+\NormalTok{    tmp\_png  }\OtherTok{\textless{}{-}} \FunctionTok{tempfile}\NormalTok{(}\AttributeTok{fileext =} \StringTok{".png"}\NormalTok{)}
+\NormalTok{    htmlwidgets}\SpecialCharTok{::}\FunctionTok{saveWidget}\NormalTok{(widget, tmp\_html, }\AttributeTok{selfcontained =} \ConstantTok{TRUE}\NormalTok{)}
+\NormalTok{    webshot2}\SpecialCharTok{::}\FunctionTok{webshot}\NormalTok{(tmp\_html, }\AttributeTok{file =}\NormalTok{ tmp\_png, }\AttributeTok{vwidth =} \DecValTok{1200}\NormalTok{, }\AttributeTok{vheight =} \DecValTok{800}\NormalTok{, }\AttributeTok{zoom =} \DecValTok{2}\NormalTok{)}
+
+    \CommentTok{\# 2) Parámetros al Rmd}
+\NormalTok{    params }\OtherTok{\textless{}{-}} \FunctionTok{list}\NormalTok{(}
+      \AttributeTok{indicador\_label =} \FunctionTok{as.character}\NormalTok{(}\FunctionTok{isolate}\NormalTok{(}\FunctionTok{clus\_indicador\_label}\NormalTok{())),}
+      \AttributeTok{depto    =} \FunctionTok{as.character}\NormalTok{(}\FunctionTok{isolate}\NormalTok{(input}\SpecialCharTok{$}\NormalTok{clus\_depto)),}
+      \AttributeTok{mpio     =} \StringTok{"Todos"}\NormalTok{,}
+      \AttributeTok{cultivo  =} \ControlFlowTok{if}\NormalTok{ (}\FunctionTok{is.null}\NormalTok{(}\FunctionTok{isolate}\NormalTok{(input}\SpecialCharTok{$}\NormalTok{clus\_cultivo))) }\StringTok{"Todos"} \ControlFlowTok{else} \FunctionTok{as.character}\NormalTok{(}\FunctionTok{isolate}\NormalTok{(input}\SpecialCharTok{$}\NormalTok{clus\_cultivo)),}
+      \AttributeTok{anio\_sel =} \FunctionTok{as.character}\NormalTok{(}\FunctionTok{isolate}\NormalTok{(input}\SpecialCharTok{$}\NormalTok{clus\_anio)),}
+      \AttributeTok{serie    =} \FunctionTok{isolate}\NormalTok{(}\FunctionTok{series\_data}\NormalTok{()),}
+      \AttributeTok{ranking  =} \FunctionTok{isolate}\NormalTok{(}\FunctionTok{ranking\_data}\NormalTok{()),}
+      \AttributeTok{tabla    =} \FunctionTok{isolate}\NormalTok{(}\FunctionTok{tabla\_export}\NormalTok{()),}
+      \AttributeTok{map\_png  =} \ConstantTok{NULL}\NormalTok{,}
+      \AttributeTok{clusters\_png =}\NormalTok{ tmp\_png,}
+      \AttributeTok{lisa\_p =} \FloatTok{0.50}
+\NormalTok{    )}
+
+    \CommentTok{\# 3) Renderizar Rmd {-}\textgreater{} PDF}
+\NormalTok{    rmarkdown}\SpecialCharTok{::}\FunctionTok{render}\NormalTok{(}
+      \AttributeTok{input  =} \StringTok{"informe\_eva.Rmd"}\NormalTok{,}
+      \AttributeTok{output\_file =} \StringTok{"informe\_clus.pdf"}\NormalTok{,}
+      \AttributeTok{params =}\NormalTok{ params,}
+      \AttributeTok{envir  =} \FunctionTok{new.env}\NormalTok{(}\AttributeTok{parent =} \FunctionTok{globalenv}\NormalTok{())}
+\NormalTok{    )}
+    \FunctionTok{file.copy}\NormalTok{(}\StringTok{"informe\_clus.pdf"}\NormalTok{, file, }\AttributeTok{overwrite =} \ConstantTok{TRUE}\NormalTok{)}
+\NormalTok{  \}}
+\NormalTok{)}
+\end{Highlighting}
+\end{Shaded}
+
+
+\end{document}

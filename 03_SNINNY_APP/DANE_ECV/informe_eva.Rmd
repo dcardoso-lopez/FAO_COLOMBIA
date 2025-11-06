@@ -1,0 +1,304 @@
+---
+title: "Informe EVA — Explorador territorial y aglomeración"
+author: "Observatorio EVA"
+date: "`r format(Sys.Date(), '%d %b %Y')`"
+output:
+  pdf_document:
+    toc: true
+    number_sections: true
+    df_print: kable
+    latex_engine: xelatex
+fontsize: 11pt
+geometry: margin=1in
+params:
+  # Metadatos y filtros
+  indicador_label: "Producción (Ton)"
+  depto: "Todos"
+  mpio: "Todos"
+  cultivo: "Todos"
+  anio_sel: ""
+  # Objetos de datos (ya filtrados en la app)
+  serie: !r data.frame()
+  ranking: !r data.frame()
+  tabla: !r data.frame()
+  # Opcionales (si existen, se insertan figuras)
+  map_png: !r NULL
+  clusters_png: !r NULL
+  # Opcional: notas del procedimiento (ej. p-value LISA)
+  lisa_p: 0.50
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+
+suppressWarnings({
+  library(dplyr); library(tidyr); library(ggplot2)
+  library(glue);  library(scales); library(kableExtra)
+})
+
+fmt <- function(x, d=2) scales::comma(round(x, d))
+nz <- function(x) ifelse(is.finite(x) & !is.na(x), x, 0)
+not_all_na <- function(x) any(is.finite(x) & !is.na(x))
+has_col <- function(df, n) is.data.frame(df) && (n %in% names(df))
+
+ind_lab  <- params$indicador_label
+depto    <- params$depto
+mpio     <- params$mpio
+cultivo  <- params$cultivo
+anio_sel <- params$anio_sel
+serie    <- params$serie
+ranking  <- params$ranking
+tabla    <- params$tabla
+map_png  <- params$map_png
+clus_png <- params$clusters_png
+lisa_p   <- params$lisa_p
+```
+
+# 1. Portada y resumen ejecutivo
+
+**Indicador principal:** `r ind_lab`  
+**Ámbito geográfico:** `r if (depto=='Todos') 'País' else depto` `r if (mpio!='Todos') paste0('— Municipio: ', mpio) else ''`  
+**Cultivo:** `r cultivo`  
+**Año focal:** `r anio_sel`
+
+```{r resumen-ejecutivo}
+if (is.data.frame(serie) && nrow(serie) >= 1 && all(c("anio","valor_total") %in% names(serie))) {
+  serie_ord   <- serie %>% arrange(anio)
+  ultima_fila <- tail(serie_ord, 1)
+  penultima   <- if (nrow(serie_ord) >= 2) tail(serie_ord, 2)[1,] else NULL
+
+  ultimo_anio <- ultima_fila$anio
+  ultimo_val  <- ultima_fila$valor_total
+  yoy_txt <- if (!is.null(penultima)) {
+    yoy <- ultimo_val - penultima$valor_total
+    glue("{ifelse(yoy>=0,'aumentó','disminuyó')} en {fmt(abs(yoy),2)} vs. {penultima$anio}")
+  } else "sin base de comparación (solo un año disponible)"
+
+  min_val  <- min(serie_ord$valor_total, na.rm = TRUE)
+  max_val  <- max(serie_ord$valor_total, na.rm = TRUE)
+  min_anio <- serie_ord$anio[which.min(serie_ord$valor_total)]
+  max_anio <- serie_ord$anio[which.max(serie_ord$valor_total)]
+
+  cat(glue("
+**Resumen**  
+• En {ultimo_anio}, el valor de **{ind_lab}** fue **{fmt(ultimo_val)}**; {yoy_txt}.  
+• Rango histórico observado: **{fmt(min_val)}** ({min_anio}) — **{fmt(max_val)}** ({max_anio}).  
+"))
+} else {
+  cat("**Resumen**: No hay serie suficiente para construir un resumen cuantitativo.\n")
+}
+```
+
+> **Lectura recomendada:** este informe prioriza la interpretación operativa: niveles, cambios recientes y jerarquías territoriales; no implica causalidad, sino **diagnóstico descriptivo** de los datos cargados en la app.
+
+# 2. Contexto y alcance
+
+Este documento presenta un panorama del indicador **`r ind_lab`** `r if (cultivo!='Todos') paste0(' para el cultivo de ', cultivo) else ''` en el ámbito `r if (depto == 'Todos') 'nacional' else paste('del departamento de', depto)`.  
+El año focal de mapas y ranking es **`r anio_sel`** (según la selección del tab), mientras que la **serie temporal** resume la trayectoria anual del agregado bajo los filtros vigentes (país/departamento/municipio y cultivo).
+
+**Interpretación del indicador:**
+
+- *Área sembrada / cosechada*: suma del área reportada.  
+- *Producción*: suma de toneladas.  
+- *Rendimiento (Ton/Ha)*: **Σ Producción / Σ Área cosechada** bajo el subconjunto filtrado (evita promedios simples sesgados).
+
+> Cuando el filtro “Departamento” = **Todos**, las estadísticas representan **agregados nacionales**. Si se selecciona un departamento, los mapas del tab “Explorador” cambian a nivel municipal dentro de dicho departamento.
+
+# 3. Serie temporal del indicador
+
+```{r serie-plot, fig.height=4.2, fig.width=7}
+if (is.data.frame(serie) && nrow(serie) >= 1 && all(c("anio","valor_total") %in% names(serie))) {
+  ggplot(serie, aes(x = anio, y = valor_total)) +
+    geom_line(linewidth = 1) +
+    geom_point(size = 2.5) +
+    scale_x_continuous(breaks = unique(serie$anio)) +
+    # antes: scales::label_number_big_mark()
+    scale_y_continuous(labels = scales::label_comma()) +
+    labs(x = "Año", y = ind_lab, title = glue("Evolución de {ind_lab}")) +
+    theme_minimal(base_size = 11) +
+    theme(panel.grid.minor = element_blank(),
+          panel.grid.major.x = element_blank())
+} else {
+  cat("No hay datos de serie temporal para graficar.")
+}
+
+```
+
+**Lectura rápida de la serie:**
+
+- **Dirección reciente:** `r if (exists('penultima')) glue('de {penultima$anio} a {ultimo_anio} {ifelse(ultimo_val>=penultima$valor_total, "aumentó", "disminuyó")}') else "no disponible"`.  
+- **Picos/vasos:** `r if (exists('min_val')) glue('mínimo en {min_anio} y máximo en {max_anio}') else "no disponible"`.  
+- **Sugerencia metodológica:** contrastar con clima, precios o asistencia técnica, según el caso (fuera del alcance de este informe).
+
+# 4. Mapa (según tab) y jerarquías territoriales
+
+```{r mapas, fig.cap='Mapa simple del indicador/clúster según el tab activo', out.width='95%'}
+if (!is.null(map_png)) {
+  knitr::include_graphics(map_png)
+} else if (!is.null(clus_png)) {
+  knitr::include_graphics(clus_png)
+} else {
+  cat("Mapa no proporcionado por la aplicación (parámetro `map_png` o `clusters_png`).")
+}
+```
+
+> **Nota:** En “Clusters” los colores reflejan el tipo LISA con umbral **p ≤ `r sprintf('%.2f', lisa_p)``** (asociación espacial, **no** causalidad).
+
+# 5. Ranking Top-10 (nivel municipal)
+
+```{r ranking-plot, fig.height=5, fig.width=7}
+if (is.data.frame(ranking) && nrow(ranking) >= 1 &&
+    all(c("MUNICIPIO_D","DEPARTAMENTO_D","valor_total") %in% names(ranking))) {
+  rk <- ranking %>% mutate(etq = paste0(MUNICIPIO_D, " (", DEPARTAMENTO_D, ")"))
+  ggplot(rk, aes(x = valor_total, y = reorder(etq, valor_total))) +
+    geom_col() +
+    geom_text(aes(label = fmt(valor_total, 2)), hjust = -0.1, size = 3) +
+    # antes: scales::label_number_big_mark()
+    scale_x_continuous(labels = scales::label_comma(),
+                       expand = expansion(mult = c(0, 0.10))) +
+    labs(x = ind_lab, y = NULL, title = "Top-10 municipal") +
+    theme_minimal(base_size = 11) +
+    theme(axis.text.y = element_text(size = 9),
+          panel.grid.minor = element_blank())
+} else {
+  cat("No hay datos de ranking para graficar.")
+}
+
+```
+
+**Ideas de interpretación:**
+
+- Identificar **picos** (municipios muy por encima de la mediana departamental/nacional).
+- Ver si el liderazgo proviene de **cartera amplia** de cultivos o de un **cultivo dominante** (ver Tabla de detalle).
+
+# 6. Tabla de detalle (exportable)
+
+```{r tabla-detalle}
+if (is.data.frame(tabla) && nrow(tabla) >= 1) {
+  muestra <- tabla %>% head(5000) # limitar si es muy grande
+  knitr::kable(muestra, format = "latex", booktabs = TRUE, longtable = TRUE) %>%
+    kableExtra::kable_styling(latex_options = c("striped", "repeat_header"))
+} else {
+  cat("No hay tabla disponible.")
+}
+```
+
+# 7. Aglomeración (solo si se adjunta mapa LISA)
+
+```{r seccion-lisa, results='asis'}
+if (!is.null(clus_png)) {
+  cat(glue("
+**Lectura del patrón espacial (LISA):**  
+- *Alto–Alto*: desempeño alto rodeado de alto → consolidar capacidades.  
+- *Bajo–Bajo*: rezago concentrado → focalizar apoyos.  
+- *Alto–Bajo*: polo aislado → difundir buenas prácticas a vecinos.  
+- *Bajo–Alto*: brecha local → cerrar cuellos de botella con soporte específico.  
+  
+La significancia se evalúa con **p ≤ {sprintf('%.2f', lisa_p)}**.  
+Estos hallazgos describen **asociación espacial** del indicador; no implican causalidad.
+"))
+}
+```
+
+# 8. Metodología y consideraciones
+
+- **Fuentes y filtros:** subconjunto definido en la app (Departamento, Municipio y Cultivo). Mapas/ranking con año **`r anio_sel`**; la serie usa todo el rango disponible.  
+- **Transformaciones clave:**  
+  - *Rendimiento (Ton/Ha)* = **Σ Producción / Σ Área cosechada**.  
+  - *Áreas y producción*: sumatorias simples según filtros.  
+- **Aglomeración (LISA):** clústeres (Alto–Alto, Bajo–Bajo, Alto–Bajo, Bajo–Alto, No significativo) vía contigüidad “queen”, *p* `r sprintf('%.2f', lisa_p)`.  
+- **Limitaciones:** resultados **descriptivos**; para causalidad, contrastar con clima, precios, infraestructura, crédito, etc.
+
+# 9. Recomendaciones operativas
+
+- **Monitoreo**: replicar en cortes trimestrales/semestrales.  
+- **Priorización territorial**: cruzar Top-10 con clústeres LISA para focalizar intervenciones.  
+- **Validez**: revisar atípicos y consistencia con registros administrativos y encuestas sectoriales.
+
+**Fin del informe.**
+
+
+2) Pegado rápido de los `downloadHandler` (sustituye SOLO el `content = {}` en tu app)
+-------------------------------------------------------------------------------------
+
+2.1. En el botón **PDF — Tab Explorador**
+
+```r
+# PDF — Tab Explorador (Rmd)
+output$dl_pdf_expl <- downloadHandler(
+  filename = function() paste0("EVA_informe_", input$f_indicador, "_", Sys.Date(), ".pdf"),
+  content = function(file) {
+    # 1) Exportar PNG del mapa simple actual
+    widget  <- map_widget_simple()
+    tmp_html <- tempfile(fileext = ".html")
+    tmp_png  <- tempfile(fileext = ".png")
+    htmlwidgets::saveWidget(widget, tmp_html, selfcontained = TRUE)
+    webshot2::webshot(tmp_html, file = tmp_png, vwidth = 1200, vheight = 800, zoom = 2)
+
+    # 2) Parámetros al Rmd
+    params <- list(
+      indicador_label = as.character(isolate(indicador_label())),
+      depto    = if (is.null(isolate(input$f_depto))) "Todos" else as.character(isolate(input$f_depto)),
+      mpio     = if (is.null(isolate(input$f_mpio)))  "Todos" else as.character(isolate(input$f_mpio)),
+      cultivo  = if (is.null(isolate(input$f_cultivo))) "Todos" else as.character(isolate(input$f_cultivo)),
+      anio_sel = if (is.null(isolate(input$f_anio))) "" else as.character(isolate(input$f_anio)),
+      serie    = isolate(series_data()),
+      ranking  = isolate(ranking_data()),
+      tabla    = isolate(tabla_export()),
+      map_png  = tmp_png,
+      clusters_png = NULL,
+      lisa_p = 0.50
+    )
+
+    # 3) Renderizar Rmd -> PDF
+    rmarkdown::render(
+      input  = "informe_eva.Rmd",
+      output_file = "informe_expl.pdf",
+      params = params,
+      envir  = new.env(parent = globalenv())
+    )
+    file.copy("informe_expl.pdf", file, overwrite = TRUE)
+  }
+)
+```
+
+2.2. En el botón **PDF — Tab Clusters**
+
+```r
+# PDF — Tab Clusters (Rmd)
+output$dl_pdf_clus <- downloadHandler(
+  filename = function() paste0("EVA_informe_", input$clus_indicador, "_", Sys.Date(), "_clusters.pdf"),
+  content = function(file) {
+    # 1) Exportar PNG del mapa LISA simple
+    widget  <- map_clusters_simple()
+    tmp_html <- tempfile(fileext = ".html")
+    tmp_png  <- tempfile(fileext = ".png")
+    htmlwidgets::saveWidget(widget, tmp_html, selfcontained = TRUE)
+    webshot2::webshot(tmp_html, file = tmp_png, vwidth = 1200, vheight = 800, zoom = 2)
+
+    # 2) Parámetros al Rmd
+    params <- list(
+      indicador_label = as.character(isolate(clus_indicador_label())),
+      depto    = as.character(isolate(input$clus_depto)),
+      mpio     = "Todos",
+      cultivo  = if (is.null(isolate(input$clus_cultivo))) "Todos" else as.character(isolate(input$clus_cultivo)),
+      anio_sel = as.character(isolate(input$clus_anio)),
+      serie    = isolate(series_data()),
+      ranking  = isolate(ranking_data()),
+      tabla    = isolate(tabla_export()),
+      map_png  = NULL,
+      clusters_png = tmp_png,
+      lisa_p = 0.50
+    )
+
+    # 3) Renderizar Rmd -> PDF
+    rmarkdown::render(
+      input  = "informe_eva.Rmd",
+      output_file = "informe_clus.pdf",
+      params = params,
+      envir  = new.env(parent = globalenv())
+    )
+    file.copy("informe_clus.pdf", file, overwrite = TRUE)
+  }
+)
+```
