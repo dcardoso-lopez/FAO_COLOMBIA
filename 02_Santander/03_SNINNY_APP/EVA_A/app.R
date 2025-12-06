@@ -43,7 +43,7 @@ BORDER_COL <- "#a1d99b"
 github_url <- "https://github.com/tu_usuario/tu_repo"
 
 # === Ruta fija de la app y del Rmd ===
-APP_DIR  <- "C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/03_SNINNY_APP/EVA_A"
+APP_DIR  <- "C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/02_Santander/03_SNINNY_APP/EVA_A"
 RMD_PATH <- file.path(APP_DIR, "informe_eva.Rmd")
 if (!file.exists(RMD_PATH)) {
   stop(sprintf("No encuentro el Rmd en: %s", RMD_PATH))
@@ -53,12 +53,12 @@ if (!file.exists(RMD_PATH)) {
 # 2) Datos: EVA + Shapefiles
 # ------------------------------
 eva_df <- readRDS(
-  "C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/03_SNINNY_APP/EVA_A/data/011_UPRA_EVA-A.rds"
+  "C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/02_Santander/03_SNINNY_APP/EVA_A/data/011_UPRA_EVA-A.rds"
 )
 eva_df <- eva_df %>% dplyr::filter(DEPARTAMENTO_D == "SANTANDER")
 
-ruta_shp_mpios <- "C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/03_SNINNY_APP/EVA_A/data/shp/MGN_ANM_MPIOS.shp"
-ruta_shp_dptos <- "C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/03_SNINNY_APP/EVA_A/data/shp/MGN_ANM_DPTOS.shp"
+ruta_shp_mpios <- "C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/02_Santander/03_SNINNY_APP/EVA_A/data/shp/MGN_ANM_MPIOS.shp"
+ruta_shp_dptos <- "C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/02_Santander/03_SNINNY_APP/EVA_A/data/shp/MGN_ANM_DPTOS.shp"
 
 mpios_sf_raw <- sf::st_read(ruta_shp_mpios, quiet = TRUE)
 depto_sf_raw <- sf::st_read(ruta_shp_dptos, quiet = TRUE)

@@ -53,12 +53,12 @@ if (!file.exists(RMD_PATH)) {
 # 2) Datos: EVA + Shapefiles
 # ------------------------------
 eva_df <- readRDS(
-  "C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/03_SNINNY_APP/EVA_A/data/011_UPRA_EVA-A.rds"
+  "C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlántico/03_SNINNY_APP/EVA_A/data/011_UPRA_EVA-A.rds"
 )
 eva_df <- eva_df %>% dplyr::filter(DEPARTAMENTO_D == "ATLÁNTICO")
 
-ruta_shp_mpios <- "C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/03_SNINNY_APP/EVA_A/data/shp/MGN_ANM_MPIOS.shp"
-ruta_shp_dptos <- "C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/03_SNINNY_APP/EVA_A/data/shp/MGN_ANM_DPTOS.shp"
+ruta_shp_mpios <- "C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlántico/03_SNINNY_APP/EVA_A/data/shp/MGN_ANM_MPIOS.shp"
+ruta_shp_dptos <- "C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlántico/03_SNINNY_APP/EVA_A/data/shp/MGN_ANM_DPTOS.shp"
 
 mpios_sf_raw <- sf::st_read(ruta_shp_mpios, quiet = TRUE)
 depto_sf_raw <- sf::st_read(ruta_shp_dptos, quiet = TRUE)

@@ -12,7 +12,7 @@ sf::sf_use_s2(FALSE)
 try(Sys.setlocale("LC_CTYPE","es_ES.UTF-8"), silent = TRUE)
 
 # 2) Rutas (ajusta si difieren)
-APP_ROOT      <- "C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/03_SNINNY_APP"
+APP_ROOT      <- "C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/02_Santander/03_SNINNY_APP/"
 NOAA_DIR      <- file.path(APP_ROOT, "NOAA_PRECIPITATION")
 NOAA_DATA_DIR <- file.path(NOAA_DIR, "data")
 SHP_DIR       <- file.path(APP_ROOT, "NOAA_PRECIPITATION/data/shp")

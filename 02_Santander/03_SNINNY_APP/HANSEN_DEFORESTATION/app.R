@@ -13,7 +13,7 @@ options(stringsAsFactors = FALSE, scipen = 999)
 sf::sf_use_s2(FALSE)
 
 # 2) Rutas (ajústalas a tu equipo)
-APP_DIR  <- "C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/03_SNINNY_APP/HANSEN_DEFORESTATION"
+APP_DIR  <- "C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/02_Santander/03_SNINNY_APP/HANSEN_DEFORESTATION"
 DATA_RDS <- file.path(APP_DIR, "data/141_HANSEN_DEFORESTATION.rds")
 SHP_DIR  <- file.path(APP_DIR, "data/shp")
 
