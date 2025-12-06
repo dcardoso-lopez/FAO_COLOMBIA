@@ -9,7 +9,7 @@ options(stringsAsFactors = FALSE)
 sf::sf_use_s2(FALSE)
 
 # ---------- Rutas ----------
-data_dir <- "C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/03_SNINNY_APP/DNP-IDM/data"
+data_dir <- "C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlántico/03_SNINNY_APP/DNP-IDM/data"
 ruta_idm     <- file.path(data_dir, "071_DNP_Terridata_IDM.rds")
 ruta_pob     <- file.path(data_dir, "051_DANE_Proyecciones_P_total.rds")  # opcional
 ruta_shp_mun <- file.path(data_dir, "shp", "MGN_ANM_MPIOS.shp")

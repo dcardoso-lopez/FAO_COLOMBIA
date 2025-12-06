@@ -10,7 +10,7 @@ options(stringsAsFactors = FALSE)
 sf::sf_use_s2(FALSE)
 
 # ---------- Rutas ----------
-local_data_dir <- "C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/03_SNINNY_APP/UPRA_FA/data"
+local_data_dir <- "C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlántico/03_SNINNY_APP/UPRA_FA/data"
 app_root     <- tryCatch(normalizePath(getwd(), winslash = "/", mustWork = TRUE), error = function(e) getwd())
 rel_data_dir <- file.path(app_root, "data")
 data_dir <- if (dir.exists(rel_data_dir)) rel_data_dir else local_data_dir

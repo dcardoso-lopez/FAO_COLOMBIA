@@ -10,7 +10,7 @@ suppressWarnings({
 options(stringsAsFactors = FALSE, scipen = 999)
 
 # ---------- Ruta y carga ----------
-data_dir    <- "C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/03_SNINNY_APP/DNP_SISBEN/data"
+data_dir    <- "C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlántico/03_SNINNY_APP/DNP_SISBEN/data"
 sisben_path <- file.path(data_dir, "031_DNP_SISBEN.rds")
 sisben      <- readRDS(sisben_path)
 sisben <- sisben %>% dplyr::filter(DEPARTAMENTO_D == "ATLÁNTICO")

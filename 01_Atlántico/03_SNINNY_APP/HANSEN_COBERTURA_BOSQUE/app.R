@@ -13,7 +13,7 @@ options(stringsAsFactors = FALSE)
 sf::sf_use_s2(FALSE)
 
 # 2) Rutas (ajústalas si es necesario)
-APP_DIR  <- "C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/03_SNINNY_APP/HANSEN_COBERTURA_BOSQUE"
+APP_DIR  <- "C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlántico/03_SNINNY_APP/HANSEN_COBERTURA_BOSQUE"
 DATA_RDS <- file.path(APP_DIR, "data/141_HANSEN_COBERTURA_NETA_TOTAL.rds")
 SHP_DIR  <- file.path(APP_DIR, "data/shp")
 
