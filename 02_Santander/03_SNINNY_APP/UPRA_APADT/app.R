@@ -1,4 +1,5 @@
 # app_apadt.R — UPRA (estilo FA) SIN pestañas, layout uniforme + 4 KPIs (policy)
+
 suppressWarnings({
   library(shiny); library(bslib); library(shinyWidgets)
   library(leaflet); library(sf); library(dplyr); library(tidyr)
@@ -6,7 +7,9 @@ suppressWarnings({
   library(stringi); library(readr); library(tibble)
   library(shinyjs)
 })
+
 options(stringsAsFactors = FALSE)
+options(scipen = 999)      # evita notación científica al imprimir (NO cambia valores)
 sf::sf_use_s2(FALSE)
 
 # ---------- Rutas ----------
@@ -23,8 +26,11 @@ ruta_shp_dep  <- file.path(data_dir, "shp", "MGN_ANM_DPTOS.shp")
 must_exist <- c(ruta_apadt, ruta_pob, ruta_shp_mun, ruta_shp_dep)
 miss <- must_exist[!file.exists(must_exist)]
 if (length(miss)) stop("Faltan archivos. data_dir usado: ", data_dir, "\n", paste("-", miss, collapse = "\n"))
+
 check_shp_parts <- function(shp){
-  b <- sub("\\.shp$", "", shp); req <- paste0(b, c(".shp",".dbf",".shx",".prj")); req[!file.exists(req)]
+  b <- sub("\\.shp$", "", shp)
+  req <- paste0(b, c(".shp",".dbf",".shx",".prj"))
+  req[!file.exists(req)]
 }
 miss_shp <- c(check_shp_parts(ruta_shp_mun), check_shp_parts(ruta_shp_dep))
 if (length(miss_shp)) stop("Faltan componentes de shapefile:\n", paste("-", miss_shp, collapse = "\n"))
@@ -34,17 +40,31 @@ if (length(miss_shp)) stop("Faltan componentes de shapefile:\n", paste("-", miss
 norm_txt <- function(x) stringi::stri_trans_general(trimws(as.character(x)), "Latin-ASCII")
 NUP      <- function(x) toupper(norm_txt(x))
 
-# Lectura siempre con coma como decimal y punto como miles
+# ✅ NUM: robusto (NO re-parsea si ya es numérico; soporta "," o "." como decimal)
 num_or_na <- function(x){
+  if (is.numeric(x)) return(as.numeric(x))
+  
+  x0 <- trimws(as.character(x))
+  x0[x0 %in% c("", "NA", "NaN", "Inf", "-Inf")] <- NA_character_
+  
+  if (any(grepl(",", x0, fixed = TRUE), na.rm = TRUE)) {
+    return(suppressWarnings(readr::parse_number(
+      x0,
+      locale = readr::locale(decimal_mark = ",", grouping_mark = ".")
+    )))
+  }
+  
   suppressWarnings(readr::parse_number(
-    as.character(x),
-    locale = readr::locale(decimal_mark = ",", grouping_mark = ".")
+    x0,
+    locale = readr::locale(decimal_mark = ".", grouping_mark = ",")
   ))
 }
 
 pick_col <- function(df, primary, pattern){
-  nms <- names(df); if (primary %in% nms) return(primary)
-  alt <- nms[grepl(pattern, nms, ignore.case = TRUE)]; if (length(alt)) alt[1] else NA_character_
+  nms <- names(df)
+  if (primary %in% nms) return(primary)
+  alt <- nms[grepl(pattern, nms, ignore.case = TRUE)]
+  if (length(alt)) alt[1] else NA_character_
 }
 safe_pull <- function(df, col) if (!is.na(col) && col %in% names(df)) df[[col]] else NA
 
@@ -60,7 +80,8 @@ title_case_es <- function(x){
       parts <- stringi::stri_split_regex(tok, "([-/])", omit_empty = FALSE, tokens_only = FALSE)[[1]]
       parts_out <- mapply(function(p, j){
         if (p %in% c("-", "/")) return(p)
-        base <- tolower(p); prev_sep <- if (j>1) parts[j-1] %in% c("-", "/") else FALSE
+        base <- tolower(p)
+        prev_sep <- if (j>1) parts[j-1] %in% c("-", "/") else FALSE
         if (i==1 || prev_sep || !(base %in% stopw)) stringi::stri_trans_totitle(base, locale="es") else base
       }, parts, seq_along(parts), USE.NAMES=FALSE)
       paste0(parts_out, collapse = "")
@@ -69,50 +90,18 @@ title_case_es <- function(x){
   }, character(1))
 }
 
-make_pal_bin <- function(values, palette = "Blues", n_bins = 6){
-  vals <- suppressWarnings(as.numeric(values)); vals <- vals[is.finite(vals)]
-  if (!length(vals)) vals <- 0
-  qs <- stats::quantile(vals, probs = seq(0, 1, length.out = n_bins), na.rm = TRUE)
-  qs <- unique(as.numeric(qs)); if (length(qs) < 3) qs <- pretty(vals, n = n_bins)
-  bins <- sort(unique(c(min(vals, na.rm = TRUE), qs, max(vals, na.rm = TRUE))))
-  leaflet::colorBin(palette, domain = vals, bins = bins, na.color = "#f0f0f0")
-}
-
-# Formato numérico ES
+# Formato numérico ES (para mostrar)
 fmt_pct <- function(x, acc = 0.1){
-  ifelse(
-    is.na(x),
-    "NA",
-    scales::percent(
-      x,
-      accuracy     = acc,
-      decimal.mark = ","
-    )
-  )
+  ifelse(is.na(x), "NA",
+         scales::percent(x, accuracy = acc, decimal.mark = ","))
 }
 fmt_num <- function(x, digs = 1){
-  ifelse(
-    is.na(x),
-    "NA",
-    scales::number(
-      x,
-      accuracy     = digs,
-      big.mark     = ".",
-      decimal.mark = ","
-    )
-  )
+  ifelse(is.na(x), "NA",
+         scales::number(x, accuracy = digs, big.mark = ".", decimal.mark = ","))
 }
 fmt_int <- function(x){
-  ifelse(
-    is.na(x),
-    "NA",
-    scales::number(
-      x,
-      accuracy     = 1,
-      big.mark     = ".",
-      decimal.mark = ","
-    )
-  )
+  ifelse(is.na(x), "NA",
+         scales::number(x, accuracy = 1, big.mark = ".", decimal.mark = ","))
 }
 
 # --- Cuartiles para el mapa ---
@@ -169,17 +158,17 @@ apadt_raw <- readRDS(ruta_apadt)
 pob_raw   <- readRDS(ruta_pob)
 
 # Mapeo de columnas
-col_ano     <- pick_col(apadt_raw, "ano", "^a(n|ñ)o$|year")
-col_mes     <- pick_col(apadt_raw, "mes", "mes")
-col_dep_cod <- pick_col(apadt_raw, "COD_DANE_DPTO_D", "DPTO|DEPTO|DANE.*DEP|COD.*DEP|DEPART")
-col_dep_nom <- pick_col(apadt_raw, "DEPARTAMENTO_D", "DEPARTA")
-col_mun_cod <- pick_col(apadt_raw, "COD_DANE_MUNIC_D", "MUNI.*COD|COD.*MUNI|DANE.*MUNI|COD_MUN5|MPIO")
-col_mun_nom <- pick_col(apadt_raw, "MUNICIPIO_D", "MUNICIP")
+col_ano       <- pick_col(apadt_raw, "ano", "^a(n|ñ)o$|year")
+col_mes       <- pick_col(apadt_raw, "mes", "mes")
+col_dep_cod   <- pick_col(apadt_raw, "COD_DANE_DPTO_D", "DPTO|DEPTO|DANE.*DEP|COD.*DEP|DEPART")
+col_dep_nom   <- pick_col(apadt_raw, "DEPARTAMENTO_D", "DEPARTA")
+col_mun_cod   <- pick_col(apadt_raw, "COD_DANE_MUNIC_D", "MUNI.*COD|COD.*MUNI|DANE.*MUNI|COD_MUN5|MPIO")
+col_mun_nom   <- pick_col(apadt_raw, "MUNICIPIO_D", "MUNICIP")
 col_area_mpio <- pick_col(apadt_raw, "area_mpio_ha", "area.*mpio.*ha|mpio.*ha|area.*municip.*ha")
-col_area_apadt<- pick_col(apadt_raw, "area_apadt_ha", "area.*(apadt|apt|apto).*ha|apadt_ha|ha_apadt|aprovech.*ha")
-col_prop_apadt<- pick_col(apadt_raw, "prop_apadt", "prop.*(apadt|apt|apto)|porc.*(apadt|apt)")
+col_area_apadt<- pick_col(apadt_raw, "area_APADT_ha", "area.*(apadt|apt|apto).*ha|apadt_ha|ha_apadt|aprovech.*ha|area_APADT_ha")
+col_prop_apadt<- pick_col(apadt_raw, "prop_APADT", "prop.*(apadt|apt|apto)|porc.*(apadt|apt)|prop_APADT")
 
-if (is.na(col_area_apadt) & is.na(col_prop_apadt)) {
+if (is.na(col_area_apadt) && is.na(col_prop_apadt)) {
   stop("No se encontraron columnas de indicador (área/proporción) en 014_UPRA_APADT.rds")
 }
 
@@ -187,17 +176,17 @@ DEPARTAMENTO_RAW <- safe_pull(apadt_raw, col_dep_nom)
 MUNICIPIO_RAW    <- safe_pull(apadt_raw, col_mun_nom)
 
 apadt <- tibble(
-  ano            = suppressWarnings(as.integer(safe_pull(apadt_raw, col_ano))),
-  mes            = suppressWarnings(as.integer(safe_pull(apadt_raw, col_mes))),
-  COD_DANE_DPTO  = sprintf("%02s", gsub("\\D","", safe_pull(apadt_raw, col_dep_cod))),
-  DEPARTAMENTO   = norm_txt(DEPARTAMENTO_RAW),
-  DEPARTAMENTO_TC= title_case_es(DEPARTAMENTO_RAW),
-  COD_DANE_MUNI  = sprintf("%05s", gsub("\\D","", safe_pull(apadt_raw, col_mun_cod))),
-  MUNICIPIO_NORM = norm_txt(MUNICIPIO_RAW),
-  MUNICIPIO_TC   = title_case_es(MUNICIPIO_RAW),
-  area_mpio_ha   = num_or_na(safe_pull(apadt_raw, col_area_mpio)),
-  area_apadt_ha  = num_or_na(safe_pull(apadt_raw, col_area_apadt)),
-  prop_apadt     = num_or_na(safe_pull(apadt_raw, col_prop_apadt))
+  ano             = suppressWarnings(as.integer(safe_pull(apadt_raw, col_ano))),
+  mes             = suppressWarnings(as.integer(safe_pull(apadt_raw, col_mes))),
+  COD_DANE_DPTO   = sprintf("%02s", gsub("\\D","", safe_pull(apadt_raw, col_dep_cod))),
+  DEPARTAMENTO    = norm_txt(DEPARTAMENTO_RAW),
+  DEPARTAMENTO_TC = title_case_es(DEPARTAMENTO_RAW),
+  COD_DANE_MUNI   = sprintf("%05s", gsub("\\D","", safe_pull(apadt_raw, col_mun_cod))),
+  MUNICIPIO_NORM  = norm_txt(MUNICIPIO_RAW),
+  MUNICIPIO_TC    = title_case_es(MUNICIPIO_RAW),
+  area_mpio_ha    = num_or_na(safe_pull(apadt_raw, col_area_mpio)),
+  area_apadt_ha   = num_or_na(safe_pull(apadt_raw, col_area_apadt)),
+  prop_apadt      = num_or_na(safe_pull(apadt_raw, col_prop_apadt))
 )
 
 # Si prop viene en % (48,0) → 48, dividir por 100
@@ -277,24 +266,9 @@ ui <- fluidPage(
         --viz-row-bottom:300px;
         --kpi-h: 110px;
       }
-
-      .wrap{
-        max-width:1360px;
-        margin:0 auto;
-        padding:16px 20px 32px;
-      }
-
-      h3{
-        font-weight:700;
-        letter-spacing:.2px;
-        margin-bottom:8px;
-      }
-
-      .data-note{
-        font-size:13px;
-        color:#6b7280;
-        margin:0 0 16px;
-      }
+      .wrap{ max-width:1360px; margin:0 auto; padding:16px 20px 32px; }
+      h3{ font-weight:700; letter-spacing:.2px; margin-bottom:8px; }
+      .data-note{ font-size:13px; color:#6b7280; margin:0 0 16px; }
 
       .filters{
         background:#fff;
@@ -304,7 +278,6 @@ ui <- fluidPage(
         padding:6px 12px 8px;
         margin-bottom:12px;
       }
-
       .card{
         background:#fff;
         border:1px solid var(--accent-border) !important;
@@ -320,36 +293,20 @@ ui <- fluidPage(
         gap:12px;
         align-items:stretch;
       }
-
-      .filter{
-        display:flex;
-        flex-direction:column;
-        justify-content:flex-start;
-      }
-
+      .filter{ display:flex; flex-direction:column; justify-content:flex-start; }
       .filter-label{
         font-family:'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-        font-size:14px;
-        font-weight:500;
-        letter-spacing:.2px;
-        color:#111827;
-        margin-bottom:6px;
-        line-height:1.2;
-        min-height:36px;
-        display:flex;
-        align-items:flex-end;
+        font-size:14px; font-weight:500; letter-spacing:.2px; color:#111827;
+        margin-bottom:6px; line-height:1.2; min-height:36px;
+        display:flex; align-items:flex-end;
       }
-
       .filters-grid .shiny-input-container{ margin:0 !important; }
       .filters-grid .selectize-control{ margin:0 !important; }
-
       .filters-grid .selectize-input,
       .filters-grid .form-control,
       .filters-grid .form-select{
-        height:60px !important;
-        min-height:60px;
-        padding-top:10px;
-        padding-bottom:10px;
+        height:60px !important; min-height:60px;
+        padding-top:10px; padding-bottom:10px;
         border-radius:10px;
         border:1px solid var(--accent-border) !important;
       }
@@ -360,12 +317,7 @@ ui <- fluidPage(
         box-shadow:0 0 0 .2rem rgba(153,213,236,.25) !important;
       }
 
-      .card-title{
-        font-weight:700;
-        font-size:16px;
-        margin-bottom:8px;
-        color:#111827;
-      }
+      .card-title{ font-weight:700; font-size:16px; margin-bottom:8px; color:#111827; }
 
       .leaflet-control,
       .leaflet-control .legend,
@@ -382,21 +334,11 @@ ui <- fluidPage(
         grid-template-rows: var(--viz-row-top) var(--viz-row-bottom);
         gap: var(--gap);
       }
-      .viz-card{
-        display:flex;
-        flex-direction:column;
-        height:100%;
-        margin:0;
-      }
-      .viz-body{
-        flex:1 1 auto;
-        min-height:0;
-      }
+      .viz-card{ display:flex; flex-direction:column; height:100%; margin:0; }
+      .viz-body{ flex:1 1 auto; min-height:0; }
       .viz-map{ grid-row: span 2; }
       .viz-body .leaflet,
-      .viz-body .plotly.html-widget{
-        height:100% !important;
-      }
+      .viz-body .plotly.html-widget{ height:100% !important; }
 
       .quantiles-note{
         margin-top:6px;
@@ -422,31 +364,16 @@ ui <- fluidPage(
         justify-content:center;
         background:#fff;
       }
-      .kpi .kpi-title{
-        font-size:12px;
-        color:#6b7280;
-        margin-bottom:6px;
-        font-weight:600;
-      }
-      .kpi .kpi-value{
-        font-size:22px;
-        font-weight:800;
-        color:#0d3b66;
-        line-height:1;
-      }
-      .kpi .kpi-sub{
-        font-size:12px;
-        color:#4b5563;
-        margin-top:2px;
-      }
+      .kpi .kpi-title{ font-size:12px; color:#6b7280; margin-bottom:6px; font-weight:600; }
+      .kpi .kpi-value{ font-size:22px; font-weight:800; color:#0d3b66; line-height:1; }
+      .kpi .kpi-sub{ font-size:12px; color:#4b5563; margin-top:2px; }
       .kpi.muted{opacity:.25}
     "))
   ),
   div(class="wrap",
       h3("UPRA — Área Potencial de Adecuación de Tierras"),
-      div(
-        class = "data-note",
-        HTML("Exploración del porcentaje y del área de <b>Área Potencial de Adecuación de Tierras</b> a nivel departamental y municipal.")
+      div(class="data-note",
+          HTML("Exploración del porcentaje y del área de <b>Área Potencial de Adecuación de Tierras</b> a nivel departamental y municipal.")
       ),
       div(class="filters",
           div(class="filters-grid",
@@ -467,8 +394,8 @@ ui <- fluidPage(
                   selectInput(
                     "f_ind", NULL,
                     choices = c(
-                      "Área Potencial"               = "area_apadt_ha",
-                      "Porcentaje del Área Potencial" = "prop_apadt"
+                      "Área Potencial"                  = "area_apadt_ha",
+                      "Porcentaje del Área Potencial"   = "prop_apadt"
                     ),
                     selected = "area_apadt_ha"
                   )
@@ -492,9 +419,8 @@ ui <- fluidPage(
               div(class="card-title", textOutput("map_title")),
               div(class="viz-body",
                   leafletOutput("map_apadt", height = "100%"),
-                  div(
-                    class = "quantiles-note",
-                    HTML("Nota: la segmentación en el mapa muestra los cuartiles de segmentación debajo del mapa.")
+                  div(class="quantiles-note",
+                      HTML("Nota: la segmentación en el mapa muestra los cuartiles de segmentación debajo del mapa.")
                   )
               )
           ),
@@ -505,9 +431,7 @@ ui <- fluidPage(
               )
           ),
           div(class="card viz-card",
-              div(class="card-title",
-                  "Información del Área Potencial de Adecuación de Tierras"
-              ),
+              div(class="card-title","Información del Área Potencial de Adecuación de Tierras"),
               div(class="viz-body",
                   uiOutput("kpi_boxes")
               )
@@ -519,7 +443,6 @@ ui <- fluidPage(
 # ---------- SERVER ----------
 server <- function(input, output, session){
   
-  # bandera para primer render (para fijar Santander)
   first_run <- reactiveVal(TRUE)
   
   output$anio_ui <- renderUI({
@@ -536,13 +459,16 @@ server <- function(input, output, session){
       grid = TRUE, dragRange = TRUE
     )
   })
+  
   observeEvent(input$f_ind, {
     if (identical(input$f_ind, "area_apadt_ha")) shinyjs::hide(id = "lbl_prop") else shinyjs::show(id = "lbl_prop")
   }, ignoreInit = TRUE)
   
   prop_range <- reactive({
     if (!is.null(input$f_ind) && input$f_ind == "area_apadt_ha") return(c(0,1))
-    req(input$f_prop); v <- as.numeric(gsub("%","", input$f_prop)); c(v[1], v[2]) / 100
+    req(input$f_prop)
+    v <- as.numeric(gsub("%","", input$f_prop))
+    c(v[1], v[2]) / 100
   })
   
   safe_choices <- function(x) { x <- unique(as.character(x)); x[!is.na(x) & nzchar(x)] }
@@ -557,7 +483,6 @@ server <- function(input, output, session){
     df <- base_apadt %>% filter(ano == input$anio)
     deps_tc <- df %>% pull(DEPARTAMENTO_TC) %>% safe_choices() %>% sort()
     
-    # Primera vez: intentar fijar Santander como default
     if (first_run()) {
       sel_dep <- if ("Santander" %in% deps_tc) "Santander" else "Todos"
       first_run(FALSE)
@@ -586,14 +511,25 @@ server <- function(input, output, session){
     updateSelectInput(session, "f_ind", selected = "prop_apadt")
     if (!is.null(input$f_prop)) shinyWidgets::updateSliderTextInput(session, "f_prop", selected = c("0%","100%"))
   })
-  observeEvent(input$btn_back_co, { updateSelectInput(session, "f_dep", selected = "Todos") })
   
+  observeEvent(input$btn_back_co, {
+    updateSelectInput(session, "f_dep", selected = "Todos")
+  })
+  
+  # =========================================================
+  # ✅ CORRECCIÓN 1: SOLO filtrar por porcentaje si el indicador es prop_apadt
+  # =========================================================
   base_filtrada <- reactive({
     req(input$anio)
+    
     d <- base_apadt %>% filter(ano == input$anio)
     if (!is.null(input$f_dep) && input$f_dep != "Todos") d <- d %>% filter(DEPARTAMENTO_TC == input$f_dep)
     if (!is.null(input$f_mun) && input$f_mun != "Todos") d <- d %>% filter(MUNICIPIO_TC == input$f_mun)
-    rng <- prop_range(); d %>% filter(prop_apadt >= rng[1], prop_apadt <= rng[2])
+    
+    if (is.null(input$f_ind) || input$f_ind == "area_apadt_ha") return(d)
+    
+    rng <- prop_range()
+    d %>% filter(!is.na(prop_apadt), prop_apadt >= rng[1], prop_apadt <= rng[2])
   })
   
   kpi_dep <- reactive({
@@ -606,6 +542,7 @@ server <- function(input, output, session){
       prop       = ifelse(area_tot > 0, area_apadt/area_tot, NA_real_)
     )
   })
+  
   kpi_mun <- reactive({
     req(input$anio)
     if (is.null(input$f_dep) || input$f_dep == "Todos" ||
@@ -700,11 +637,6 @@ server <- function(input, output, session){
     if (is.finite(j)) return(dep_lookup$COD_DPTO2[j])
     NA_character_
   }
-  map_shp_dep_to_base <- function(nom_shp) {
-    dep_norm <- NUP(nom_shp)
-    dep_tc <- dep_lookup$DEPARTAMENTO_TC[match(dep_norm, dep_lookup$DEP_NORM)]
-    ifelse(is.na(dep_tc) | !nzchar(dep_tc), title_case_es(nom_shp), dep_tc)
-  }
   
   observe({
     d <- base_filtrada()
@@ -712,10 +644,12 @@ server <- function(input, output, session){
       leafletProxy("map_apadt") %>% clearShapes() %>% clearControls()
       return(invisible(NULL))
     }
+    
     ind <- input$f_ind
     label_txt_global <- if (ind == "prop_apadt") "Porcentaje" else "Hectáreas"
     
     if (is.null(input$f_dep) || input$f_dep == "Todos") {
+      
       dd <- d %>%
         mutate(COD_DPTO2 = sprintf("%02d", as.integer(substr(COD_DANE_MUNI, 1, 2)))) %>%
         group_by(COD_DPTO2) %>%
@@ -724,6 +658,7 @@ server <- function(input, output, session){
           else sum(area_apadt_ha, na.rm = TRUE) / sum(area_mpio_ha, na.rm = TRUE),
           .groups = "drop"
         )
+      
       shp <- dep_sf %>%
         left_join(dd, by = "COD_DPTO2") %>%
         mutate(
@@ -746,11 +681,8 @@ server <- function(input, output, session){
           label = ~lapply(
             paste0(
               "<b>", nombre, "</b><br>", label_txt_global, ": ",
-              ifelse(
-                is.na(valor),
-                "NA",
-                if (ind == "prop_apadt") fmt_pct(valor, acc = 0.1) else fmt_int(valor)
-              )
+              ifelse(is.na(valor), "NA",
+                     if (ind == "prop_apadt") fmt_pct(valor, acc = 0.1) else fmt_int(valor))
             ),
             htmltools::HTML
           ),
@@ -764,12 +696,14 @@ server <- function(input, output, session){
           opacity  = 0.9,
           title    = if (ind == "prop_apadt") "Porcentaje" else "Hectáreas"
         )
+      
     } else {
+      
       sel_cod <- get_cod_from_dep_name(input$f_dep)
       if (is.na(sel_cod) || !nzchar(sel_cod)) {
-        sel_cod <- d$COD_DANE_DPTO %>%
-          unique() %>% sprintf("%02d", as.integer(.)) %>% .[1]
+        sel_cod <- d$COD_DANE_DPTO %>% unique() %>% sprintf("%02d", as.integer(.)) %>% .[1]
       }
+      
       dd <- d %>%
         mutate(COD_MUN5 = sprintf("%05d", as.integer(COD_DANE_MUNI))) %>%
         group_by(COD_DANE_MUNI, MUNICIPIO_TC, DEPARTAMENTO_TC) %>%
@@ -778,18 +712,20 @@ server <- function(input, output, session){
           else sum(area_apadt_ha, na.rm = TRUE) / sum(area_mpio_ha, na.rm = TRUE),
           area_apadt_ha = sum(area_apadt_ha, na.rm = TRUE),
           prop_apadt    = sum(area_apadt_ha, na.rm = TRUE) / sum(area_mpio_ha, na.rm = TRUE),
-          pob_total  = mean(pob_total, na.rm = TRUE),
+          pob_total     = mean(pob_total, na.rm = TRUE),
           .groups = "drop"
         )
       
       shp <- mun_sf %>% filter(COD_DPTO2 == sel_cod)
       idx <- match(shp$COD_MUN5, sprintf("%05d", as.integer(dd$COD_DANE_MUNI)))
-      shp$valor        <- dd$valor[idx]
-      shp$MUNICIPIO_TC <- dd$MUNICIPIO_TC[idx]
-      shp$area_apadt_ha<- dd$area_apadt_ha[idx]
-      shp$prop_apadt   <- dd$prop_apadt[idx]
-      shp$pob_total    <- dd$pob_total[idx]
-      shp$DEP_TC       <- dd$DEPARTAMENTO_TC[idx]
+      
+      shp$valor         <- dd$valor[idx]
+      shp$MUNICIPIO_TC  <- dd$MUNICIPIO_TC[idx]
+      shp$area_apadt_ha <- dd$area_apadt_ha[idx]
+      shp$prop_apadt    <- dd$prop_apadt[idx]
+      shp$pob_total     <- dd$pob_total[idx]
+      shp$DEP_TC        <- dd$DEPARTAMENTO_TC[idx]
+      
       shp <- shp %>% mutate(
         MUNICIPIO_MOSTRAR = coalesce(MUNICIPIO_TC, title_case_es(MUNICIPIO_N)),
         DEP_MOSTRAR       = coalesce(DEP_TC, "")
@@ -812,11 +748,8 @@ server <- function(input, output, session){
             paste0(
               "<b>", MUNICIPIO_MOSTRAR, " (", DEP_MOSTRAR, ")</b><br>",
               label_txt_global, ": ",
-              ifelse(
-                is.na(valor),
-                "NA",
-                if (ind == "prop_apadt") fmt_pct(valor, acc = 0.1) else fmt_int(valor)
-              ),
+              ifelse(is.na(valor), "NA",
+                     if (ind == "prop_apadt") fmt_pct(valor, acc = 0.1) else fmt_int(valor)),
               "<br>Área (ha): ", fmt_int(area_apadt_ha),
               "<br>Porcentaje: ", fmt_pct(prop_apadt, acc = 0.1),
               "<br>Población: ", fmt_int(pob_total)
@@ -861,8 +794,7 @@ server <- function(input, output, session){
         y_lab = MUNICIPIO_TC
       )
     
-    if (!NROW(d1) || all(!is.finite(d1$val)))
-      return(plotly::plotly_empty())
+    if (!NROW(d1) || all(!is.finite(d1$val))) return(plotly::plotly_empty())
     
     ord   <- order(d1$val)
     d1    <- d1[ord, ]
@@ -875,7 +807,6 @@ server <- function(input, output, session){
     if (ind == "prop_apadt") {
       txt_vals   <- fmt_pct(d1$val, acc = 0.1)
       hover_tpl  <- "%{y}<br>Porcentaje: %{text}<extra></extra>"
-      
       xaxis_conf <- list(
         title    = "Porcentaje",
         tickmode = "array",
@@ -885,7 +816,6 @@ server <- function(input, output, session){
     } else {
       txt_vals   <- fmt_num(d1$val, digs = 1)
       hover_tpl  <- "%{y}<br>Hectáreas: %{text} ha<extra></extra>"
-      
       xaxis_conf <- list(
         title    = "Hectáreas",
         tickmode = "array",
@@ -937,7 +867,5 @@ server <- function(input, output, session){
 }
 
 shinyApp(ui, server)
-
-
 
 
