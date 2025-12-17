@@ -1,0 +1,66 @@
+# REQUIREMENTS.TXT - FAO_COLOMBIA
+# ===============================
+# Lista completa de dependencias R para ejecutar en RServer AWS
+# Generado: 16 de diciembre de 2025
+# 
+# INSTRUCCIONES DE INSTALACIÓN:
+# 1. Instalar dependencias de sistema:
+#    sudo bash install_system_dependencies.sh
+#
+# 2. Instalar paquetes R:
+#    Rscript install_dependencies.R
+#
+# O instalar manualmente:
+#    install.packages(c("shiny", "dplyr", "leaflet", ...))
+
+# Aplicaciones Web y UI
+shiny>=1.7.0
+bslib>=0.4.0
+shinyWidgets>=0.7.0
+shinyjs>=2.1.0
+
+# Manipulación de Datos
+dplyr>=1.0.7
+tidyr>=1.1.4
+readr>=2.0.0
+tibble>=3.1.0
+haven>=2.4.0
+
+# Visualización
+ggplot2>=3.3.5
+plotly>=4.10.0
+leaflet>=2.1.0
+scales>=1.1.1
+networkD3>=0.4.0
+ragg>=1.1.0
+
+# Datos Geoespaciales (IMPORTANTE: requiere gdal-devel, geos-devel, proj-devel)
+sf>=1.0.0
+
+# HTML y Tablas
+htmltools>=0.5.2
+htmlwidgets>=1.5.4
+DT>=0.20
+webshot2>=0.1.0
+
+# Procesamiento de Texto
+stringi>=1.7.0
+stringr>=1.4.0
+
+# NOTAS IMPORTANTES:
+# 
+# 1. DEPENDENCIAS DE SISTEMA REQUERIDAS:
+#    - gcc, gcc-c++, gfortran (compilación)
+#    - gdal-devel, geos-devel, proj-devel (para sf)
+#    - openssl-devel, libcurl-devel, cairo-devel, freetype-devel
+#    - chromium, xvfb (para webshot2)
+#
+# 2. VERSIONES: Las versiones indicadas son mínimas recomendadas.
+#    Pueden ser superiores en el servidor.
+#
+# 3. COMPATIBILIDAD: Requerida versión de R 4.0 o superior
+#
+# 4. COMPILACIÓN: Algunos paquetes como 'sf' se compilan desde fuente.
+#    Esto puede tomar varios minutos la primera vez.
+#
+# 5. MEMORIA: Se recomienda instancia t3.medium o superior (2GB+ RAM)
