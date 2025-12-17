@@ -43,7 +43,7 @@ BORDER_COL <- "#a1d99b"
 github_url <- "https://github.com/tu_usuario/tu_repo"
 
 # === Ruta fija de la app y del Rmd ===
-APP_DIR  <- "C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A_Industrial"
+APP_DIR  <- ""
 RMD_PATH <- file.path(APP_DIR, "informe_eva.Rmd")
 if (!file.exists(RMD_PATH)) {
   stop(sprintf("No encuentro el Rmd en: %s", RMD_PATH))
