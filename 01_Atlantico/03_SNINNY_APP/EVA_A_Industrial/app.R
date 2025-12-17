@@ -53,7 +53,7 @@ if (!file.exists(RMD_PATH)) {
 # 2) Datos: EVA + Shapefiles
 # ------------------------------
 eva_df <- readRDS(
-  "C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A_Industrial/data/011_UPRA_EVA-A.rds"
+  "data/011_UPRA_EVA-A.rds"
 )
 
 # ===== ÚNICA MODIFICACIÓN: recodificar Caña -> Caña de Azúcar =====
@@ -76,8 +76,8 @@ eva_df <- eva_df %>%
   )
 # ================================================================
 
-ruta_shp_mpios <- "C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A_Industrial/data/shp/MGN_ANM_MPIOS.shp"
-ruta_shp_dptos <- "C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A_Industrial/data/shp/MGN_ANM_DPTOS.shp"
+ruta_shp_mpios <- "data/shp/MGN_ANM_MPIOS.shp"
+ruta_shp_dptos <- "data/shp/MGN_ANM_DPTOS.shp"
 
 mpios_sf_raw <- sf::st_read(ruta_shp_mpios, quiet = TRUE)
 depto_sf_raw <- sf::st_read(ruta_shp_dptos, quiet = TRUE)
@@ -376,7 +376,7 @@ ui <- fluidPage(
   div(
     class = "eva-wrap",
     
-    h2("Explorador territorial de indicadores agrícolas (EVA)", id = "app-title"),
+    h2("", id = "app-title"),
     
     bslib::navset_tab(
       id = "tabs",

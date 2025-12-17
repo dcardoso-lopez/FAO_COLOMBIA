@@ -9,7 +9,7 @@ options(stringsAsFactors = FALSE)
 sf::sf_use_s2(FALSE)
 
 # ---------- Rutas ----------
-data_dir <- "C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/02_Santander/03_SNINNY_APP/DNP-IDM/data"
+data_dir <- "data"
 ruta_idm     <- file.path(data_dir, "071_DNP_Terridata_IDM.rds")
 ruta_pob     <- file.path(data_dir, "051_DANE_Proyecciones_P_total.rds")  # opcional
 ruta_shp_mun <- file.path(data_dir, "shp", "MGN_ANM_MPIOS.shp")
@@ -308,8 +308,8 @@ ui <- fluidPage(
     "))
   ),
   div(class="wrap",
-      h3("DNP — Índice de Desempeño Municipal (IDM)"),
-      div(class="data-note","Exploración del Índice de Desempeño Municipal (IDM) a nivel municipal y departamental."),
+      h3(""),
+      div(class="",""),
       div(
         class = "filters",
         div(

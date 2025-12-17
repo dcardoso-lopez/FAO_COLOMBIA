@@ -10,7 +10,7 @@ suppressWarnings({
 options(stringsAsFactors = FALSE, scipen = 999)
 
 # ---------- Ruta y carga ----------
-data_dir    <- "C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/DNP_SISBEN/data"
+data_dir    <- "data"
 sisben_path <- file.path(data_dir, "031_DNP_SISBEN.rds")
 sisben      <- readRDS(sisben_path)
 sisben <- sisben %>% dplyr::filter(DEPARTAMENTO_D == "ATLÁNTICO")
@@ -283,8 +283,8 @@ ui <- fluidPage(
   
   div(
     class = "wrap",
-    h3("Sisbén — Explorador de privaciones (Hogares)"),
-    div(class="data-note","Indicadores a nivel de hogar ponderados por Nw_hogares."),
+    h3(""),
+    div(class="data-note",""),
     
     # ---------- Filtros ----------
     div(

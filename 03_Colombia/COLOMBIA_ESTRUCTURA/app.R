@@ -16,7 +16,7 @@ sf::sf_use_s2(FALSE)
 `%||%` <- function(x, y) if (is.null(x) || length(x) == 0) y else x
 
 # ---------------- Rutas ----------------
-data_dir <- "C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/03_Colombia/COLOMBIA_ESTRUCTURA/data"
+data_dir <- "data"
 
 # =========================================================
 # ALTURAS (plots/mapas)
@@ -1287,7 +1287,7 @@ ui <- fluidPage(
   ),
   div(
     class = "wrap",
-    h3("SNINNY — Cuadrante de Estructura (nacional y departamental)"),
+    h3(""),
     div(
       class = "card",
       div(class = "card-title-small", ""),

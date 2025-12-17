@@ -9,7 +9,7 @@ suppressWarnings({
 options(stringsAsFactors = FALSE, scipen = 999)
 
 # ---------- Ruta y carga ----------
-data_dir <- "C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/02_Santander/03_SNINNY_APP/DANE_POPULATION/data"
+data_dir <- "data"
 pob_path <- file.path(data_dir, "051_DANE_Proyecciones_P.rds")
 stopifnot(file.exists(pob_path))
 pob <- readRDS(pob_path)
@@ -251,8 +251,8 @@ ui <- fluidPage(
   ),
   
   div(class="wrap",
-      h3("Proyecciones de Población — DANE"),
-      div(class="data-note","Filtros y visualizaciones de población nacional, departamental y municipal."),
+      h3(""),
+      div(class="",""),
       
       # ---------- Filtros ----------
       div(class="filters",

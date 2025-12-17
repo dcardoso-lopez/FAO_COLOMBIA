@@ -371,9 +371,9 @@ ui <- fluidPage(
     "))
   ),
   div(class="wrap",
-      h3("UPRA — Área Potencial de Adecuación de Tierras"),
+      h3(""),
       div(class="data-note",
-          HTML("Exploración del porcentaje y del área de <b>Área Potencial de Adecuación de Tierras</b> a nivel departamental y municipal.")
+          HTML("")
       ),
       div(class="filters",
           div(class="filters-grid",

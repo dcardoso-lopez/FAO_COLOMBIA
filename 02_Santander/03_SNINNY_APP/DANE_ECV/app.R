@@ -730,7 +730,7 @@ ui <- fluidPage(
   ),
   div(
     class = "wrap",
-    h3("ECV — Historias de (in)seguridad alimentaria y consumo de ultra-procesados"),
+    h3(""),
     tabsetPanel(
       type = "tabs", id = "tabs",
       

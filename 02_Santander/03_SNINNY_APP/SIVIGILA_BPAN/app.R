@@ -57,7 +57,7 @@ get_col <- function(df, opts, stop_msg){
 }
 
 # ---------- Rutas ----------
-local_data_dir <- "C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/02_Santander/03_SNINNY_APP/SIVIGILA_BPAN/data"
+local_data_dir <- "data"
 app_root     <- tryCatch(normalizePath(getwd(), winslash = "/", mustWork = TRUE), error = function(e) getwd())
 rel_data_dir <- file.path(app_root, "data")
 data_dir <- if (dir.exists(rel_data_dir)) rel_data_dir else local_data_dir
@@ -376,9 +376,9 @@ ui <- fluidPage(
   ),
   div(
     class = "wrap",
-    h3("SIVIGILA — BPAN (Bajo peso al nacer)"),
+    h3(""),
     div(class = "data-note",
-        HTML("Nota: las cifras recientes pueden ser <b>resultados preliminares</b>.")),
+        HTML("")),
     div(
       class = "filters",
       div(

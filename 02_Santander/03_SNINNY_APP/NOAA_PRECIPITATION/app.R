@@ -12,10 +12,10 @@ sf::sf_use_s2(FALSE)
 try(Sys.setlocale("LC_CTYPE","es_ES.UTF-8"), silent = TRUE)
 
 # 2) Rutas (ajusta si difieren)
-APP_ROOT      <- "C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/02_Santander/03_SNINNY_APP/"
-NOAA_DIR      <- file.path(APP_ROOT, "NOAA_PRECIPITATION")
+APP_ROOT      <- ""
+NOAA_DIR      <- file.path(APP_ROOT, "")
 NOAA_DATA_DIR <- file.path(NOAA_DIR, "data")
-SHP_DIR       <- file.path(APP_ROOT, "NOAA_PRECIPITATION/data/shp")
+SHP_DIR       <- file.path(APP_ROOT, "data/shp")
 
 DATA_RDS <- file.path(NOAA_DATA_DIR, "131_NOAA_Precipitación.rds")
 if (!file.exists(DATA_RDS)) {
@@ -464,10 +464,10 @@ ui <- fluidPage(
   
   div(
     class = "wrap",
-    h2("Explorador territorial — Precipitación (NOAA)", id = "app-title"),
+    h2("", id = "app-title"),
     div(
       class = "data-note",
-      HTML("Exploración de la precipitación acumulada (mm³) a nivel departamental y municipal, con información NOAA.")
+      HTML("")
     ),
     
     # ----------------- FILTROS -----------------

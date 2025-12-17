@@ -47,7 +47,7 @@ title_case_es <- function(x){
 }
 
 # ---- Rutas / datos GOLDEN ----
-golden_dir <- "C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/ICA_P/data"
+golden_dir <- "data"
 ica_bovino  <- readRDS(file.path(golden_dir, "101_ICA_CensoPecuario-Bovino.rds"))
 ica_porcino <- readRDS(file.path(golden_dir, "102_ICA_CensoPecuario-Porcino.rds"))
 ica_bcoe    <- readRDS(file.path(golden_dir, "103_ICA_CensoPecuario-BCOE.rds"))
@@ -423,7 +423,7 @@ ui <- fluidPage(
   div(
     class = "wrap",
     
-    h2("Explorador territorial de indicadores pecuarios (ICA)", id = "app-title"),
+    h2("", id = "app-title"),
     
     # ======== Filtros ========
     div(

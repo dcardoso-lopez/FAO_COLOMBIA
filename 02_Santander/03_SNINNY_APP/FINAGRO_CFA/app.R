@@ -12,7 +12,7 @@ options(shiny.maxRequestSize = 100*1024^2)
 sf::sf_use_s2(FALSE)
 
 # ---------- Rutas ----------
-data_dir <- "C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/02_Santander/03_SNINNY_APP/FINAGRO_CFA/data"
+data_dir <- "data"
 
 # ---------- Lectura de precomputados (rápido) ----------
 finagro_fast       <- readRDS(file.path(data_dir, "081_FINAGRO_CFA_fast.rds"))
@@ -281,10 +281,10 @@ ui <- fluidPage(
   ),
   div(
     class = "wrap",
-    h3("FINAGRO"),
+    h3(""),
     div(
       class = "data-note",
-      "Tendencias, indicadores y mapas — versión con estilo moderno (valores deflactados con IPP)."
+      ""
     ),
     
     tabsetPanel(
