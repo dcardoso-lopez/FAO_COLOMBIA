@@ -1,14 +1,6 @@
 # app_sninny_estructura_multi_bases_con_finagro.R
-# -------------------------------------------------------------------
-# ESTRUCTURA multi-bases:
-# - DANE_POPULATION: Razón de dependencia (serie + mapa)
-# - DANE_ECV: FIES-8 prevalencia (serie + mapa) (solo indicador, sin filtros extra)
-# - SIVIGILA: ETA (sum total_enf), BPAN/NDA (conteo filas) (serie + mapa)
-# - SISBEN: prevalencia i1–i15 ponderada por Nw_hogares (serie + mapa)
-# - NOAA: precipitación anual (serie + mapa) (sin filtros extra en Tab 1; en mapas solo año)
-# - HANSEN: deforestación (has) anual (serie + mapa)
-# - FINAGRO_CFA_FAST: serie dual-eje (monto real y # créditos) + mapa por año
-#   con filtros: tipo de persona/productor, sexo, línea de crédito
+# (MODIFICADO — POBLACIÓN por quinquenio + labels mapas con DEPARTAMENTO_D)
+# (AJUSTE ÚNICO ADICIONAL — FINAGRO: ahora carga 081_FINAGRO_CFA y usa variables de la imagen)
 # -------------------------------------------------------------------
 
 suppressWarnings({
@@ -79,7 +71,7 @@ pick_col_simple <- function(nms, cands){
 
 pick_year_col <- function(nms) pick_col_simple(nms, c("ano","año","anio","year"))
 pick_dep_col  <- function(nms) pick_col_simple(nms, c("cod_dane_dpto_d","cod_dane_dpto","cod_dpto","cod_depto","dpto_ccdgo","COD_DPTO2","cod_dpto2"))
-pick_dep_name_col <- function(nms) pick_col_simple(nms, c("departamento_d","departamento","nom_dpto","depto","NOM_DPTO"))
+pick_dep_name_col <- function(nms) pick_col_simple(nms, c("departamento_d","departamento","nom_dpto","depto","NOM_DPTO","DEPARTAMENTO_D"))
 
 fmt_num_es <- function(x, digits = 1){
   scales::number(x, accuracy = 10^-digits, big.mark = ".", decimal.mark = ",")
@@ -163,21 +155,22 @@ sistemas_df <- tibble::tribble(
   "DNP_SISBEN",          list("031_DNP_SISBEN.rds"),
   "NOAA_PRECIPITACION",  list("131_NOAA_Precipitación.rds"),
   "HANSEN_DEFORESTATION",list("141_HANSEN_DEFORESTATION.rds"),
-  "FINAGRO_CFA_FAST",    list("081_FINAGRO_CFA_fast.rds")
+  # (CAMBIO FINAGRO) antes: 081_FINAGRO_CFA_fast.rds
+  "FINAGRO_CFA_FAST",    list("081_FINAGRO_CFA.rds")
 ) %>%
   mutate(rutas = lapply(archivos, function(v) file.path(data_dir, v)))
 
 indicadores_df <- tibble::tribble(
   ~titulo,                                                               ~dimension,   ~sistema,
   "Transición demográfica territorial — Razón de dependencia",           "Estructura", "DANE_POPULATION",
-  "Condiciones de inseguridad alimentaria y consumo de ultra-procesados en los hogares",                                  "Estructura", "DANE_ECV",
-  "Enfermedades Transmitidas por Alimentos",                        "Estructura", "INS_SIVIGILA_ETA",
-  "Bajo peso al nacer",                               "Estructura", "INS_SIVIGILA_BPAN",
-  "Desnutrición aguda infantil",                                "Estructura", "INS_SIVIGILA_NDA",
-  "Condiciones socio-económicas de la población",                 "Estructura", "DNP_SISBEN",
-  "Lluvia en el territorio",                                          "Estructura", "NOAA_PRECIPITACION",
-  "Pérdida de bosque en el territorio",                                         "Estructura", "HANSEN_DEFORESTATION",
-  "Financiamiento rural y agropecuario",    "Estructura", "FINAGRO_CFA_FAST"
+  "Condiciones de inseguridad alimentaria y consumo de ultra-procesados en los hogares", "Estructura", "DANE_ECV",
+  "Enfermedades Transmitidas por Alimentos",                             "Estructura", "INS_SIVIGILA_ETA",
+  "Bajo peso al nacer",                                                  "Estructura", "INS_SIVIGILA_BPAN",
+  "Desnutrición aguda infantil",                                         "Estructura", "INS_SIVIGILA_NDA",
+  "Condiciones socio-económicas de la población",                        "Estructura", "DNP_SISBEN",
+  "Lluvia en el territorio",                                             "Estructura", "NOAA_PRECIPITACION",
+  "Pérdida de bosque en el territorio",                                  "Estructura", "HANSEN_DEFORESTATION",
+  "Financiamiento rural y agropecuario",                                 "Estructura", "FINAGRO_CFA_FAST"
 )
 
 choices_por_dimension <- function(dim){
@@ -271,93 +264,176 @@ join_dep_shp <- function(df, shp, df_key_code = NULL, df_key_name = NULL){
   
   out_code <- suppressWarnings(dplyr::left_join(shp, df2, by = c("join_code" = "join_code")))
   ok_code  <- if ("valor" %in% names(out_code)) mean(!is.na(out_code$valor)) else 0
-  if (is.finite(ok_code) && ok_code >= 0.20) return(out_code)
+  out <- if (is.finite(ok_code) && ok_code >= 0.20) out_code else suppressWarnings(dplyr::left_join(shp, df2, by = c("join_name" = "join_name")))
   
-  out_name <- suppressWarnings(dplyr::left_join(shp, df2, by = c("join_name" = "join_name")))
-  out_name
+  # Asegurar que exista DEPARTAMENTO_D para labels
+  if (!("DEPARTAMENTO_D" %in% names(out))) {
+    if ("dep_nom" %in% names(out)) out$DEPARTAMENTO_D <- out$dep_nom
+    else if ("join_name" %in% names(out)) out$DEPARTAMENTO_D <- out$join_name
+    else out$DEPARTAMENTO_D <- out$join_code
+  }
+  out
 }
 
 # =========================================================
 # 1) DANE POPULATION — razón de dependencia (serie + dep)
+#    AJUSTADO a tu estructura: ano, COD_DANE_DPTO_D, DEPARTAMENTO_D, quinquenio, poblacion
 # =========================================================
-pob_ts <- tryCatch({
+parse_quinquenio_bounds <- function(q){
+  q <- as.character(q)
+  q <- stringi::stri_trim_both(q)
+  q <- gsub("\\s+", "", q)
+  
+  if (grepl("\\+$", q)) {
+    low <- suppressWarnings(as.integer(gsub("\\+$", "", q)))
+    return(list(low = low, high = Inf))
+  }
+  if (grepl("^[0-9]+-[0-9]+$", q)) {
+    parts <- strsplit(q, "-", fixed = TRUE)[[1]]
+    low  <- suppressWarnings(as.integer(parts[1]))
+    high <- suppressWarnings(as.integer(parts[2]))
+    return(list(low = low, high = high))
+  }
+  list(low = NA_integer_, high = NA_real_)
+}
+
+classify_age_bucket <- function(low, high){
+  if (is.finite(high) && !is.na(high) && high <= 14) return("joven")
+  if (is.finite(low)  && !is.na(low)  && low >= 65)  return("mayor")
+  if (is.finite(low) && !is.na(low) && is.finite(high) && !is.na(high) && low >= 15 && high <= 64) return("activa")
+  NA_character_
+}
+
+pob_raw <- tryCatch({
   p_path <- file.path(data_dir, "051_DANE_Proyecciones_P.rds")
-  if (!file.exists(p_path)) return(NULL)
-  df <- readRDS(p_path)
-  if (is.null(df) || !nrow(df)) return(NULL)
+  if (!file.exists(p_path)) {
+    message("DANE_POPULATION: no existe -> ", p_path)
+    NULL
+  } else {
+    readRDS(p_path)
+  }
+}, error = function(e) {
+  message("DANE_POPULATION: error -> ", conditionMessage(e))
+  NULL
+})
+
+pob_ts <- tryCatch({
+  if (is.null(pob_raw) || !nrow(pob_raw)) return(NULL)
   
-  nms <- names(df)
-  col_ano  <- pick_year_col(nms)
-  col_edad <- pick_col_simple(nms, c("edad","age"))
+  nms <- names(pob_raw)
+  col_ano  <- pick_col_simple(nms, c("ano","año","anio","year"))
+  col_dep  <- pick_col_simple(nms, c("COD_DANE_DPTO_D","cod_dane_dpto_d","COD_DPTO2","cod_dpto2","cod_dpto","cod_depto"))
+  col_nom  <- pick_col_simple(nms, c("DEPARTAMENTO_D","departamento_d","departamento","nom_dpto","depto"))
+  col_q    <- pick_col_simple(nms, c("quinquenio","quinquenio_edad","grupo_edad","edad_grupo"))
   col_pob  <- pick_col_simple(nms, c("poblacion","pob","population"))
-  if (any(is.na(c(col_ano, col_edad, col_pob)))) return(NULL)
   
-  suppressWarnings({
-    df[[col_ano]]  <- as.integer(df[[col_ano]])
-    df[[col_edad]] <- as.integer(df[[col_edad]])
-    df[[col_pob]]  <- parse_num_co(df[[col_pob]])
-  })
+  if (any(is.na(c(col_ano, col_dep, col_q, col_pob)))) return(NULL)
+  
+  df <- pob_raw %>%
+    transmute(
+      ano             = suppressWarnings(as.integer(parse_num_co(.data[[col_ano]]))),
+      COD_DANE_DPTO_D  = norm_dep2(.data[[col_dep]]),
+      DEPARTAMENTO_D   = if (!is.na(col_nom)) safe_chr(.data[[col_nom]]) else NA_character_,
+      quinquenio       = safe_chr(.data[[col_q]]),
+      poblacion        = parse_num_co(.data[[col_pob]])
+    ) %>%
+    filter(!is.na(ano), !is.na(COD_DANE_DPTO_D), nzchar(COD_DANE_DPTO_D),
+           is.finite(poblacion), poblacion >= 0, !is.na(quinquenio), nzchar(quinquenio))
+  
+  if (!nrow(df)) return(NULL)
+  
+  bnds <- lapply(df$quinquenio, parse_quinquenio_bounds)
+  df$age_low  <- vapply(bnds, `[[`, integer(1), "low")
+  df$age_high <- vapply(bnds, function(x) as.numeric(x$high), numeric(1))
+  df$bucket   <- mapply(classify_age_bucket, df$age_low, df$age_high)
+  
+  df <- df %>% filter(!is.na(bucket))
+  if (!nrow(df)) return(NULL)
   
   df %>%
-    dplyr::filter(!is.na(.data[[col_ano]]), !is.na(.data[[col_edad]])) %>%
-    dplyr::group_by(ano = .data[[col_ano]]) %>%
-    dplyr::summarise(
-      poblacion_joven  = sum(.data[[col_pob]][.data[[col_edad]] <= 14], na.rm = TRUE),
-      poblacion_mayor  = sum(.data[[col_pob]][.data[[col_edad]] >= 65], na.rm = TRUE),
-      poblacion_activa = sum(.data[[col_pob]][.data[[col_edad]] >= 15 & .data[[col_edad]] <= 64], na.rm = TRUE),
-      .groups = "drop"
-    ) %>%
-    dplyr::mutate(
-      razon_dependencia_pct = dplyr::if_else(
+    group_by(ano, bucket) %>%
+    summarise(pob = sum(poblacion, na.rm = TRUE), .groups = "drop") %>%
+    tidyr::pivot_wider(names_from = bucket, values_from = pob, values_fill = 0) %>%
+    mutate(
+      poblacion_joven  = joven %||% 0,
+      poblacion_mayor  = mayor %||% 0,
+      poblacion_activa = activa %||% 0,
+      razon_dependencia_pct = if_else(
         poblacion_activa > 0,
         100 * (poblacion_joven + poblacion_mayor) / poblacion_activa,
         NA_real_
       )
     ) %>%
-    dplyr::arrange(ano)
-}, error = function(e) NULL)
+    transmute(
+      ano,
+      poblacion_joven,
+      poblacion_mayor,
+      poblacion_activa,
+      razon_dependencia_pct
+    ) %>%
+    arrange(ano)
+  
+}, error = function(e){
+  message("DANE_POPULATION (ts): error -> ", conditionMessage(e))
+  NULL
+})
 
 pob_dep_all <- tryCatch({
-  p_path <- file.path(data_dir, "051_DANE_Proyecciones_P.rds")
-  if (!file.exists(p_path)) return(NULL)
-  df <- readRDS(p_path)
-  if (is.null(df) || !nrow(df)) return(NULL)
+  if (is.null(pob_raw) || !nrow(pob_raw)) return(NULL)
   
-  nms <- names(df)
-  col_ano  <- pick_year_col(nms)
-  col_edad <- pick_col_simple(nms, c("edad","age"))
+  nms <- names(pob_raw)
+  col_ano  <- pick_col_simple(nms, c("ano","año","anio","year"))
+  col_dep  <- pick_col_simple(nms, c("COD_DANE_DPTO_D","cod_dane_dpto_d","COD_DPTO2","cod_dpto2","cod_dpto","cod_depto"))
+  col_nom  <- pick_col_simple(nms, c("DEPARTAMENTO_D","departamento_d","departamento","nom_dpto","depto"))
+  col_q    <- pick_col_simple(nms, c("quinquenio","quinquenio_edad","grupo_edad","edad_grupo"))
   col_pob  <- pick_col_simple(nms, c("poblacion","pob","population"))
-  col_dep  <- pick_dep_col(nms)
-  col_depname <- pick_dep_name_col(nms)
-  if (any(is.na(c(col_ano, col_edad, col_pob)))) return(NULL)
   
-  suppressWarnings({
-    df[[col_ano]]  <- as.integer(df[[col_ano]])
-    df[[col_edad]] <- as.integer(df[[col_edad]])
-    df[[col_pob]]  <- parse_num_co(df[[col_pob]])
-  })
+  if (any(is.na(c(col_ano, col_dep, col_q, col_pob)))) return(NULL)
   
-  dep_code <- if (!is.na(col_dep)) as.character(df[[col_dep]]) else NA_character_
-  dep_name <- if (!is.na(col_depname)) as.character(df[[col_depname]]) else NA_character_
-  
-  tibble(
-    ano     = df[[col_ano]],
-    edad    = df[[col_edad]],
-    pob     = df[[col_pob]],
-    cod_dep = dep_code,
-    dep_nom = dep_name
-  ) %>%
-    filter(!is.na(ano)) %>%
-    group_by(ano, cod_dep, dep_nom) %>%
-    summarise(
-      joven  = sum(pob[edad <= 14], na.rm = TRUE),
-      mayor  = sum(pob[edad >= 65], na.rm = TRUE),
-      activa = sum(pob[edad >= 15 & edad <= 64], na.rm = TRUE),
-      .groups = "drop"
+  df <- pob_raw %>%
+    transmute(
+      ano             = suppressWarnings(as.integer(parse_num_co(.data[[col_ano]]))),
+      COD_DANE_DPTO_D  = norm_dep2(.data[[col_dep]]),
+      DEPARTAMENTO_D   = if (!is.na(col_nom)) safe_chr(.data[[col_nom]]) else NA_character_,
+      quinquenio       = safe_chr(.data[[col_q]]),
+      poblacion        = parse_num_co(.data[[col_pob]])
     ) %>%
-    mutate(valor = if_else(activa > 0, 100 * (joven + mayor) / activa, NA_real_)) %>%
-    select(ano, cod_dep, dep_nom, valor)
-}, error = function(e) NULL)
+    filter(!is.na(ano), !is.na(COD_DANE_DPTO_D), nzchar(COD_DANE_DPTO_D),
+           is.finite(poblacion), poblacion >= 0, !is.na(quinquenio), nzchar(quinquenio))
+  
+  if (!nrow(df)) return(NULL)
+  
+  bnds <- lapply(df$quinquenio, parse_quinquenio_bounds)
+  df$age_low  <- vapply(bnds, `[[`, integer(1), "low")
+  df$age_high <- vapply(bnds, function(x) as.numeric(x$high), numeric(1))
+  df$bucket   <- mapply(classify_age_bucket, df$age_low, df$age_high)
+  
+  df <- df %>% filter(!is.na(bucket))
+  if (!nrow(df)) return(NULL)
+  
+  df %>%
+    group_by(ano, COD_DANE_DPTO_D, DEPARTAMENTO_D, bucket) %>%
+    summarise(pob = sum(poblacion, na.rm = TRUE), .groups = "drop") %>%
+    tidyr::pivot_wider(names_from = bucket, values_from = pob, values_fill = 0) %>%
+    mutate(
+      joven  = joven %||% 0,
+      mayor  = mayor %||% 0,
+      activa = activa %||% 0,
+      valor = if_else(activa > 0, 100 * (joven + mayor) / activa, NA_real_)
+    ) %>%
+    transmute(
+      ano     = ano,
+      cod_dep = COD_DANE_DPTO_D,
+      dep_nom = DEPARTAMENTO_D,
+      DEPARTAMENTO_D = DEPARTAMENTO_D,
+      valor   = valor
+    ) %>%
+    arrange(ano, cod_dep)
+  
+}, error = function(e){
+  message("DANE_POPULATION (dep): error -> ", conditionMessage(e))
+  NULL
+})
 
 make_dep_ratio_ts_plot <- function(){
   if (is.null(pob_ts) || !nrow(pob_ts)) return(empty_ts_plot("Sin datos demográficos disponibles."))
@@ -410,8 +486,8 @@ prep_sivigila_counts_dep <- function(df){
   if (is.na(col_ano)) return(NULL)
   
   ano <- suppressWarnings(as.integer(df[[col_ano]]))
-  cod <- if (!is.na(col_dep)) as.character(df[[col_dep]]) else NA_character_
-  nam <- if (!is.na(col_depname)) as.character(df[[col_depname]]) else NA_character_
+  cod <- if (!is.na(col_dep)) norm_dep2(df[[col_dep]]) else NA_character_
+  nam <- if (!is.na(col_depname)) safe_chr(df[[col_depname]]) else NA_character_
   
   tibble(ano = ano, cod_dep = cod, dep_nom = nam) %>%
     filter(!is.na(ano)) %>%
@@ -429,8 +505,8 @@ prep_sivigila_eta_dep <- function(df){
   if (is.na(col_ano)) return(NULL)
   
   ano <- suppressWarnings(as.integer(df[[col_ano]]))
-  cod <- if (!is.na(col_dep)) as.character(df[[col_dep]]) else NA_character_
-  nam <- if (!is.na(col_depname)) as.character(df[[col_depname]]) else NA_character_
+  cod <- if (!is.na(col_dep)) norm_dep2(df[[col_dep]]) else NA_character_
+  nam <- if (!is.na(col_depname)) safe_chr(df[[col_depname]]) else NA_character_
   enf <- if (!is.na(col_enf)) parse_num_co(df[[col_enf]]) else NA_real_
   
   tibble(ano = ano, cod_dep = cod, dep_nom = nam, total_enf = enf) %>%
@@ -453,7 +529,6 @@ make_sivigila_ts_plot <- function(which_one = c("BPAN","NDA","ETA")){
   if (is.null(df) || !nrow(df)) return(empty_ts_plot("Sin datos disponibles."))
   
   ticks_x <- year_ticks_2(df$ano)
-  
   ylab <- if (which_one == "ETA") "Total enfermos" else "Casos"
   
   plotly::plot_ly(
@@ -476,7 +551,7 @@ make_sivigila_ts_plot <- function(which_one = c("BPAN","NDA","ETA")){
 }
 
 # =========================================================
-# 3) SISBEN — prevalencia i# ponderada por Nw_hogares
+# 3) SISBEN — prevalencia i# usando agregados (Nw_hogares + i# ya sumados por grupo)
 # =========================================================
 sisben_i_labels <- c(
   i1  = "Bajo logro educativo",
@@ -504,7 +579,7 @@ sisben_raw <- tryCatch({
   df
 }, error = function(e) NULL)
 
-prep_sisben_ipm_preval_long <- function(df){
+prep_sisben_agg_preval_long <- function(df){
   if (is.null(df) || !nrow(df)) return(NULL)
   
   nms <- names(df)
@@ -512,6 +587,7 @@ prep_sisben_ipm_preval_long <- function(df){
   col_w   <- pick_col_simple(nms, c("Nw_hogares","nw_hogares","nw","peso","weight","ponderador"))
   col_dep_code <- pick_dep_col(nms)
   col_dep_name <- pick_dep_name_col(nms)
+  col_grp <- pick_col_simple(nms, c("grupo","group","categoria","categoría","segmento","nivel","grupo_sisben"))
   
   if (is.na(col_ano) || is.na(col_w)) return(NULL)
   
@@ -520,17 +596,18 @@ prep_sisben_ipm_preval_long <- function(df){
   
   base <- df %>%
     mutate(
-      .ano = suppressWarnings(as.integer(.data[[col_ano]])),
+      .ano = suppressWarnings(as.integer(parse_num_co(.data[[col_ano]]))),
       .w   = parse_num_co(.data[[col_w]]),
-      .dep_code = if (!is.na(col_dep_code)) as.character(.data[[col_dep_code]]) else NA_character_,
-      .dep_name = if (!is.na(col_dep_name)) as.character(.data[[col_dep_name]]) else NA_character_
+      .dep_code = if (!is.na(col_dep_code)) norm_dep2(.data[[col_dep_code]]) else NA_character_,
+      .dep_name = if (!is.na(col_dep_name)) safe_chr(.data[[col_dep_name]]) else NA_character_,
+      .grp      = if (!is.na(col_grp)) safe_chr(.data[[col_grp]]) else "TOTAL"
     ) %>%
-    filter(!is.na(.ano), is.finite(.w), .w >= 0)
+    filter(!is.na(.ano), is.finite(.w), .w > 0)
   
   if (!nrow(base)) return(NULL)
   
   long <- base %>%
-    select(.ano, .w, .dep_code, .dep_name, all_of(priv_cols)) %>%
+    select(.ano, .w, .dep_code, .dep_name, .grp, all_of(priv_cols)) %>%
     pivot_longer(cols = all_of(priv_cols), names_to = "metric", values_to = "i_val") %>%
     mutate(
       i_num = parse_num_co(i_val),
@@ -542,6 +619,7 @@ prep_sisben_ipm_preval_long <- function(df){
       ano = .ano,
       cod_dep = .dep_code,
       dep_nom = .dep_name,
+      grupo   = .grp,
       metric
     ) %>%
     summarise(
@@ -549,12 +627,15 @@ prep_sisben_ipm_preval_long <- function(df){
       numer = sum(i_cap, na.rm = TRUE),
       .groups = "drop"
     ) %>%
-    mutate(valor = if_else(denom > 0, 100 * numer / denom, NA_real_)) %>%
+    mutate(
+      valor = if_else(denom > 0, 100 * numer / denom, NA_real_),
+      DEPARTAMENTO_D = dep_nom
+    ) %>%
     filter(is.finite(valor)) %>%
-    arrange(metric, ano, cod_dep, dep_nom)
+    arrange(metric, ano, cod_dep, dep_nom, grupo)
 }
 
-sisben_prev_long <- prep_sisben_ipm_preval_long(sisben_raw)
+sisben_prev_long <- prep_sisben_agg_preval_long(sisben_raw)
 
 sisben_metric_choices <- {
   if (is.null(sisben_prev_long) || !nrow(sisben_prev_long)) c("Sin datos Sisbén" = "i1")
@@ -565,12 +646,23 @@ sisben_metric_choices <- {
   }
 }
 
-make_sisben_ts_plot <- function(metric_sel = "i1"){
+sisben_group_choices <- {
+  if (is.null(sisben_prev_long) || !nrow(sisben_prev_long) || !"grupo" %in% names(sisben_prev_long)) {
+    c("Todos" = "Todos")
+  } else {
+    grs <- sort(unique(na.omit(as.character(sisben_prev_long$grupo))))
+    c("Todos" = "Todos", stats::setNames(grs, grs))
+  }
+}
+
+make_sisben_ts_plot <- function(metric_sel = "i1", grupo_sel = "Todos"){
   if (is.null(sisben_prev_long) || !nrow(sisben_prev_long)) return(empty_ts_plot("Sin datos Sisbén disponibles."))
   metric_sel <- metric_sel %||% "i1"
+  grupo_sel  <- grupo_sel  %||% "Todos"
   
   dd <- sisben_prev_long %>% filter(metric == metric_sel)
-  if (!nrow(dd)) return(empty_ts_plot("Sin datos para la privación seleccionada."))
+  if ("grupo" %in% names(dd) && !is.null(grupo_sel) && grupo_sel != "Todos") dd <- dd %>% filter(grupo == grupo_sel)
+  if (!nrow(dd)) return(empty_ts_plot("Sin datos para la privación (y grupo) seleccionados."))
   
   ts <- dd %>%
     group_by(ano) %>%
@@ -708,7 +800,10 @@ if (!is.null(ecv_raw) && nrow(ecv_raw)) {
       denom = sum(fexp[!is.na(evento)], na.rm = TRUE),
       .groups = "drop"
     ) %>%
-    mutate(valor = if_else(denom > 0, 100 * numer / denom, NA_real_))
+    mutate(
+      valor = if_else(denom > 0, 100 * numer / denom, NA_real_),
+      DEPARTAMENTO_D = dep_nom
+    )
   
   ecv_fies_agg_nat <- ecv_long %>%
     group_by(ano = anio, metric) %>%
@@ -782,7 +877,7 @@ if (!is.null(noaa_raw)) {
   
   col_ano <- find_col(c("^ano$","^anio$","year"))
   col_precip <- find_col(c("precip_mm","precipitacion","precip","valor"))
-  col_dep_code <- find_col(c("cod_dane_dpto","cod_dane_dpto_d","dpto_cod","cod_dpto","cod_depto","cod_dpto2"))
+  col_dep_code <- find_col(c("cod_dane_dpto","cod_dane_dpto_d","dpto_cod","cod_dpto","cod_depto","cod_dpto2","cod_dane_dpto2"))
   col_dep_name <- find_col(c("departamento","departamento_d","nom_dpto","departamen"))
   
   if (!is.na(col_ano) && !is.na(col_precip)) {
@@ -802,7 +897,8 @@ if (!is.null(noaa_raw)) {
     noaa_dep_all <- df %>%
       filter(!is.na(cod_dep), nzchar(cod_dep)) %>%
       group_by(ano, cod_dep, dep_nom) %>%
-      summarise(valor = sum(valor, na.rm = TRUE), .groups = "drop")
+      summarise(valor = sum(valor, na.rm = TRUE), .groups = "drop") %>%
+      mutate(DEPARTAMENTO_D = dep_nom)
     
     noaa_ts <- noaa_dep_all %>%
       group_by(ano) %>%
@@ -870,7 +966,8 @@ if (!is.null(hansen_raw)) {
     
     hansen_dep_all <- df %>%
       group_by(ano, cod_dep, dep_nom) %>%
-      summarise(valor = sum(valor, na.rm = TRUE), .groups = "drop")
+      summarise(valor = sum(valor, na.rm = TRUE), .groups = "drop") %>%
+      mutate(DEPARTAMENTO_D = dep_nom)
     
     hansen_ts <- hansen_dep_all %>%
       group_by(ano) %>%
@@ -906,10 +1003,12 @@ make_hansen_ts_plot <- function(){
 }
 
 # =========================================================
-# 7) FINAGRO — 081_FINAGRO_CFA_fast (deflactado) + filtros: tipo/sexo/línea
+# 7) FINAGRO — 081_FINAGRO_CFA (según variables de la imagen)
+#    columnas esperadas: COD_DANE_DPTO_D, DEPARTAMENTO_D, TIPO_PRODUCTOR,
+#    SEXO, LINEA_CREDITO, ESLABON_CADENA, ano, mes, VALOR_CREDITO, NUMERO_CREDITO
 # =========================================================
 finagro_raw <- tryCatch({
-  p <- file.path(data_dir, "081_FINAGRO_CFA_fast.rds")
+  p <- file.path(data_dir, "081_FINAGRO_CFA.rds")
   if (!file.exists(p)) return(NULL)
   df <- readRDS(p)
   if (is.null(df) || !nrow(df)) return(NULL)
@@ -929,28 +1028,33 @@ ipp_tbl <- data.frame(
 if (!is.null(finagro_raw)) {
   nms <- names(finagro_raw)
   
-  col_ano   <- pick_year_col(nms)
-  col_dep   <- pick_col_simple(nms, c("COD_DPTO2","cod_dpto2","COD_DANE_DPTO_D","cod_dane_dpto_d","cod_dpto","cod_depto"))
-  col_depnm <- pick_col_simple(nms, c("DEPARTAMENTO_D","departamento_d","NOM_DPTO","nom_dpto","departamento"))
+  col_ano   <- pick_year_col(nms)  # "ano"
+  col_mes   <- pick_col_simple(nms, c("mes","MES","month"))
+  col_dep   <- pick_col_simple(nms, c("COD_DANE_DPTO_D","cod_dane_dpto_d","COD_DPTO2","cod_dpto2","cod_dpto","cod_depto"))
+  col_depnm <- pick_col_simple(nms, c("DEPARTAMENTO_D","departamento_d","DEPARTAMENTO","departamento","NOM_DPTO","nom_dpto"))
   
-  col_val   <- pick_col_simple(nms, c("VALOR_CREDITO_REAL","valor_credito_real","VALOR_CREDITO","valor_credito"))
+  col_val   <- pick_col_simple(nms, c("VALOR_CREDITO","valor_credito","VALOR_CREDITO_REAL","valor_credito_real"))
   col_num   <- pick_col_simple(nms, c("NUMERO_CREDITO","numero_credito","N_CREDITOS","creditos","CREDITOS"))
   
-  col_tipo  <- pick_col_simple(nms, c("TIPO_PERSONA","tipo_persona","TIPO_PRODUCTOR","tipo_productor"))
-  col_sexo  <- pick_col_simple(nms, c("SEXO2","sexo2","SEXO","sexo"))
+  # Variables según la imagen
+  col_tipo  <- pick_col_simple(nms, c("TIPO_PRODUCTOR","tipo_productor","TIPO_PERSONA","tipo_persona"))
+  col_sexo  <- pick_col_simple(nms, c("SEXO","sexo","SEXO2","sexo2"))
   col_lin   <- pick_col_simple(nms, c("LINEA_CREDITO","linea_credito","LINEA","linea"))
+  col_esl   <- pick_col_simple(nms, c("ESLABON_CADENA","eslabon_cadena","ESLABON","eslabon"))
   
   if (!is.na(col_ano) && !is.na(col_val) && !is.na(col_num)) {
     df <- finagro_raw %>%
       mutate(
         ano = as.integer(parse_num_co(.data[[col_ano]])),
-        VALOR_CREDITO = parse_num_co(.data[[col_val]]),
+        mes = if (!is.na(col_mes)) as.integer(parse_num_co(.data[[col_mes]])) else NA_integer_,
+        VALOR_CREDITO  = parse_num_co(.data[[col_val]]),
         NUMERO_CREDITO = parse_num_co(.data[[col_num]]),
-        COD_DPTO2 = if (!is.na(col_dep)) norm_dep2(.data[[col_dep]]) else NA_character_,
-        DEPARTAMENTO = if (!is.na(col_depnm)) safe_chr(.data[[col_depnm]]) else NA_character_,
-        TIPO_PERSONA = if (!is.na(col_tipo)) safe_chr(.data[[col_tipo]]) else NA_character_,
-        SEXO2 = if (!is.na(col_sexo)) safe_chr(.data[[col_sexo]]) else NA_character_,
-        LINEA_CREDITO = if (!is.na(col_lin)) safe_chr(.data[[col_lin]]) else NA_character_
+        COD_DPTO2      = if (!is.na(col_dep)) norm_dep2(.data[[col_dep]]) else NA_character_,
+        DEPARTAMENTO   = if (!is.na(col_depnm)) safe_chr(.data[[col_depnm]]) else NA_character_,
+        TIPO_PERSONA   = if (!is.na(col_tipo)) safe_chr(.data[[col_tipo]]) else NA_character_,
+        SEXO2          = if (!is.na(col_sexo)) safe_chr(.data[[col_sexo]]) else NA_character_,
+        LINEA_CREDITO  = if (!is.na(col_lin))  safe_chr(.data[[col_lin]])  else NA_character_,
+        ESLABON_CADENA = if (!is.na(col_esl))  safe_chr(.data[[col_esl]])  else NA_character_
       ) %>%
       filter(!is.na(ano), is.finite(VALOR_CREDITO), is.finite(NUMERO_CREDITO))
     
@@ -964,7 +1068,8 @@ if (!is.null(finagro_raw)) {
     df <- df %>%
       mutate(
         DEPARTAMENTO = stringi::stri_trans_general(DEPARTAMENTO, "Latin-ASCII"),
-        DEPARTAMENTO = stringi::stri_trim_both(toupper(DEPARTAMENTO))
+        DEPARTAMENTO = stringi::stri_trim_both(toupper(DEPARTAMENTO)),
+        DEPARTAMENTO_D = DEPARTAMENTO
       )
     
     finagro_df <- df
@@ -972,21 +1077,24 @@ if (!is.null(finagro_raw)) {
 }
 
 finagro_choices <- list(
-  tipo  = c("Todos"),
-  sexo  = c("Todos"),
-  linea = c("Todos")
+  tipo    = c("Todos"),
+  sexo    = c("Todos"),
+  linea   = c("Todos"),
+  eslabon = c("Todos")
 )
 if (!is.null(finagro_df) && nrow(finagro_df)) {
-  finagro_choices$tipo  <- c("Todos", sort(unique(na.omit(finagro_df$TIPO_PERSONA))))
-  finagro_choices$sexo  <- c("Todos", sort(unique(na.omit(finagro_df$SEXO2))))
-  finagro_choices$linea <- c("Todos", sort(unique(na.omit(finagro_df$LINEA_CREDITO))))
+  finagro_choices$tipo    <- c("Todos", sort(unique(na.omit(finagro_df$TIPO_PERSONA))))
+  finagro_choices$sexo    <- c("Todos", sort(unique(na.omit(finagro_df$SEXO2))))
+  finagro_choices$linea   <- c("Todos", sort(unique(na.omit(finagro_df$LINEA_CREDITO))))
+  finagro_choices$eslabon <- c("Todos", sort(unique(na.omit(finagro_df$ESLABON_CADENA))))
 }
 
-finagro_apply_filters <- function(df, tipo, sexo, linea){
+finagro_apply_filters <- function(df, tipo, sexo, linea, eslabon){
   if (is.null(df) || !nrow(df)) return(df)
-  if (!is.null(tipo)  && tipo  != "Todos") df <- df %>% filter(TIPO_PERSONA == tipo)
-  if (!is.null(sexo)  && sexo  != "Todos") df <- df %>% filter(SEXO2 == sexo)
-  if (!is.null(linea) && linea != "Todos") df <- df %>% filter(LINEA_CREDITO == linea)
+  if (!is.null(tipo)   && tipo   != "Todos") df <- df %>% filter(TIPO_PERSONA == tipo)
+  if (!is.null(sexo)   && sexo   != "Todos") df <- df %>% filter(SEXO2 == sexo)
+  if (!is.null(linea)  && linea  != "Todos") df <- df %>% filter(LINEA_CREDITO == linea)
+  if (!is.null(eslabon)&& eslabon!= "Todos") df <- df %>% filter(ESLABON_CADENA == eslabon)
   df
 }
 
@@ -1247,7 +1355,11 @@ server <- function(input, output, session){
         div(lbl("Tipología de privación"),
             selectInput("estr_sisben_metric", label = NULL,
                         choices = sisben_metric_choices,
-                        selected = names(sisben_metric_choices)[1] %||% "i1"))
+                        selected = unname(sisben_metric_choices)[1] %||% "i1")),
+        div(lbl("Grupo (A/B/C/D)"),
+            selectInput("estr_sisben_grupo", label = NULL,
+                        choices = sisben_group_choices,
+                        selected = "Todos"))
       )
     } else if (base_sel == "DANE_ECV") {
       tagList(
@@ -1257,13 +1369,16 @@ server <- function(input, output, session){
                         selected = unname(inds_fies)[1]))
       )
     } else if (base_sel == "FINAGRO_CFA_FAST") {
+      # (CAMBIO FINAGRO) agrega ESLABON_CADENA
       tagList(
-        div(lbl("Tipo de persona / productor"),
+        div(lbl("Tipo de productor"),
             selectInput("estr_fin_tipo", NULL, choices = finagro_choices$tipo, selected = "Todos")),
         div(lbl("Sexo"),
             selectInput("estr_fin_sexo", NULL, choices = finagro_choices$sexo, selected = "Todos")),
         div(lbl("Línea de crédito"),
-            selectInput("estr_fin_linea", NULL, choices = finagro_choices$linea, selected = "Todos"))
+            selectInput("estr_fin_linea", NULL, choices = finagro_choices$linea, selected = "Todos")),
+        div(lbl("Eslabón de la cadena"),
+            selectInput("estr_fin_eslabon", NULL, choices = finagro_choices$eslabon, selected = "Todos"))
       )
     } else {
       NULL
@@ -1285,7 +1400,10 @@ server <- function(input, output, session){
     } else if (base_sel == "INS_SIVIGILA_NDA") {
       make_sivigila_ts_plot("NDA")
     } else if (base_sel == "DNP_SISBEN") {
-      make_sisben_ts_plot(input$estr_sisben_metric %||% "i1")
+      make_sisben_ts_plot(
+        metric_sel = input$estr_sisben_metric %||% "i1",
+        grupo_sel  = input$estr_sisben_grupo %||% "Todos"
+      )
     } else if (base_sel == "NOAA_PRECIPITACION") {
       make_noaa_ts_plot()
     } else if (base_sel == "HANSEN_DEFORESTATION") {
@@ -1293,9 +1411,10 @@ server <- function(input, output, session){
     } else if (base_sel == "FINAGRO_CFA_FAST") {
       df <- finagro_apply_filters(
         finagro_df,
-        tipo  = input$estr_fin_tipo %||% "Todos",
-        sexo  = input$estr_fin_sexo %||% "Todos",
-        linea = input$estr_fin_linea %||% "Todos"
+        tipo    = input$estr_fin_tipo %||% "Todos",
+        sexo    = input$estr_fin_sexo %||% "Todos",
+        linea   = input$estr_fin_linea %||% "Todos",
+        eslabon = input$estr_fin_eslabon %||% "Todos"
       )
       make_finagro_dual_ts_plot(df)
     } else {
@@ -1376,9 +1495,10 @@ server <- function(input, output, session){
     if (base_sel == "FINAGRO_CFA_FAST") {
       df <- finagro_apply_filters(
         finagro_df,
-        tipo  = input$estr_fin_tipo %||% "Todos",
-        sexo  = input$estr_fin_sexo %||% "Todos",
-        linea = input$estr_fin_linea %||% "Todos"
+        tipo    = input$estr_fin_tipo %||% "Todos",
+        sexo    = input$estr_fin_sexo %||% "Todos",
+        linea   = input$estr_fin_linea %||% "Todos",
+        eslabon = input$estr_fin_eslabon %||% "Todos"
       )
       if (is.null(df) || !nrow(df)) {
         return(list(
@@ -1455,13 +1575,16 @@ server <- function(input, output, session){
     if (base_sel == "INS_SIVIGILA_ETA")
       return(summary_from_ts(eta_ts,  "ano", "valor", "SIVIGILA — ETA (total enfermos)", "number"))
     
-    # SISBEN (según privación)
+    # SISBEN (según privación + grupo)
     if (base_sel == "DNP_SISBEN") {
       met <- input$estr_sisben_metric %||% "i1"
+      grp <- input$estr_sisben_grupo %||% "Todos"
       nm  <- if (met %in% names(sisben_i_labels)) sisben_i_labels[[met]] else met
       
-      ts <- sisben_prev_long %>%
-        filter(metric == met) %>%
+      dd <- sisben_prev_long %>% filter(metric == met)
+      if ("grupo" %in% names(dd) && grp != "Todos") dd <- dd %>% filter(grupo == grp)
+      
+      ts <- dd %>%
         group_by(ano) %>%
         summarise(
           denom = sum(denom, na.rm = TRUE),
@@ -1519,11 +1642,19 @@ server <- function(input, output, session){
       if (is.null(base_sel)) return(NULL)
       
       if (base_sel == "DNP_SISBEN") {
-        div(
-          lbl("Tipología de privación"),
-          selectInput(paste0(prefix, "_sisben_metric"), label = NULL,
-                      choices = sisben_metric_choices,
-                      selected = names(sisben_metric_choices)[1] %||% "i1")
+        tagList(
+          div(
+            lbl("Tipología de privación"),
+            selectInput(paste0(prefix, "_sisben_metric"), label = NULL,
+                        choices = sisben_metric_choices,
+                        selected = unname(sisben_metric_choices)[1] %||% "i1")
+          ),
+          div(
+            lbl("Grupo (A/B/C/D)"),
+            selectInput(paste0(prefix, "_sisben_grupo"), label = NULL,
+                        choices = sisben_group_choices,
+                        selected = "Todos")
+          )
         )
       } else if (base_sel == "DANE_ECV") {
         div(
@@ -1533,6 +1664,7 @@ server <- function(input, output, session){
                       selected = unname(inds_fies)[1])
         )
       } else if (base_sel == "FINAGRO_CFA_FAST") {
+        # (CAMBIO FINAGRO) agrega ESLABON_CADENA para mapas
         tagList(
           div(
             lbl("Métrica para el mapa"),
@@ -1541,7 +1673,7 @@ server <- function(input, output, session){
                         selected = "monto")
           ),
           div(
-            lbl("Tipo de persona / productor"),
+            lbl("Tipo de productor"),
             selectInput(paste0(prefix, "_fin_tipo"), NULL,
                         choices = finagro_choices$tipo, selected = "Todos")
           ),
@@ -1554,6 +1686,11 @@ server <- function(input, output, session){
             lbl("Línea de crédito"),
             selectInput(paste0(prefix, "_fin_linea"), NULL,
                         choices = finagro_choices$linea, selected = "Todos")
+          ),
+          div(
+            lbl("Eslabón de la cadena"),
+            selectInput(paste0(prefix, "_fin_eslabon"), NULL,
+                        choices = finagro_choices$eslabon, selected = "Todos")
           )
         )
       } else {
@@ -1614,21 +1751,23 @@ server <- function(input, output, session){
       
       df <- finagro_apply_filters(
         finagro_df,
-        tipo  = input[[paste0(prefix, "_fin_tipo")]] %||% "Todos",
-        sexo  = input[[paste0(prefix, "_fin_sexo")]] %||% "Todos",
-        linea = input[[paste0(prefix, "_fin_linea")]] %||% "Todos"
+        tipo    = input[[paste0(prefix, "_fin_tipo")]] %||% "Todos",
+        sexo    = input[[paste0(prefix, "_fin_sexo")]] %||% "Todos",
+        linea   = input[[paste0(prefix, "_fin_linea")]] %||% "Todos",
+        eslabon = input[[paste0(prefix, "_fin_eslabon")]] %||% "Todos"
       )
       
       dd <- df %>%
         filter(ano == as.integer(year_val), !is.na(COD_DPTO2), nzchar(COD_DPTO2)) %>%
-        group_by(cod_dep = COD_DPTO2, dep_nom = DEPARTAMENTO) %>%
+        group_by(cod_dep = COD_DPTO2, dep_nom = DEPARTAMENTO_D) %>%
         summarise(
           monto = sum(VALOR_CREDITO_REAL, na.rm = TRUE),
           creditos = sum(NUMERO_CREDITO, na.rm = TRUE),
           .groups = "drop"
         ) %>%
-        mutate(valor = if (met == "monto") monto else creditos) %>%
-        select(cod_dep, dep_nom, valor)
+        mutate(valor = if (met == "monto") monto else creditos,
+               DEPARTAMENTO_D = dep_nom) %>%
+        select(cod_dep, dep_nom, DEPARTAMENTO_D, valor)
       
       return(join_dep_shp(dd, shp_dep, df_key_code = "cod_dep", df_key_name = "dep_nom"))
     }
@@ -1641,7 +1780,12 @@ server <- function(input, output, session){
     
     if (ind_sel == "SISBEN") {
       met <- input[[paste0(prefix, "_sisben_metric")]] %||% "i1"
+      grp <- input[[paste0(prefix, "_sisben_grupo")]]  %||% "Todos"
+      
       dd <- dd %>% filter(metric == met)
+      if (!nrow(dd)) return(NULL)
+      
+      if ("grupo" %in% names(dd) && grp != "Todos") dd <- dd %>% filter(grupo == grp)
       if (!nrow(dd)) return(NULL)
       
       dd <- dd %>%
@@ -1651,7 +1795,8 @@ server <- function(input, output, session){
           numer = sum(numer, na.rm = TRUE),
           valor = if_else(denom > 0, 100 * numer / denom, NA_real_),
           .groups = "drop"
-        )
+        ) %>%
+        mutate(DEPARTAMENTO_D = dep_nom)
     } else if (ind_sel == "ECV_FIES") {
       met <- input[[paste0(prefix, "_ecv_fies_metric")]] %||% unname(inds_fies)[1]
       dd <- dd %>% filter(metric == met)
@@ -1662,11 +1807,13 @@ server <- function(input, output, session){
           denom = sum(denom, na.rm = TRUE),
           valor = if_else(denom > 0, 100 * numer / denom, NA_real_),
           .groups = "drop"
-        )
+        ) %>%
+        mutate(DEPARTAMENTO_D = dep_nom)
     } else {
       dd <- dd %>%
         group_by(cod_dep, dep_nom) %>%
-        summarise(valor = sum(valor, na.rm = TRUE), .groups = "drop")
+        summarise(valor = sum(valor, na.rm = TRUE), .groups = "drop") %>%
+        mutate(DEPARTAMENTO_D = dep_nom)
     }
     
     join_dep_shp(dd, shp_dep, df_key_code = "cod_dep", df_key_name = "dep_nom")
@@ -1710,6 +1857,9 @@ server <- function(input, output, session){
     labs
   }
   
+  # =======================================================
+  # (MOD) Labels: SIEMPRE usar DEPARTAMENTO_D
+  # =======================================================
   update_dep_leaflet <- function(map_id, md, palette_name, legend_title, value_type = c("percent","number"), unit_suffix = ""){
     value_type <- match.arg(value_type)
     
@@ -1731,7 +1881,13 @@ server <- function(input, output, session){
     
     pal <- leaflet::colorBin(palette = palette_name, domain = vals, bins = bins, na.color = "#f5f5f5")
     
-    dep_name <- if ("join_name" %in% names(md) && any(!is.na(md$join_name))) md$join_name else md$join_code
+    # NOMBRE: DEPARTAMENTO_D (siempre que exista)
+    dep_name <- if ("DEPARTAMENTO_D" %in% names(md)) as.character(md$DEPARTAMENTO_D) else NA_character_
+    if (all(is.na(dep_name) | !nzchar(dep_name))) {
+      dep_name <- if ("dep_nom" %in% names(md)) as.character(md$dep_nom) else md$join_name
+    }
+    if (all(is.na(dep_name) | !nzchar(dep_name))) dep_name <- md$join_code
+    
     dep_name <- ifelse(is.na(dep_name) | !nzchar(dep_name), md$join_code, dep_name)
     
     lab_vals <- if (value_type == "percent") fmt_pct(md$valor, 1) else fmt_short(md$valor)

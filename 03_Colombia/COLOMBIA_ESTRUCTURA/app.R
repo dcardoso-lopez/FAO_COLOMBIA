@@ -1,4 +1,8 @@
-# app_sninny_estructura
+# app.R — COLOMBIA_ESTRUCTURA (APP COMPLETA)
+# - ICA unificado (robusto aunque falten archivos)
+# - IDM ajustado a tu estructura municipal (COD_DANE_DPTO_D + valor)
+# - ✅ POBLACIÓN RECONFIGURADA: usa `quinquenio` para joven/activa/mayor y razón de dependencia
+# - Rutas robustas (funciona con runApp() y source())
 # -------------------------------------------------------------------
 
 suppressWarnings({
@@ -15,8 +19,16 @@ sf::sf_use_s2(FALSE)
 
 `%||%` <- function(x, y) if (is.null(x) || length(x) == 0) y else x
 
-# ---------------- Rutas ----------------
-data_dir <- "data"
+# ---------------- Rutas (robustas) ----------------
+app_root <- tryCatch({
+  of <- sys.frame(1)$ofile
+  if (!is.null(of)) dirname(normalizePath(of, winslash = "/", mustWork = TRUE))
+  else normalizePath(getwd(), winslash = "/", mustWork = TRUE)
+}, error = function(e){
+  tryCatch(normalizePath(getwd(), winslash = "/", mustWork = TRUE), error = function(e2) getwd())
+})
+
+data_dir <- file.path(app_root, "data")
 
 # =========================================================
 # ALTURAS (plots/mapas)
@@ -78,6 +90,54 @@ pick_dep_name_col <- function(nms){
     "dpto_nom","DEPARTAMENTO_D","departamento"
   )
   pick_col_simple(nms, cands)
+}
+
+# =========================================================
+# ✅ Helpers POBLACIÓN (quinquenio)
+# =========================================================
+pick_quinquenio_col <- function(nms){
+  pick_col_simple(nms, c(
+    "quinquenio","quinquenio_edad","grupo_edad","grupoedad","rango_edad","edad_quinquenio"
+  ))
+}
+
+parse_quinquenio_bounds <- function(q){
+  # Devuelve lower, upper (upper puede ser Inf)
+  if (is.null(q)) return(list(lower = NA_real_, upper = NA_real_))
+  q <- as.character(q)
+  q <- stringi::stri_trim_both(q)
+  q <- tolower(q)
+  q <- gsub("\\s+", "", q)
+  q <- gsub("años|anos", "", q)
+  
+  # Ej: "80ymas", "80ymás", "80+", "80mas"
+  if (grepl("\\+", q) || grepl("ymas|ymás|mas|más", q)) {
+    lo <- suppressWarnings(as.numeric(stringr::str_extract(q, "[0-9]+")))
+    return(list(lower = lo, upper = Inf))
+  }
+  
+  # Ej: "15-19"
+  if (grepl("-", q)) {
+    parts <- strsplit(q, "-", fixed = TRUE)[[1]]
+    lo <- suppressWarnings(as.numeric(parts[1]))
+    up <- suppressWarnings(as.numeric(parts[2]))
+    return(list(lower = lo, upper = up))
+  }
+  
+  # Fallback: un solo número
+  lo <- suppressWarnings(as.numeric(stringr::str_extract(q, "[0-9]+")))
+  list(lower = lo, upper = lo)
+}
+
+quinquenio_to_group <- function(q){
+  b <- parse_quinquenio_bounds(q)
+  lo <- b$lower; up <- b$upper
+  if (is.na(lo)) return(NA_character_)
+  if (is.finite(up) && up <= 14) return("joven")
+  if (!is.finite(up) && lo >= 65) return("mayor")
+  if (is.finite(up) && lo >= 65) return("mayor")
+  if (is.finite(up) && lo >= 15 && up <= 64) return("activa")
+  NA_character_
 }
 
 # =========================================================
@@ -209,7 +269,7 @@ indicadores_df <- tibble::tribble(
   "Planificación productiva: Área potencial de riego o drenaje para las actividades agropecuarias", "Estructura", "UPRA_APADT",
   "Planificación productiva: Ordenamiento a partir de la frontera agropecuaria con enfoque territorial", "Estructura", "UPRA_FA",
   "Condiciones productivas de los productos agroalimentarios",            "Estructura", "UPRA_EVA_A",
-  "Inventarios pecuarios territoriales",                          "Estructura", "ICA_CENSO_PECUARIO"
+  "Inventarios pecuarios territoriales",                                  "Estructura", "ICA_CENSO_PECUARIO"
 )
 
 # =========================================================
@@ -278,17 +338,6 @@ eva_metric_choices <- c(
   "Producción (t)"             = "produccion_t"
 )
 
-# ICA (unificado): tipo de animal
-ica_animal_choices_base <- c(
-  "Bovinos"  = "Bovinos",
-  "Porcinos" = "Porcinos",
-  "Aves (capacidad instalada)" = "Aves",
-  "Búfalos"  = "Búfalos",
-  "Caprinos" = "Caprinos",
-  "Ovinos"   = "Ovinos",
-  "Equinos"  = "Equinos"
-)
-
 lbl <- function(x) div(class = "filter-label", x)
 
 selector_base <- function(input_id, dimension){
@@ -301,129 +350,120 @@ selector_base <- function(input_id, dimension){
 }
 
 # =========================================================
-# ICA: carga (4 RDS) -> un solo dataset "ica_long"
+# Normalizador códigos departamento (2 dígitos)
 # =========================================================
-load_ica_data_specific <- function(file_name, variable_patterns) {
-  tryCatch({
-    p_path <- file.path(data_dir, file_name)
-    if (!file.exists(p_path)) return(NULL)
-    df <- readRDS(p_path)
-    if (is.null(df) || !nrow(df)) return(NULL)
-    
-    nms <- names(df)
-    col_ano <- pick_year_col(nms)
-    col_dep <- pick_dep_col(nms)
-    if (any(is.na(c(col_ano, col_dep)))) return(NULL)
-    
-    for (var_name in names(variable_patterns)) {
-      patterns <- variable_patterns[[var_name]]
-      found <- FALSE
-      for (pattern in patterns) {
-        col_idx <- pick_col_simple(nms, pattern)
-        if (!is.na(col_idx)) {
-          df[[var_name]] <- parse_num_co(df[[col_idx]])
-          found <- TRUE
-          break
-        }
-      }
-      if (!found) df[[var_name]] <- NA_real_
-    }
-    
-    result <- tibble(
-      ano     = as.integer(df[[col_ano]]),
-      cod_dep = as.character(df[[col_dep]])
-    )
-    
-    for (var_name in names(variable_patterns)) {
-      result[[var_name]] <- df[[var_name]]
-    }
-    
-    result %>%
-      dplyr::filter(!is.na(ano), !is.na(cod_dep)) %>%
-      dplyr::arrange(ano, cod_dep)
-    
-  }, error = function(e) {
-    message("Error cargando ", file_name, ": ", e$message)
-    NULL
-  })
+normalize_cod_dep <- function(x){
+  x <- as.character(x)
+  x <- stringi::stri_trim_both(x)
+  x <- gsub("[^0-9]", "", x)
+  x[x == ""] <- NA_character_
+  stringi::stri_pad_left(x, 2, pad = "0")
 }
 
-ica_bovino <- load_ica_data_specific(
-  "101_ICA_CensoPecuario-Bovino.rds",
-  list(total_bovinos = c("total_bovinos", "bovinos_total", "total_bovino", "bovinos"))
+# =========================================================
+# ✅ ICA (CORREGIDO): siempre existe ica_long (aunque no haya archivos)
+# =========================================================
+ica_long <- tibble::tibble(
+  ano = integer(),
+  cod_dep = character(),
+  animal = character(),
+  valor = numeric()
 )
 
-ica_porcino <- load_ica_data_specific(
-  "102_ICA_CensoPecuario-Porcino.rds",
-  list(total_porcinos = c("total_porcinos", "porcinos_total", "total_porcino", "porcinos"))
-)
+read_ica_file <- function(file){
+  p <- file.path(data_dir, file)
+  if (!file.exists(p)) {
+    message("ICA: no existe -> ", p)
+    return(NULL)
+  }
+  
+  df <- tryCatch(readRDS(p), error = function(e){
+    message("ICA: error leyendo ", file, " -> ", e$message)
+    NULL
+  })
+  if (is.null(df) || !nrow(df)) return(NULL)
+  
+  nms <- names(df)
+  col_ano <- pick_year_col(nms)
+  col_dep <- pick_dep_col(nms)
+  
+  if (is.na(col_ano) || is.na(col_dep)) {
+    message("ICA: faltan columnas año/depto en ", file)
+    return(NULL)
+  }
+  
+  df$ano     <- suppressWarnings(as.integer(df[[col_ano]]))
+  df$cod_dep <- normalize_cod_dep(df[[col_dep]])
+  
+  df
+}
 
-ica_bcoe <- load_ica_data_specific(
-  "103_ICA_CensoPecuario-BCOE.rds",
-  list(
-    total_bufalos  = c("total_bufalos", "bufalos_total", "total_bufalo", "bufalos"),
-    total_caprinos = c("total_caprinos", "caprinos_total", "total_caprino", "caprinos"),
-    total_ovinos   = c("total_ovinos", "ovinos_total", "total_ovino", "ovinos"),
-    total_equinos  = c("total_equinos", "equinos_total", "total_equino", "equinos")
-  )
-)
+make_long_from_cols <- function(df, mapping_named){
+  out <- lapply(seq_along(mapping_named), function(i){
+    lab <- names(mapping_named)[i]
+    col <- unname(mapping_named[i])
+    
+    if (!col %in% names(df)) return(NULL)
+    
+    tibble::tibble(
+      ano = df$ano,
+      cod_dep = df$cod_dep,
+      animal = lab,
+      valor = parse_num_co(df[[col]])
+    )
+  })
+  
+  dplyr::bind_rows(out) %>%
+    dplyr::filter(!is.na(ano), !is.na(cod_dep))
+}
 
-ica_aviar <- load_ica_data_specific(
-  "104_ICA_CensoPecuario-Aviar.rds",
-  list(total_aves_capacidad_instalada = c(
-    "total_aves_capacidad_instalada", "aves_capacidad_instalada",
-    "total_aves", "aves_total"
-  ))
-)
+df_bov  <- read_ica_file("101_ICA_CensoPecuario-Bovino.rds")
+df_por  <- read_ica_file("102_ICA_CensoPecuario-Porcino.rds")
+df_bcoe <- read_ica_file("103_ICA_CensoPecuario-BCOE.rds")
+df_avi  <- read_ica_file("104_ICA_CensoPecuario-Aviar.rds")
 
-ica_long <- tryCatch({
-  parts <- list()
-  
-  if (!is.null(ica_bovino) && nrow(ica_bovino) && "total_bovinos" %in% names(ica_bovino)) {
-    parts <- c(parts, list(ica_bovino %>% transmute(ano, cod_dep, animal = "Bovinos", valor = total_bovinos)))
-  }
-  if (!is.null(ica_porcino) && nrow(ica_porcino) && "total_porcinos" %in% names(ica_porcino)) {
-    parts <- c(parts, list(ica_porcino %>% transmute(ano, cod_dep, animal = "Porcinos", valor = total_porcinos)))
-  }
-  if (!is.null(ica_aviar) && nrow(ica_aviar) && "total_aves_capacidad_instalada" %in% names(ica_aviar)) {
-    parts <- c(parts, list(ica_aviar %>% transmute(ano, cod_dep, animal = "Aves", valor = total_aves_capacidad_instalada)))
-  }
-  if (!is.null(ica_bcoe) && nrow(ica_bcoe)) {
-    cols_bcoe <- intersect(c("total_bufalos","total_caprinos","total_ovinos","total_equinos"), names(ica_bcoe))
-    if (length(cols_bcoe)) {
-      bcoe_long <- ica_bcoe %>%
-        select(ano, cod_dep, all_of(cols_bcoe)) %>%
-        tidyr::pivot_longer(cols = all_of(cols_bcoe), names_to = "animal_var", values_to = "valor") %>%
-        mutate(animal = dplyr::recode(
-          animal_var,
-          total_bufalos  = "Búfalos",
-          total_caprinos = "Caprinos",
-          total_ovinos   = "Ovinos",
-          total_equinos  = "Equinos",
-          .default = "BCOE"
-        )) %>%
-        select(ano, cod_dep, animal, valor)
-      parts <- c(parts, list(bcoe_long))
-    }
-  }
-  
-  if (!length(parts)) return(NULL)
-  
-  bind_rows(parts) %>%
-    filter(!is.na(ano), !is.na(cod_dep)) %>%
-    mutate(
-      animal = as.character(animal),
-      valor  = as.numeric(valor)
-    ) %>%
-    arrange(animal, ano, cod_dep)
-  
-}, error = function(e) NULL)
+parts <- list()
+
+if (!is.null(df_bov)) {
+  parts <- c(parts, list(make_long_from_cols(df_bov, c("Bovinos" = "total_bovinos"))))
+}
+
+if (!is.null(df_por)) {
+  parts <- c(parts, list(make_long_from_cols(df_por, c("Porcinos" = "total_porcinos"))))
+}
+
+if (!is.null(df_bcoe)) {
+  parts <- c(parts, list(make_long_from_cols(df_bcoe, c(
+    "Búfalos"  = "total_bufalos",
+    "Equinos"  = "total_equinos",
+    "Caprinos" = "total_caprinos",
+    "Ovinos"   = "total_ovinos"
+  ))))
+}
+
+if (!is.null(df_avi)) {
+  parts <- c(parts, list(make_long_from_cols(df_avi, c(
+    "Aves (capacidad instalada)" = "total_aves_capacidad_instalada",
+    "Aves (capacidad ocupada)"   = "total_aves_capacidad_ocupada",
+    "Aves (traspatio)"           = "total_aves_traspatio"
+  ))))
+}
+
+tmp <- dplyr::bind_rows(parts)
+if (!is.null(tmp) && nrow(tmp)) {
+  ica_long <- tmp %>%
+    dplyr::group_by(ano, cod_dep, animal) %>%
+    dplyr::summarise(valor = sum(valor, na.rm = TRUE), .groups = "drop") %>%
+    dplyr::arrange(animal, ano, cod_dep)
+}
 
 ica_animal_choices <- {
   if (is.null(ica_long) || !nrow(ica_long)) c("Sin datos ICA" = "__ALL__")
   else {
     vals <- unique(ica_long$animal)
-    ord <- c("Bovinos","Porcinos","Aves","Búfalos","Caprinos","Ovinos","Equinos")
+    ord <- c("Bovinos","Porcinos",
+             "Aves (capacidad instalada)","Aves (capacidad ocupada)","Aves (traspatio)",
+             "Búfalos","Caprinos","Ovinos","Equinos")
     vals <- vals[order(match(vals, ord), vals, na.last = TRUE)]
     stats::setNames(vals, vals)
   }
@@ -433,13 +473,13 @@ make_ica_ts_plot_unified <- function(animal_sel = "Bovinos"){
   if (is.null(ica_long) || !nrow(ica_long)) return(empty_ts_plot("Sin datos del ICA disponibles."))
   animal_sel <- animal_sel %||% "Bovinos"
   
-  df <- ica_long %>% filter(animal == animal_sel)
+  df <- ica_long %>% dplyr::filter(animal == animal_sel)
   if (!nrow(df)) return(empty_ts_plot("Sin datos para el animal seleccionado."))
   
   ts_nacional <- df %>%
-    group_by(ano) %>%
-    summarise(valor = sum(valor, na.rm = TRUE), .groups = "drop") %>%
-    arrange(ano)
+    dplyr::group_by(ano) %>%
+    dplyr::summarise(valor = sum(valor, na.rm = TRUE), .groups = "drop") %>%
+    dplyr::arrange(ano)
   
   if (!nrow(ts_nacional) || all(is.na(ts_nacional$valor))) {
     return(empty_ts_plot("Sin datos válidos para el animal seleccionado."))
@@ -476,34 +516,42 @@ make_ica_ts_plot_unified <- function(animal_sel = "Bovinos"){
 }
 
 # =========================================================
-# SERIES (NACIONAL) — DANE POBLACIÓN
+# ✅ SERIES (NACIONAL) — DANE POBLACIÓN (desde quinquenio)
 # =========================================================
 pob_ts <- tryCatch({
   p_path <- file.path(data_dir, "051_DANE_Proyecciones_P.rds")
   if (!file.exists(p_path)) return(NULL)
+  
   df <- readRDS(p_path)
   if (is.null(df) || !nrow(df)) return(NULL)
   
   nms <- names(df)
   col_ano  <- pick_year_col(nms)
-  col_edad <- pick_col_simple(nms, c("edad","age"))
+  col_dep  <- pick_dep_col(nms)
+  col_q    <- pick_quinquenio_col(nms)
   col_pob  <- pick_col_simple(nms, c("poblacion","pob","population"))
-  if (any(is.na(c(col_ano, col_edad, col_pob)))) return(NULL)
   
-  suppressWarnings({
-    df[[col_ano]]  <- as.integer(df[[col_ano]])
-    df[[col_edad]] <- as.integer(df[[col_edad]])
-    df[[col_pob]]  <- parse_num_co(df[[col_pob]])
-  })
+  if (any(is.na(c(col_ano, col_dep, col_q, col_pob)))) return(NULL)
   
-  df %>%
-    dplyr::filter(!is.na(.data[[col_ano]]), !is.na(.data[[col_edad]])) %>%
-    dplyr::group_by(ano = .data[[col_ano]]) %>%
+  tmp <- tibble::tibble(
+    ano        = suppressWarnings(as.integer(df[[col_ano]])),
+    cod_dep    = normalize_cod_dep(df[[col_dep]]),
+    quinquenio = stringi::stri_trim_both(as.character(df[[col_q]])),
+    poblacion  = parse_num_co(df[[col_pob]])
+  ) %>%
+    dplyr::filter(!is.na(ano), !is.na(cod_dep), !is.na(quinquenio), quinquenio != "", !is.na(poblacion)) %>%
+    dplyr::mutate(grupo = vapply(quinquenio, quinquenio_to_group, FUN.VALUE = character(1))) %>%
+    dplyr::filter(!is.na(grupo))
+  
+  if (!nrow(tmp)) return(NULL)
+  
+  tmp %>%
+    dplyr::group_by(ano) %>%
     dplyr::summarise(
-      poblacion_total  = sum(.data[[col_pob]], na.rm = TRUE),
-      poblacion_joven  = sum(.data[[col_pob]][.data[[col_edad]] <= 14], na.rm = TRUE),
-      poblacion_mayor  = sum(.data[[col_pob]][.data[[col_edad]] >= 65], na.rm = TRUE),
-      poblacion_activa = sum(.data[[col_pob]][.data[[col_edad]] >= 15 & .data[[col_edad]] <= 64], na.rm = TRUE),
+      poblacion_joven  = sum(poblacion[grupo == "joven"],  na.rm = TRUE),
+      poblacion_activa = sum(poblacion[grupo == "activa"], na.rm = TRUE),
+      poblacion_mayor  = sum(poblacion[grupo == "mayor"],  na.rm = TRUE),
+      poblacion_total  = poblacion_joven + poblacion_activa + poblacion_mayor,
       .groups = "drop"
     ) %>%
     dplyr::mutate(
@@ -644,73 +692,71 @@ make_hansen_ts_plot <- function(metric_code){
 }
 
 # =========================================================
-# SERIES (NACIONAL) — IDM
+# ✅ IDM — AJUSTADO A TU BASE MUNICIPAL (COD_DANE_DPTO_D + valor)
 # =========================================================
+idm_raw <- tibble::tibble(
+  ano         = integer(),
+  valor_bruto = numeric(),
+  segmento    = character(),
+  cod_dep     = character()
+)
+
 idm_raw <- tryCatch({
   p <- file.path(data_dir, "071_DNP_Terridata_IDM.rds")
-  if (!file.exists(p)) return(NULL)
+  if (!file.exists(p)) {
+    message("IDM: no existe -> ", p)
+    return(idm_raw)
+  }
+  
   df <- readRDS(p)
-  if (is.null(df) || !nrow(df)) return(NULL)
+  if (is.null(df) || !nrow(df)) return(idm_raw)
   
   nms <- names(df)
-  col_ano <- pick_year_col(nms)
-  col_val <- pick_col_simple(nms, c("valor","idm","indice","índice"))
-  col_seg <- pick_col_simple(nms, c("cuadrante","segmento","grupo","cluster","cuartil_idm","cuartil"))
-  col_dep <- pick_dep_col(nms)
-  if (is.na(col_ano) || is.na(col_val)) return(NULL)
   
-  suppressWarnings({
-    df[[col_ano]] <- as.integer(df[[col_ano]])
-    df[[col_val]] <- parse_num_co(df[[col_val]])
-  })
+  col_ano <- pick_year_col(nms)                 # "ano"
+  col_val <- pick_col_simple(nms, c("valor"))   # "valor"
+  col_dep <- pick_dep_col(nms)                  # "COD_DANE_DPTO_D"
   
-  tibble(
-    ano = df[[col_ano]],
-    valor_bruto = df[[col_val]],
-    segmento = if (!is.na(col_seg) && col_seg %in% names(df)) as.character(df[[col_seg]]) else NA_character_,
-    cod_dep  = if (!is.na(col_dep) && col_dep %in% names(df)) as.character(df[[col_dep]]) else NA_character_
-  ) %>% dplyr::filter(!is.na(ano), !is.na(valor_bruto))
-}, error = function(e) NULL)
-
-idm_seg_choices <- {
-  if (is.null(idm_raw) || !nrow(idm_raw)) {
-    c("Sin datos de IDM" = "__ALL__")
-  } else if (any(!is.na(idm_raw$segmento))) {
-    seg_vals <- sort(unique(idm_raw$segmento[!is.na(idm_raw$segmento)]))
-    c("Promedio nacional" = "__ALL__", stats::setNames(seg_vals, seg_vals))
-  } else {
-    c("Promedio nacional" = "__ALL__")
+  if (any(is.na(c(col_ano, col_val, col_dep)))) {
+    message("IDM: faltan columnas clave (ano/valor/depto).")
+    return(idm_raw)
   }
-}
+  
+  tibble::tibble(
+    ano         = suppressWarnings(as.integer(df[[col_ano]])),
+    valor_bruto = parse_num_co(df[[col_val]]),
+    segmento    = NA_character_,
+    cod_dep     = normalize_cod_dep(df[[col_dep]])
+  ) %>%
+    dplyr::filter(!is.na(ano), !is.na(valor_bruto), !is.na(cod_dep))
+}, error = function(e){
+  message("IDM: error leyendo/armando -> ", e$message)
+  idm_raw
+})
+
+# En tu RDS no hay segmento/cuadrante -> dejamos solo promedio nacional
+idm_seg_choices <- c("Promedio nacional" = "__ALL__")
 
 make_idm_ts_plot <- function(segmento = "__ALL__"){
   if (is.null(idm_raw) || !nrow(idm_raw)) return(empty_ts_plot("Sin datos del IDM disponibles."))
   
-  df <- idm_raw
-  if (!is.null(segmento) && segmento != "__ALL__" && "segmento" %in% names(df)) {
-    df <- df %>% dplyr::filter(.data$segmento == segmento)
-  }
-  if (!nrow(df)) return(empty_ts_plot("Sin observaciones del IDM para el filtro seleccionado."))
-  
-  df <- df %>%
+  ts <- idm_raw %>%
     dplyr::group_by(ano) %>%
-    dplyr::summarise(valor_bruto = mean(valor_bruto, na.rm = TRUE), .groups = "drop") %>%
+    dplyr::summarise(valor = mean(valor_bruto, na.rm = TRUE), .groups = "drop") %>%
     dplyr::arrange(ano)
   
-  max_val_raw <- max(df$valor_bruto, na.rm = TRUE)
-  df$valor <- if (is.finite(max_val_raw) && max_val_raw <= 1.5) df$valor_bruto * 100 else df$valor_bruto
+  if (!nrow(ts) || all(is.na(ts$valor))) return(empty_ts_plot("Sin datos válidos para IDM."))
   
-  ticks <- pretty(range(df$valor, na.rm = TRUE), n = 6); ticks <- ticks[ticks >= 0]
-  if (!length(ticks)) ticks <- c(0, 20, 40, 60, 80, 100)
-  
-  ticks_x <- year_ticks_2(df$ano)
+  ticks <- pretty(range(ts$valor, na.rm = TRUE), n = 6)
+  ticks <- ticks[is.finite(ticks)]
+  ticks_x <- year_ticks_2(ts$ano)
   
   plotly::plot_ly(
-    data = df, x = ~ano, y = ~valor,
+    data = ts, x = ~ano, y = ~valor,
     type = "scatter", mode = "lines+markers",
     line = list(width = 2),
     marker = list(size = 6),
-    customdata = fmt_short(df$valor),
+    customdata = fmt_num_es(ts$valor, 2),
     hovertemplate = "<b>Año:</b> %{x}<br><b>IDM promedio:</b> %{customdata} puntos<extra></extra>"
   ) %>%
     plotly::layout(
@@ -720,7 +766,13 @@ make_idm_ts_plot <- function(segmento = "__ALL__"){
         tickmode = "array", tickvals = ticks_x, ticktext = ticks_x,
         tickangle = 0, showgrid = FALSE, automargin = TRUE
       ),
-      yaxis = list(title = "Puntos", tickvals = ticks, ticktext = fmt_short(ticks), showgrid = FALSE, automargin = TRUE),
+      yaxis = list(
+        title = "Puntos (0–100)",
+        tickvals = ticks,
+        ticktext = fmt_num_es(ticks, 1),
+        showgrid = FALSE,
+        automargin = TRUE
+      ),
       margin = list(l = 70, r = 20, t = 10, b = 60),
       hovermode = "x unified",
       hoverlabel = PLOTLY_HOVERLABEL,
@@ -899,7 +951,7 @@ eva_raw <- tryCatch({
   
   tibble(
     ano               = as.integer(df[[col_ano]]),
-    cod_dep           = stringi::stri_trim_both(as.character(df[[col_dep]])),
+    cod_dep           = normalize_cod_dep(df[[col_dep]]),
     cultivo           = stringi::stri_trim_both(as.character(df[[col_cult]])),
     area_sembrada_ha  = parse_num_co(df[[col_a_s]]),
     area_cosechada_ha = parse_num_co(df[[col_a_c]]),
@@ -1033,19 +1085,17 @@ if (!is.null(shp_dep)) {
 # =========================================================
 # Datos departamentales para mapas (agregados por año)
 # =========================================================
+
+# ✅ IDM a nivel departamental (promedio de municipios)
 idm_dep_all <- tryCatch({
-  if (is.null(idm_raw)) return(NULL)
-  df <- idm_raw
-  max_val <- max(df$valor_bruto, na.rm = TRUE)
-  vals <- df$valor_bruto
-  if (is.finite(max_val) && max_val <= 1.5) vals <- vals * 100
-  
-  df %>%
-    dplyr::filter(!is.na(cod_dep)) %>%
-    dplyr::mutate(valor = vals) %>%
+  if (is.null(idm_raw) || !nrow(idm_raw)) return(NULL)
+  idm_raw %>%
     dplyr::group_by(ano, cod_dep) %>%
-    dplyr::summarise(valor = mean(valor, na.rm = TRUE), .groups = "drop")
-}, error = function(e) NULL)
+    dplyr::summarise(valor = mean(valor_bruto, na.rm = TRUE), .groups = "drop")
+}, error = function(e) {
+  message("IDM mapa: error -> ", e$message)
+  NULL
+})
 
 hansen_dep_all <- tryCatch({
   h_path <- file.path(data_dir, "141_HANSEN_COBERTURA_NETA_TOTAL.rds")
@@ -1067,7 +1117,7 @@ hansen_dep_all <- tryCatch({
   
   df %>%
     dplyr::filter(!is.na(.data[[col_ano]]), !is.na(.data[[col_dep]])) %>%
-    dplyr::group_by(ano = .data[[col_ano]], cod_dep = as.character(.data[[col_dep]])) %>%
+    dplyr::group_by(ano = .data[[col_ano]], cod_dep = normalize_cod_dep(.data[[col_dep]])) %>%
     dplyr::summarise(
       cobertura_ha = sum(.data[[col_cob]],  na.rm = TRUE),
       base_ha_2000 = sum(.data[[col_base]], na.rm = TRUE),
@@ -1098,7 +1148,7 @@ upra_fa_dep_all <- tryCatch({
   
   df %>%
     dplyr::filter(!is.na(.data[[col_ano]]), !is.na(.data[[col_dep]])) %>%
-    dplyr::group_by(ano = .data[[col_ano]], cod_dep = as.character(.data[[col_dep]])) %>%
+    dplyr::group_by(ano = .data[[col_ano]], cod_dep = normalize_cod_dep(.data[[col_dep]])) %>%
     dplyr::summarise(
       area_fa_ha  = sum(.data[[col_area_fa]], na.rm = TRUE),
       area_tot_ha = sum(.data[[col_area_tot]], na.rm = TRUE),
@@ -1128,7 +1178,7 @@ apadt_dep_all <- tryCatch({
   
   df %>%
     dplyr::filter(!is.na(.data[[col_ano]]), !is.na(.data[[col_dep]])) %>%
-    dplyr::group_by(ano = .data[[col_ano]], cod_dep = as.character(.data[[col_dep]])) %>%
+    dplyr::group_by(ano = .data[[col_ano]], cod_dep = normalize_cod_dep(.data[[col_dep]])) %>%
     dplyr::summarise(
       area_pot_ha = sum(.data[[col_area_pot]], na.rm = TRUE),
       area_tot_ha = sum(.data[[col_area_tot]], na.rm = TRUE),
@@ -1137,32 +1187,42 @@ apadt_dep_all <- tryCatch({
     dplyr::mutate(valor = dplyr::if_else(area_tot_ha > 0, 100 * area_pot_ha / area_tot_ha, NA_real_))
 }, error = function(e) NULL)
 
+# =========================================================
+# ✅ POBLACIÓN departamental (desde quinquenio)
+# =========================================================
 pob_dep_all <- tryCatch({
   p <- file.path(data_dir, "051_DANE_Proyecciones_P.rds")
   if (!file.exists(p)) return(NULL)
+  
   df <- readRDS(p)
+  if (is.null(df) || !nrow(df)) return(NULL)
+  
   nms <- names(df)
-  
   col_ano  <- pick_year_col(nms)
-  col_edad <- pick_col_simple(nms, c("edad","age"))
-  col_pob  <- pick_col_simple(nms, c("poblacion","pob","population"))
   col_dep  <- pick_dep_col(nms)
-  if (any(is.na(c(col_ano, col_edad, col_pob, col_dep)))) return(NULL)
+  col_q    <- pick_quinquenio_col(nms)
+  col_pob  <- pick_col_simple(nms, c("poblacion","pob","population"))
+  if (any(is.na(c(col_ano, col_dep, col_q, col_pob)))) return(NULL)
   
-  suppressWarnings({
-    df[[col_ano]]  <- as.integer(df[[col_ano]])
-    df[[col_edad]] <- as.integer(df[[col_edad]])
-    df[[col_pob]]  <- parse_num_co(df[[col_pob]])
-  })
+  tmp <- tibble::tibble(
+    ano        = suppressWarnings(as.integer(df[[col_ano]])),
+    cod_dep    = normalize_cod_dep(df[[col_dep]]),
+    quinquenio = stringi::stri_trim_both(as.character(df[[col_q]])),
+    poblacion  = parse_num_co(df[[col_pob]])
+  ) %>%
+    dplyr::filter(!is.na(ano), !is.na(cod_dep), !is.na(quinquenio), quinquenio != "", !is.na(poblacion)) %>%
+    dplyr::mutate(grupo = vapply(quinquenio, quinquenio_to_group, FUN.VALUE = character(1))) %>%
+    dplyr::filter(!is.na(grupo))
   
-  df %>%
-    dplyr::filter(!is.na(.data[[col_ano]]), !is.na(.data[[col_dep]])) %>%
-    dplyr::group_by(ano = .data[[col_ano]], cod_dep = as.character(.data[[col_dep]])) %>%
+  if (!nrow(tmp)) return(NULL)
+  
+  tmp %>%
+    dplyr::group_by(ano, cod_dep) %>%
     dplyr::summarise(
-      poblacion_total  = sum(.data[[col_pob]], na.rm = TRUE),
-      poblacion_joven  = sum(ifelse(.data[[col_edad]] <= 14, .data[[col_pob]], 0), na.rm = TRUE),
-      poblacion_mayor  = sum(ifelse(.data[[col_edad]] >= 65, .data[[col_pob]], 0), na.rm = TRUE),
-      poblacion_activa = sum(ifelse(.data[[col_edad]] >= 15 & .data[[col_edad]] <= 64, .data[[col_pob]], 0), na.rm = TRUE),
+      poblacion_joven  = sum(poblacion[grupo == "joven"],  na.rm = TRUE),
+      poblacion_activa = sum(poblacion[grupo == "activa"], na.rm = TRUE),
+      poblacion_mayor  = sum(poblacion[grupo == "mayor"],  na.rm = TRUE),
+      poblacion_total  = poblacion_joven + poblacion_activa + poblacion_mayor,
       .groups = "drop"
     ) %>%
     dplyr::mutate(
@@ -1189,8 +1249,8 @@ eva_dep_all <- tryCatch({
 ica_dep_all <- tryCatch({
   if (is.null(ica_long) || !nrow(ica_long)) return(NULL)
   ica_long %>%
-    group_by(ano, cod_dep, animal) %>%
-    summarise(valor = sum(valor, na.rm = TRUE), .groups = "drop")
+    dplyr::group_by(ano, cod_dep, animal) %>%
+    dplyr::summarise(valor = sum(valor, na.rm = TRUE), .groups = "drop")
 }, error = function(e) NULL)
 
 all_years_dep <- sort(unique(c(
@@ -1260,7 +1320,6 @@ ui <- fluidPage(
     .map-panel{ display:flex; flex-direction:column; gap:10px; background:#fff; border:1px solid var(--ecv-bdr); border-radius:16px; padding:14px 14px 16px; box-shadow:0 2px 6px rgba(0,0,0,.03); }
     .map-panel .filters{ border:none; box-shadow:none; padding:0; margin:0 0 8px 0; }
 
-    /* ✅ QUITA EL ESPACIO GIGANTE: nada de height fijo */
     .filters-map{
       height:auto !important;
       min-height:unset !important;
@@ -1403,7 +1462,7 @@ server <- function(input, output, session){
       )
     } else if (base_sel == "DNP-IDM") {
       tagList(
-        div(lbl("Filtro para el IDM (segmento / cuadrante)"),
+        div(lbl("Filtro para el IDM"),
             selectInput("estr_idm_segmento", label = NULL, choices = idm_seg_choices, selected = "__ALL__"))
       )
     } else if (base_sel == "UPRA_EVA_A") {
@@ -1452,7 +1511,7 @@ server <- function(input, output, session){
     } else if (base_sel == "UPRA_EVA_A") {
       make_eva_ts_plot_dual(input$estr_eva_cultivo %||% "__ALL__")
     } else if (base_sel == "ICA_CENSO_PECUARIO") {
-      make_ica_ts_plot_unified(input$estr_ica_animal %||% "Bovinos")
+      make_ica_ts_plot_unified(input$estr_ica_animal %||% names(ica_animal_choices)[1] %||% "Bovinos")
     } else if (base_sel %in% c("UPRA_FA","UPRA_APADT")) {
       empty_ts_plot("Este sistema se visualiza como barras (ver gráfico de barras).")
     } else {
@@ -1562,7 +1621,6 @@ server <- function(input, output, session){
   
   # =========================================================
   # Tarjetas (storytelling formal + último año + crecimiento)
-  # (SIN CAMBIOS)
   # =========================================================
   current_summary <- reactive({
     base_sel <- input$estr_base1 %||% default_base_estructura
@@ -1576,18 +1634,18 @@ server <- function(input, output, session){
     # ---- ICA (unificado) ----
     if (base_sel == "ICA_CENSO_PECUARIO") {
       if (is.null(ica_long) || !nrow(ica_long)) return(out)
-      animal_sel <- input$estr_ica_animal %||% "Bovinos"
-      df <- ica_long %>% filter(animal == animal_sel)
+      animal_sel <- input$estr_ica_animal %||% names(ica_animal_choices)[1] %||% "Bovinos"
+      df <- ica_long %>% dplyr::filter(animal == animal_sel)
       if (!nrow(df)) return(out)
       
       ts <- df %>%
-        group_by(ano) %>%
-        summarise(valor = sum(valor, na.rm = TRUE), .groups = "drop") %>%
-        arrange(ano)
+        dplyr::group_by(ano) %>%
+        dplyr::summarise(valor = sum(valor, na.rm = TRUE), .groups = "drop") %>%
+        dplyr::arrange(ano)
       
       last_year <- max(ts$ano, na.rm = TRUE)
-      last <- ts %>% filter(ano == last_year) %>% slice(1)
-      prev <- ts %>% filter(ano == (last_year - 1)) %>% slice(1)
+      last <- ts %>% dplyr::filter(ano == last_year) %>% dplyr::slice(1)
+      prev <- ts %>% dplyr::filter(ano == (last_year - 1)) %>% dplyr::slice(1)
       
       val_last <- last$valor
       val_prev <- if (nrow(prev)) prev$valor else NA_real_
@@ -1692,18 +1750,11 @@ server <- function(input, output, session){
     
     # ---- IDM ----
     if (base_sel == "DNP-IDM" && !is.null(idm_raw) && nrow(idm_raw)) {
-      seg <- input$estr_idm_segmento %||% "__ALL__"
-      df <- idm_raw
-      if (!is.null(seg) && seg != "__ALL__" && "segmento" %in% names(df)) df <- df %>% dplyr::filter(segmento == seg)
-      if (!nrow(df)) return(out)
       
-      ts <- df %>%
+      ts <- idm_raw %>%
         dplyr::group_by(ano) %>%
-        dplyr::summarise(valor_bruto = mean(valor_bruto, na.rm = TRUE), .groups = "drop") %>%
+        dplyr::summarise(valor = mean(valor_bruto, na.rm = TRUE), .groups = "drop") %>%
         dplyr::arrange(ano)
-      
-      max_val_raw <- max(ts$valor_bruto, na.rm = TRUE)
-      ts$valor <- if (is.finite(max_val_raw) && max_val_raw <= 1.5) ts$valor_bruto * 100 else ts$valor_bruto
       
       last_year <- max(ts$ano, na.rm = TRUE)
       last <- ts %>% dplyr::filter(ano == last_year) %>% dplyr::slice(1)
@@ -1713,15 +1764,13 @@ server <- function(input, output, session){
       val_prev <- if (nrow(prev)) prev$valor else NA_real_
       gr <- safe_growth(val_last, val_prev)
       
-      seg_txt <- if (seg == "__ALL__") "promedio nacional" else paste0("segmento: ", seg)
-      
       out$story <- sprintf(
-        "La serie muestra el comportamiento del Índice de Desempeño Municipal (IDM) para el %s. En %d, el valor promedio es %s puntos; la variación interanual corresponde a %s.",
-        seg_txt, last_year, fmt_short(val_last),
+        "La serie muestra el comportamiento del Índice de Desempeño Municipal (IDM) como promedio nacional (promedio simple municipal). En %d, el valor promedio es %s puntos; la variación interanual corresponde a %s.",
+        last_year, fmt_num_es(val_last, 2),
         ifelse(is.na(gr), "NA", fmt_pct(100*gr, 1))
       )
       
-      out$last_rows <- list(list(k="Año", v=as.character(last_year)), list(k="IDM promedio", v=fmt_short(val_last)))
+      out$last_rows <- list(list(k="Año", v=as.character(last_year)), list(k="IDM promedio", v=fmt_num_es(val_last, 2)))
       out$growth_rows <- list(
         list(k="Año anterior", v=if (nrow(prev)) as.character(last_year-1) else na_txt()),
         list(k="Tasa de crecimiento", v=ifelse(is.na(gr), na_txt(), fmt_pct(100*gr, 1)))
@@ -1961,16 +2010,17 @@ server <- function(input, output, session){
       if (!nrow(df)) return(NULL)
       df <- df %>% dplyr::mutate(valor = .data[[met]])
     } else if (ind_sel == "ICA") {
-      ani <- input$map1_extra_ica_animal %||% "Bovinos"
-      df <- df %>% filter(animal == ani)
+      ani <- input$map1_extra_ica_animal %||% names(ica_animal_choices)[1] %||% "Bovinos"
+      df <- df %>% dplyr::filter(animal == ani)
       if (!nrow(df)) return(NULL)
     }
+    # IDM ya viene como df$valor
     
     if (!nrow(df) || is.null(shp_dep) || is.na(dep_code_col_shp)) return(NULL)
     shp <- shp_dep
-    shp$cod_dep_join <- as.character(shp[[dep_code_col_shp]])
+    shp$cod_dep_join <- normalize_cod_dep(shp[[dep_code_col_shp]])
     
-    df$cod_dep_join  <- as.character(df$cod_dep)
+    df$cod_dep_join  <- normalize_cod_dep(df$cod_dep)
     dplyr::left_join(shp, df, by = "cod_dep_join")
   })
   
@@ -2003,16 +2053,17 @@ server <- function(input, output, session){
       if (!nrow(df)) return(NULL)
       df <- df %>% dplyr::mutate(valor = .data[[met]])
     } else if (ind_sel == "ICA") {
-      ani <- input$map2_extra_ica_animal %||% "Bovinos"
-      df <- df %>% filter(animal == ani)
+      ani <- input$map2_extra_ica_animal %||% names(ica_animal_choices)[1] %||% "Bovinos"
+      df <- df %>% dplyr::filter(animal == ani)
       if (!nrow(df)) return(NULL)
     }
+    # IDM ya viene como df$valor
     
     if (!nrow(df) || is.null(shp_dep) || is.na(dep_code_col_shp)) return(NULL)
     shp <- shp_dep
-    shp$cod_dep_join <- as.character(shp[[dep_code_col_shp]])
+    shp$cod_dep_join <- normalize_cod_dep(shp[[dep_code_col_shp]])
     
-    df$cod_dep_join  <- as.character(df$cod_dep)
+    df$cod_dep_join  <- normalize_cod_dep(df$cod_dep)
     dplyr::left_join(shp, df, by = "cod_dep_join")
   })
   
@@ -2024,8 +2075,8 @@ server <- function(input, output, session){
   })
   
   # =========================================================
-  # ✅ Leyenda: desde el 2do rango poner ">A–B"
-  # ✅ Porcentajes con símbolo "%"
+  # Leyenda: desde el 2do rango poner ">A–B"
+  # Porcentajes con símbolo "%"
   # =========================================================
   make_bin_labels <- function(bins, value_type = c("percent","number")){
     value_type <- match.arg(value_type)
@@ -2079,7 +2130,6 @@ server <- function(input, output, session){
     lab_vals <- if (value_type == "percent") fmt_pct(md$valor, 1) else fmt_short(md$valor)
     labels <- sprintf("<strong>%s</strong><br/>Valor: %s", dep_name, lab_vals) %>% lapply(htmltools::HTML)
     
-    # Leyenda custom (colores por intervalo + labels con > desde el segundo)
     legend_labels <- make_bin_labels(bins, value_type)
     mids <- (bins[-1] + bins[-length(bins)]) / 2
     legend_cols <- pal(mids)
@@ -2113,7 +2163,6 @@ server <- function(input, output, session){
     base_sel <- input$estr_base2_map1 %||% default_base_estructura
     ind_sel  <- base_to_indicator_code(base_sel)
     
-    # ✅ percent también si población->razón de dependencia
     var_sel <- input$map1_extra_var %||% "poblacion_total"
     metric1 <- input$map1_extra_metric %||% "pct"
     
@@ -2121,7 +2170,7 @@ server <- function(input, output, session){
                     (ind_sel == "HANSEN" && metric1 == "pct") ||
                     (ind_sel == "POBLACION" && var_sel == "razon_dependencia")) "percent" else "number"
     
-    legend_title <- if (ind_sel == "IDM") "Puntos" else if (tipo_val == "percent") "Porcentaje" else "Cantidad"
+    legend_title <- if (ind_sel == "IDM") "Puntos (0–100)" else if (tipo_val == "percent") "Porcentaje" else "Cantidad"
     
     update_dep_leaflet("map_idm_1", md, palette_name = "Greens",
                        legend_title = legend_title, value_type = tipo_val)
@@ -2139,12 +2188,13 @@ server <- function(input, output, session){
                     (ind_sel == "HANSEN" && metric2 == "pct") ||
                     (ind_sel == "POBLACION" && var_sel == "razon_dependencia")) "percent" else "number"
     
-    legend_title <- if (ind_sel == "IDM") "Puntos" else if (tipo_val == "percent") "Porcentaje" else "Cantidad"
+    legend_title <- if (ind_sel == "IDM") "Puntos (0–100)" else if (tipo_val == "percent") "Porcentaje" else "Cantidad"
     
     update_dep_leaflet("map_idm_2", md, palette_name = "Blues",
                        legend_title = legend_title, value_type = tipo_val)
   })
 }
 
-shinyApp(ui, server)
-
+# ✅ Forzar retorno de shiny.appobj (evita "did not return a shiny.appobj object")
+app <- shinyApp(ui, server)
+app
