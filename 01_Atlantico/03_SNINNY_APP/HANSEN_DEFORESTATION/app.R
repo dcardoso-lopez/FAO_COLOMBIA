@@ -12,8 +12,22 @@ suppressWarnings(invisible(sapply(pkgs, require, character.only = TRUE)))
 options(stringsAsFactors = FALSE, scipen = 999)
 sf::sf_use_s2(FALSE)
 
-# 2) Rutas (ajústalas a tu equipo)
-APP_DIR  <- ""
+# 2) Rutas (CORREGIDAS - usando el directorio actual del script)
+# Obtener el directorio donde está este script
+if (interactive()) {
+  # Cuando se ejecuta desde RStudio
+  APP_DIR <- dirname(rstudioapi::getActiveDocumentContext()$path)
+} else {
+  # Cuando se ejecuta desde Shiny
+  APP_DIR <- getwd()
+}
+
+# Si APP_DIR está vacío, usar el directorio de trabajo actual
+if (is.null(APP_DIR) || APP_DIR == "") {
+  APP_DIR <- getwd()
+}
+
+# Construir rutas relativas
 DATA_RDS <- file.path(APP_DIR, "data/141_HANSEN_DEFORESTATION.rds")
 SHP_DIR  <- file.path(APP_DIR, "data/shp")
 
@@ -448,11 +462,11 @@ ui <- fluidPage(
           div(class="filter-label","¿En qué departamento?"),
           {
             dep_pairs <- distinct_pairs(eva_df, "DEPTO_KEY", "DEPTO_DISP")
-            # Default: Atlántico según nombre, pero seleccionamos el CÓDIGO
-            idx_atl <- which(
+            # Default: Santander según nombre, pero seleccionamos el CÓDIGO
+            idx_santander <- which(
               toupper(norm_txt(dep_pairs$DEPTO_DISP)) %in% c("SANTANDER")
             )
-            default_dep <- if (length(idx_atl)) dep_pairs$DEPTO_KEY[idx_atl[1]] else "Todos"
+            default_dep <- if (length(idx_santander)) dep_pairs$DEPTO_KEY[idx_santander[1]] else "Todos"
             selectInput(
               "f_depto", NULL,
               choices  = mk_tc_from_pairs(dep_pairs$DEPTO_KEY, dep_pairs$DEPTO_DISP),
