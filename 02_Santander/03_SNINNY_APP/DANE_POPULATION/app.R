@@ -1,5 +1,5 @@
 # =========================================================
-# app_poblacion_dashboard_v2.R — Proyecciones DANE (pirámide decenal)
+# app_poblacion_dashboard_v2.R — Proyecciones DANE (pirámide con decenios)
 # =========================================================
 suppressWarnings({
   library(shiny); library(dplyr); library(tidyr); library(ggplot2); library(plotly)
@@ -20,7 +20,8 @@ if (!"MUNICIPIO_D"   %in% names(pob) && "MUNICIPIO"   %in% names(pob)) pob$MUNIC
 
 suppressWarnings({
   if (!is.numeric(pob$ano))       pob$ano       <- as.integer(pob$ano)
-  if (!is.numeric(pob$edad))      pob$edad      <- as.integer(pob$edad)
+  # VERIFICAR QUÉ VARIABLE EXISTE: edad o quinquenio
+  if ("quinquenio" %in% names(pob) && !is.numeric(pob$quinquenio)) pob$quinquenio <- as.character(pob$quinquenio)
   if (!is.numeric(pob$poblacion)) pob$poblacion <- as.numeric(pob$poblacion)
 })
 
@@ -51,11 +52,48 @@ fmt_km <- function(x){
   }, character(1))
 }
 
-make_dec <- function(edad){
-  e    <- pmin(pmax(edad, 0), 80)
-  brks <- seq(0, 80, 10)
-  labs <- c(paste0(seq(0,70,10), "-", seq(9,79,10)), "80+")
-  factor(cut(e, breaks = c(brks, Inf), right = FALSE, labels = labs), levels = labs)
+# Función para extraer la edad inicial del quinquenio (VECTORIZADA)
+quinquenio_to_edad_inicio <- function(quinquenio) {
+  # Función interna para procesar un solo valor
+  procesar_un_valor <- function(q) {
+    suppressWarnings({
+      if (is.na(q)) return(NA)
+      if (is.character(q)) {
+        # Para quinquenios con "+" como "80+"
+        if (grepl("\\+", q)) {
+          # Extraer el número antes del "+"
+          edad_inicio <- as.numeric(gsub("\\+", "", q))
+          return(edad_inicio)
+        } else {
+          # Para quinquenios en formato "0-4", "5-9", etc.
+          edad_inicio <- as.numeric(sub("-.*", "", q))
+          return(edad_inicio)
+        }
+      } else if (is.numeric(q)) {
+        # Si quinquenio es numérico, asumir que representa la edad inicial
+        return(q)
+      }
+      return(NA)
+    })
+  }
+  
+  # Aplicar la función a cada elemento del vector
+  sapply(quinquenio, procesar_un_valor, USE.NAMES = FALSE)
+}
+
+# Función para convertir quinquenios a decenios
+quinquenio_to_decenio <- function(quinquenio) {
+  edad_inicio <- quinquenio_to_edad_inicio(quinquenio)
+  
+  # Crear grupos decenales
+  decenio <- cut(edad_inicio, 
+                 breaks = c(0, seq(10, 80, by = 10), Inf),
+                 labels = c("0-9", "10-19", "20-29", "30-39", "40-49", 
+                            "50-59", "60-69", "70-79", "80+"),
+                 right = FALSE,
+                 include.lowest = TRUE)
+  
+  return(as.character(decenio))
 }
 
 # Title Case en español para etiquetas
@@ -157,7 +195,7 @@ ui <- fluidPage(
 
       .card-title{font-weight:700;font-size:16px;margin-bottom:8px;color:#111827}
       
-            .filter-label{
+      .filter-label{
         font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
         font-size:14px;
         font-weight:500;        /* medium */
@@ -165,7 +203,6 @@ ui <- fluidPage(
         color:#000000;          /* negro puro */
         margin-bottom:6px;
       }
-
 
       .info-quantiles-icon{
         margin-left:6px;
@@ -395,11 +432,21 @@ server <- function(input, output, session){
     fmt_comma(sum(df$poblacion, na.rm = TRUE))
   })
   
-  # % Jóvenes con coma decimal
+  # % Jóvenes con coma decimal - USAR quinquenio
   output$kpi_jovenes <- renderText({
     df  <- base_ano()
     tot <- sum(df$poblacion, na.rm = TRUE)
-    j   <- sum(df$poblacion[df$edad <= 14], na.rm = TRUE)
+    
+    # Filtrar por grupos de edad basados en quinquenio
+    if ("quinquenio" %in% names(df)) {
+      # Extraer edad inicial del quinquenio para el filtro
+      df <- df %>% mutate(edad_inicio = quinquenio_to_edad_inicio(quinquenio))
+      j   <- sum(df$poblacion[!is.na(df$edad_inicio) & df$edad_inicio <= 14], na.rm = TRUE)
+    } else {
+      # Si no hay variable de edad, usar un valor predeterminado
+      j <- 0
+    }
+    
     prop <- if (tot > 0) 100 * j / tot else 0
     paste0(
       scales::number(prop, accuracy = 0.1, decimal.mark = ",", big.mark = "."),
@@ -407,11 +454,21 @@ server <- function(input, output, session){
     )
   })
   
-  # % Adultos mayores con coma decimal
+  # % Adultos mayores con coma decimal - USAR quinquenio
   output$kpi_mayores <- renderText({
     df  <- base_ano()
     tot <- sum(df$poblacion, na.rm = TRUE)
-    may <- sum(df$poblacion[df$edad >= 65], na.rm = TRUE)
+    
+    # Filtrar por grupos de edad basados en quinquenio
+    if ("quinquenio" %in% names(df)) {
+      # Extraer edad inicial del quinquenio para el filtro
+      df <- df %>% mutate(edad_inicio = quinquenio_to_edad_inicio(quinquenio))
+      may <- sum(df$poblacion[!is.na(df$edad_inicio) & df$edad_inicio >= 65], na.rm = TRUE)
+    } else {
+      # Si no hay variable de edad, usar un valor predeterminado
+      may <- 0
+    }
+    
     prop <- if (tot > 0) 100 * may / tot else 0
     paste0(
       scales::number(prop, accuracy = 0.1, decimal.mark = ",", big.mark = "."),
@@ -419,12 +476,23 @@ server <- function(input, output, session){
     )
   })
   
-  # Razón de dependencia con coma decimal
+  # Razón de dependencia con coma decimal - USAR quinquenio
   output$kpi_dep <- renderText({
     df  <- base_ano()
-    j   <- sum(df$poblacion[df$edad <= 14], na.rm = TRUE)
-    m   <- sum(df$poblacion[df$edad >= 65], na.rm = TRUE)
-    act <- sum(df$poblacion[df$edad >= 15 & df$edad <= 64], na.rm = TRUE)
+    
+    if ("quinquenio" %in% names(df)) {
+      # Extraer edad inicial del quinquenio para el filtro
+      df <- df %>% mutate(edad_inicio = quinquenio_to_edad_inicio(quinquenio))
+      j   <- sum(df$poblacion[!is.na(df$edad_inicio) & df$edad_inicio <= 14], na.rm = TRUE)
+      m   <- sum(df$poblacion[!is.na(df$edad_inicio) & df$edad_inicio >= 65], na.rm = TRUE)
+      act <- sum(df$poblacion[!is.na(df$edad_inicio) & df$edad_inicio >= 15 & df$edad_inicio <= 64], na.rm = TRUE)
+    } else {
+      # Si no hay variable de edad, usar valores predeterminados
+      j <- 0
+      m <- 0
+      act <- 1  # Para evitar división por cero
+    }
+    
     ratio <- if (act > 0) (j + m) / act else 0
     scales::number(ratio, accuracy = 0.01, decimal.mark = ",", big.mark = ".")
   })
@@ -465,11 +533,19 @@ server <- function(input, output, session){
       )
   })
   
-  # ================= Pirámide decenal =================
+  # ================= Pirámide con DECENIOS (agrupando quinquenios) =================
   output$plot_piramide <- renderPlotly({
-    df <- base_ano() %>% 
+    df <- base_ano()
+    
+    # Verificar si tenemos la variable quinquenio
+    if (!"quinquenio" %in% names(df)) {
+      return(empty_plot("No se encontró variable quinquenio para la pirámide."))
+    }
+    
+    # Procesar datos para pirámide: convertir quinquenios a decenios
+    df <- df %>%
       mutate(
-        grupo_edad = make_dec(edad),
+        decenio = quinquenio_to_decenio(quinquenio),
         sexo_lc  = tolower(trimws(as.character(sexo))),
         sexo_cat = dplyr::case_when(
           sexo_lc %in% c("hombre","hombres","m","masculino","masculinos") ~ "Hombres",
@@ -479,11 +555,16 @@ server <- function(input, output, session){
         sexo_cat = factor(sexo_cat, levels = c("Hombres","Mujeres","Otros"))
       ) %>%
       filter(sexo_cat %in% c("Hombres","Mujeres")) %>%
-      group_by(sexo_cat, grupo_edad) %>%
+      group_by(sexo_cat, decenio) %>%
       summarise(pob = sum(poblacion, na.rm = TRUE), .groups = "drop") %>%
       mutate(pob_plot = ifelse(sexo_cat == "Hombres", -pob, pob))
     
     if (nrow(df) == 0) return(empty_plot("Sin datos para la pirámide con los filtros actuales."))
+    
+    # Ordenar los decenios correctamente: de menor a mayor (0-9 arriba, 80+ abajo)
+    decenios_orden <- c("0-9", "10-19", "20-29", "30-39", "40-49", 
+                        "50-59", "60-69", "70-79", "80+")
+    df$decenio <- factor(df$decenio, levels = decenios_orden)
     
     max_abs    <- max(abs(df$pob_plot), na.rm = TRUE)
     raw_breaks <- pretty(c(-max_abs, max_abs), n = 5)
@@ -491,9 +572,9 @@ server <- function(input, output, session){
     breaks_y   <- pretty(c(-max_tick, max_tick), n = 5)
     
     p <- ggplot(df, aes(
-      x = grupo_edad, y = pob_plot, fill = sexo_cat,
+      x = decenio, y = pob_plot, fill = sexo_cat,
       text = paste0(
-        "Grupo: ", grupo_edad,
+        "Grupo: ", decenio,
         "<br>Sexo: ", sexo_cat,
         "<br>Población: ", fmt_km(pob)
       )
@@ -511,7 +592,7 @@ server <- function(input, output, session){
         name   = "Sexo",
         drop   = TRUE
       ) +
-      labs(x = "Grupos etarios", y = "") +
+      labs(x = "Grupos etarios (decenios)", y = "") +
       theme_minimal() +
       theme(
         panel.background   = element_blank(),
@@ -520,7 +601,8 @@ server <- function(input, output, session){
         panel.grid.minor.x = element_blank(),
         panel.grid.major.y = element_blank(),
         panel.grid.minor.y = element_blank(),
-        axis.line          = element_line(colour = "#111827")
+        axis.line          = element_line(colour = "#111827"),
+        axis.text.y        = element_text(size = 10)
       )
     
     ggplotly(p, tooltip = "text") %>% 
@@ -611,5 +693,3 @@ server <- function(input, output, session){
 # RUN
 # =========================================================
 shinyApp(ui, server)
-
-
