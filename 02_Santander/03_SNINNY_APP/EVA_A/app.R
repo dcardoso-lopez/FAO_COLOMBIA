@@ -43,12 +43,11 @@ BORDER_COL <- "#a1d99b"
 github_url <- "https://github.com/tu_usuario/tu_repo"
 
 # === Ruta fija de la app y del Rmd ===
-APP_DIR  <- ""
-RMD_PATH <- file.path(APP_DIR, "informe_eva.Rmd")
-if (!file.exists(RMD_PATH)) {
-  stop(sprintf("No encuentro el Rmd en: %s", RMD_PATH))
-}
+RMD_PATH <- "informe_eva.Rmd"
 
+if (!file.exists(RMD_PATH)) {
+  stop(sprintf("No encuentro el Rmd en: %s", normalizePath(RMD_PATH)))
+}
 # ------------------------------
 # 2) Datos: EVA + Shapefiles
 # ------------------------------
