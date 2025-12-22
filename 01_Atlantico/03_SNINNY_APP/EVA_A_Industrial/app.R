@@ -55,15 +55,12 @@ eva_df <- readRDS(
   "data/011_UPRA_EVA-A.rds"
 )
 
-# ===== ÚNICA MODIFICACIÓN: recodificar Caña -> Caña de Azúcar =====
-eva_df <- eva_df %>%
-  dplyr::mutate(
-    cultivo = dplyr::case_when(
-      cultivo == "Caña" ~ "Caña de Azúcar",
-      TRUE              ~ cultivo
-    )
-  ) %>%
-  dplyr::filter(DEPARTAMENTO_D == "ATLÁNTICO")
+eva_df <- eva_df %>% dplyr::filter(DEPARTAMENTO_D == "ATLÁNTICO") %>% dplyr::mutate(
+  cultivo = dplyr::case_when(
+    cultivo == "Caña" ~ "Caña de Azúcar",
+    TRUE              ~ cultivo
+  )
+) 
 
 eva_df <- eva_df %>%
   dplyr::filter(

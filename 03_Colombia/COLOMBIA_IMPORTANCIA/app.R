@@ -179,7 +179,7 @@ make_bin_labels_co <- function(bins){
 # SELECTOR BASE (POR AHORA SOLO EVA-A)
 # =========================================================
 base_choices <- c(
-  "Condiciones productivas de los productos agroalimentarios (EVA-A)" = "UPRA_EVA_A"
+  "Condiciones productivas de los productos agroindustriales (EVA-A)" = "UPRA_EVA_A"
 )
 default_base <- unname(base_choices[1])
 

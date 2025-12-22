@@ -1,6 +1,6 @@
 # app_bpan.R
 # =========================================================
-# BPAN — Dashboard (app exclusiva)
+# BPAN — Dashboard (app exclusiva) - ATLÁNTICO
 # =========================================================
 
 suppressWarnings({
@@ -80,10 +80,11 @@ if (length(miss_shp)) stop("Faltan componentes de shapefile:\n", paste("-", miss
 
 # ---------- 1) Leer BPAN (casos = filas) ----------
 bpan_raw <- readRDS(bpan_path)
-bpan_raw <- bpan_raw %>% dplyr::filter(DEPARTAMENTO_O=="ATLÁNTICO")  # <--- solo Santander
+# CAMBIO: Filtrar solo Atlántico
+bpan_raw <- bpan_raw %>% dplyr::filter(DEPARTAMENTO_O=="ATLÁNTICO" | DEPARTAMENTO_O=="ATLANTICO")  # <--- solo Atlántico
 
-b_month_col    <- get_col(bpan_raw, c("mes","MES"), "BPAN: no 'mes'/'MES'")
-b_year_col     <- get_col(bpan_raw, c("ano","ANO"), "BPAN: no 'ano'/'ANO'")
+# SOLO año, eliminado mes
+b_year_col     <- get_col(bpan_raw, c("ano","ANO","year","YEAR"), "BPAN: no 'ano'/'ANO'")
 
 # AHORA: códigos para el MAPA desde OCURRENCIA (_O), no desde _D
 b_mun_code_col <- get_col(
@@ -92,33 +93,27 @@ b_mun_code_col <- get_col(
   "BPAN: no 'COD_DANE_MUNIC_O' (ni columnas equivalentes) para ocurrencia"
 )
 
-# Nombre "destino" sigue estando disponible si lo quieres luego en otra pestaña
-b_dep_name_col <- get_col(bpan_raw, c("DEPARTAMENTO_D","DEPARTMENTO_D"), "BPAN: no 'DEPARTAMENTO_D'")
-b_mun_name_col <- get_col(bpan_raw, c("MUNICIPIO_D","NOMBRE_MPIO"), "BPAN: no 'MUNICIPIO_D'")
-
-# Códigos y nombres de ORIGEN (ocurrencia)
-b_dep_origen_col  <- if ("DEPARTAMENTO_O"   %in% names(bpan_raw)) "DEPARTAMENTO_O"   else NA_character_
-b_mun_origen_col  <- if ("MUNICIPIO_O"      %in% names(bpan_raw)) "MUNICIPIO_O"      else NA_character_
-b_dep_code_o_col  <- if ("COD_DANE_DPTO_O"  %in% names(bpan_raw)) "COD_DANE_DPTO_O"  else NA_character_
+# ELIMINADO: No usamos columnas _D, solo _O
+# Códigos y nombres de ORIGEN (ocurrencia) - obligatorios
+b_dep_origen_col  <- get_col(bpan_raw, c("DEPARTAMENTO_O","DEPARTAMENTO"), "BPAN: no 'DEPARTAMENTO_O'")
+b_mun_origen_col  <- get_col(bpan_raw, c("MUNICIPIO_O","MUNICIPIO"), "BPAN: no 'MUNICIPIO_O'")
+b_dep_code_o_col  <- get_col(bpan_raw, c("COD_DANE_DPTO_O","COD_DPTO"), "BPAN: no 'COD_DANE_DPTO_O'")
 
 bpan <- bpan_raw %>%
   dplyr::transmute(
-    mes       = suppressWarnings(as.integer(.data[[b_month_col]])),
+    # ELIMINADO: mes - ya que no lo necesitas
     ano       = suppressWarnings(as.integer(.data[[b_year_col]])),
     # CÓDIGO MUNICIPAL AHORA ES DE OCURRENCIA
     COD_MUN5  = sprintf("%05d", suppressWarnings(as.integer(.data[[b_mun_code_col]]))),
-    # CÓDIGO DEPARTAMENTAL TAMBIÉN, SI ESTÁ; SI NO, SE DERIVA DEL MUNICIPIO
+    # CÓDIGO DEPARTAMENTAL
     COD_DPTO2 = if (!is.na(b_dep_code_o_col)) {
       sprintf("%02d", suppressWarnings(as.integer(.data[[b_dep_code_o_col]])))
     } else {
       substr(COD_MUN5, 1, 2)
     },
-    # Nombres de DESTINO (por si se usan después)
-    DEP_D     = title_case_es(.data[[b_dep_name_col]]),
-    MUN_D     = title_case_es(.data[[b_mun_name_col]]),
     # Nombres de OCURRENCIA (los que realmente usamos en filtros/mapa)
-    DEP_O     = if (!is.na(b_dep_origen_col))  title_case_es(.data[[b_dep_origen_col]])  else NA_character_,
-    MUN_O     = if (!is.na(b_mun_origen_col))  title_case_es(.data[[b_mun_origen_col]])  else NA_character_,
+    DEP     = title_case_es(.data[[b_dep_origen_col]]),
+    MUN     = title_case_es(.data[[b_mun_origen_col]]),
     edad      = suppressWarnings(as.numeric(edad)),     # edad materna
     PAC_HOS   = suppressWarnings(as.integer(pac_hos))   # 1 = vivo, 2 = fallecido
   ) %>%
@@ -126,19 +121,18 @@ bpan <- bpan_raw %>%
     !is.na(ano),
     !is.na(COD_MUN5),
     !is.na(COD_DPTO2),
-    !is.na(MUN_D)
+    !is.na(MUN),
+    !is.na(DEP)
   )
 
-# Solo filas con ORIGEN válido (ocurrencia)
-bpan_valid <- bpan %>%
-  dplyr::filter(
-    !is.na(DEP_O), DEP_O != "",
-    !is.na(MUN_O), MUN_O != ""
-  )
+# Filtrar solo Atlántico (normalizando el nombre)
+bpan <- bpan %>% 
+  dplyr::mutate(DEP = ifelse(toupper(DEP) %in% c("ATLÁNTICO", "ATLANTICO"), "Atlántico", DEP)) %>%
+  dplyr::filter(DEP == "Atlántico")
 
-# *** Lookup de departamentos y valor por defecto Santander ***
-DEPS_ALL <- sort(unique(bpan_valid$DEP_O))
-SANTANDER_DEFAULT <- if ("Atlántico" %in% DEPS_ALL) "Atlántico" else (DEPS_ALL[1] %||% "Todos")
+# *** Lookup de departamentos - solo Atlántico ***
+DEPS_ALL <- "Atlántico"
+ATLANTICO_DEFAULT <- "Atlántico"
 
 # ---------- 2) Shapes ----------
 mpios_raw <- sf::st_read(ruta_shp_mpios, quiet = TRUE)
@@ -173,21 +167,21 @@ dptos_sf <- dptos_raw %>%
   sf::st_make_valid()
 
 # ---------- Lookups ----------
-dpt_lookup_bpan <- bpan_valid %>%
-  dplyr::select(COD_DPTO2, DEP_O) %>%
+dpt_lookup_bpan <- bpan %>%
+  dplyr::select(COD_DPTO2, DEP) %>%
   dplyr::mutate(
     COD_DPTO2 = sprintf("%02d", as.integer(COD_DPTO2)),
-    DEP_O     = trimws(DEP_O)
+    DEP     = trimws(DEP)
   ) %>%
   dplyr::distinct() %>%
-  dplyr::arrange(DEP_O)
+  dplyr::arrange(DEP)
 
-mun_lookup_bpan <- bpan_valid %>%
-  dplyr::select(COD_DPTO2, COD_MUN5, MUN_O) %>%
+mun_lookup_bpan <- bpan %>%
+  dplyr::select(COD_DPTO2, COD_MUN5, MUN) %>%
   dplyr::mutate(
     COD_DPTO2 = sprintf("%02d", as.integer(COD_DPTO2)),
     COD_MUN5  = sprintf("%05d", as.integer(COD_MUN5)),
-    MUN_O     = trimws(MUN_O)
+    MUN     = trimws(MUN)
   ) %>%
   dplyr::distinct()
 
@@ -371,14 +365,13 @@ ui <- fluidPage(
         font-size:12px;
         color:#6b7280;
         margin-top:6px;
-      }
     ", BORDER_UI)))
   ),
   div(
     class = "wrap",
-    h3(""),
+    h3("Bajo Peso al Nacer (BPAN) - Atlántico"),
     div(class = "data-note",
-        HTML("")),
+        HTML("Datos de ocurrencia de bajo peso al nacer en el departamento del Atlántico")),
     div(
       class = "filters",
       div(
@@ -392,15 +385,15 @@ ui <- fluidPage(
           class = "filter",
           div(class = "filter-label", "¿En qué departamento?"),
           selectInput(
-            "f_depto_ocurr", NULL,
-            choices  = c("Todos", DEPS_ALL),
-            selected = SANTANDER_DEFAULT   # <-- por defecto Santander
+            "f_depto", NULL,
+            choices  = DEPS_ALL,
+            selected = ATLANTICO_DEFAULT
           )
         ),
         div(
           class = "filter",
           div(class = "filter-label", "¿Algún municipio en particular?"),
-          selectInput("f_mpio_ocurr", NULL, choices = "Todos", selected = "Todos")
+          selectInput("f_mpio", NULL, choices = "Todos", selected = "Todos")
         ),
         div(
           class = "filter",
@@ -430,7 +423,7 @@ ui <- fluidPage(
         width = 6,
         div(
           class = "card",
-          div(class = "card-title", "¿Como ha evolucionado los casos de bajo peso al nacer (BPAN)?"),
+          div(class = "card-title", "¿Cómo ha evolucionado los casos de bajo peso al nacer (BPAN) por año?"),
           div(class = "series-plot-container",
               plotlyOutput("serie_temporal", height = 330))),
         div(
@@ -449,118 +442,90 @@ server <- function(input, output, session){
   
   # ================= Exploración =================
   output$anio_bpan_ui <- renderUI({
-    yrs <- sort(unique(bpan_valid$ano))
+    yrs <- sort(unique(bpan$ano))
     selectInput("f_anio_bpan", NULL, choices = yrs, selected = max(yrs, na.rm = TRUE))
   })
   
   observeEvent(input$btn_reset_bpan, {
-    yrs <- sort(unique(bpan_valid$ano))
-    updateSelectInput(session, "f_anio_bpan",  selected = max(yrs, na.rm = TRUE))
-    # reset dejando Santander seleccionado
-    updateSelectInput(session, "f_depto_ocurr",
-                      choices  = c("Todos", DEPS_ALL),
-                      selected = SANTANDER_DEFAULT)
-    updateSelectInput(session, "f_mpio_ocurr",  choices = "Todos", selected = "Todos")
+    yrs <- sort(unique(bpan$ano))
+    updateSelectInput(session, "f_anio_bpan", selected = max(yrs, na.rm = TRUE))
+    updateSelectInput(session, "f_depto", selected = ATLANTICO_DEFAULT)
+    updateSelectInput(session, "f_mpio", choices = "Todos", selected = "Todos")
   })
   
   observeEvent(input$f_anio_bpan, {
-    df_year <- bpan_valid %>% dplyr::filter(ano == input$f_anio_bpan)
-    deps_o  <- df_year %>% dplyr::distinct(DEP_O) %>% dplyr::arrange(DEP_O) %>% dplyr::pull(DEP_O)
+    df_year <- bpan %>% dplyr::filter(ano == input$f_anio_bpan)
+    deps_o  <- df_year %>% dplyr::distinct(DEP) %>% dplyr::arrange(DEP) %>% dplyr::pull(DEP)
     
-    # si lo que estaba seleccionado sigue siendo válido, lo mantenemos;
-    # si no, tratamos de dejar Santander; si tampoco está, "Todos"
-    sel_dep <- if (!is.null(input$f_depto_ocurr) && input$f_depto_ocurr %in% c("Todos", deps_o)) {
-      input$f_depto_ocurr
-    } else if (SANTANDER_DEFAULT %in% deps_o) {
-      SANTANDER_DEFAULT
+    sel_dep <- if (!is.null(input$f_depto) && input$f_depto %in% deps_o) {
+      input$f_depto
     } else {
-      "Todos"
+      DEPS_ALL[1]
     }
-    updateSelectInput(session, "f_depto_ocurr", choices = c("Todos", deps_o), selected = sel_dep)
-    updateSelectInput(session, "f_mpio_ocurr",  choices = "Todos", selected = "Todos")
+    updateSelectInput(session, "f_depto", choices = deps_o, selected = sel_dep)
+    updateSelectInput(session, "f_mpio", choices = "Todos", selected = "Todos")
   }, ignoreInit = FALSE)
   
-  observeEvent(input$f_depto_ocurr, {
-    df <- bpan_valid %>% dplyr::filter(ano == input$f_anio_bpan)
-    if (!is.null(input$f_depto_ocurr) && input$f_depto_ocurr != "Todos") {
+  observeEvent(input$f_depto, {
+    df <- bpan %>% dplyr::filter(ano == input$f_anio_bpan)
+    if (!is.null(input$f_depto)) {
       mpios_o <- df %>%
-        dplyr::filter(DEP_O == input$f_depto_ocurr) %>%
-        dplyr::distinct(MUN_O) %>%
-        dplyr::arrange(MUN_O) %>%
-        dplyr::pull(MUN_O)
-      updateSelectInput(session, "f_mpio_ocurr", choices = c("Todos", mpios_o), selected = "Todos")
+        dplyr::filter(DEP == input$f_depto) %>%
+        dplyr::distinct(MUN) %>%
+        dplyr::arrange(MUN) %>%
+        dplyr::pull(MUN)
+      updateSelectInput(session, "f_mpio", choices = c("Todos", mpios_o), selected = "Todos")
     } else {
-      updateSelectInput(session, "f_mpio_ocurr", choices = "Todos", selected = "Todos")
+      updateSelectInput(session, "f_mpio", choices = "Todos", selected = "Todos")
     }
   }, ignoreInit = TRUE)
   
-  # Base de datos filtrada por ocurrencia
+  # Base de datos filtrada
   bpan_base <- reactive({
     req(input$f_anio_bpan)
-    df <- bpan_valid %>% dplyr::filter(ano == input$f_anio_bpan)
-    if (!is.null(input$f_depto_ocurr) && input$f_depto_ocurr != "Todos")
-      df <- df %>% dplyr::filter(DEP_O == input$f_depto_ocurr)
-    if (!is.null(input$f_mpio_ocurr)  && input$f_mpio_ocurr  != "Todos")
-      df <- df %>% dplyr::filter(MUN_O == input$f_mpio_ocurr)
+    df <- bpan %>% dplyr::filter(ano == input$f_anio_bpan)
+    if (!is.null(input$f_depto))
+      df <- df %>% dplyr::filter(DEP == input$f_depto)
+    if (!is.null(input$f_mpio) && input$f_mpio != "Todos")
+      df <- df %>% dplyr::filter(MUN == input$f_mpio)
     df
   })
   
   # Base completa para serie temporal (sin filtrar por año)
   bpan_serie_completa <- reactive({
-    df <- bpan_valid
-    if (!is.null(input$f_depto_ocurr) && input$f_depto_ocurr != "Todos")
-      df <- df %>% dplyr::filter(DEP_O == input$f_depto_ocurr)
-    if (!is.null(input$f_mpio_ocurr)  && input$f_mpio_ocurr  != "Todos")
-      df <- df %>% dplyr::filter(MUN_O == input$f_mpio_ocurr)
+    df <- bpan
+    if (!is.null(input$f_depto))
+      df <- df %>% dplyr::filter(DEP == input$f_depto)
+    if (!is.null(input$f_mpio) && input$f_mpio != "Todos")
+      df <- df %>% dplyr::filter(MUN == input$f_mpio)
     df
   })
   
   # Determinar nivel del mapa
   map_nivel <- reactive({
-    if (!is.null(input$f_depto_ocurr) && input$f_depto_ocurr != "Todos") "mpios" else "deptos"
+    "mpios"  # Siempre mostramos municipios ya que estamos en Atlántico
   })
   
   sel_cod_dep <- reactive({
-    if (map_nivel() == "mpios") {
-      cod <- dptos_sf %>%
-        dplyr::filter(DEPARTAMENTO_N == input$f_depto_ocurr) %>%
-        dplyr::pull(COD_DPTO2) %>%
-        .[1]
-      if (is.na(cod) || !nzchar(cod)) {
-        cod <- bpan_base() %>%
-          dplyr::distinct(COD_DPTO2) %>%
-          dplyr::pull(COD_DPTO2) %>%
-          .[1]
-      }
-      cod
-    } else NA_character_
+    # Código de Atlántico
+    "08"
   })
   
   # Títulos
   output$ttl_map_tab1 <- renderText({
     if (is.null(input$f_anio_bpan)) return("")
-    if (map_nivel() == "deptos") {
-      paste0("¿Dónde se concentran los casos de bajo peso al nacer (BPAN) a nivel departamental", "?")
-    } else {
-      paste0("¿Dónde se concentran los casos de bajo peso al nacer (BPAN) a nivel municipal", "?")
-    }
+    paste0("¿Dónde se concentran los casos de bajo peso al nacer (BPAN) en Atlántico en ", input$f_anio_bpan, "?")
   })
   
   output$ttl_top10_tab1 <- renderText({
     if (is.null(input$f_anio_bpan)) return("")
-    paste0("Top 10 municipios con más casos de bajo peso al nacer (BPAN)")
+    paste0("Top 10 municipios con más casos de bajo peso al nacer (BPAN) en ", input$f_anio_bpan)
   })
   
-  # Agregaciones por departamento y municipio (ya con COD_* de ocurrencia)
-  bpan_agg_depto <- reactive({
-    bpan_base() %>%
-      dplyr::group_by(COD_DPTO2, DEP_O) %>%
-      dplyr::summarise(valor = dplyr::n(), .groups = "drop")
-  })
-  
+  # Agregaciones por departamento y municipio
   bpan_agg_mpio  <- reactive({
     bpan_base() %>%
-      dplyr::group_by(COD_DPTO2, COD_MUN5, MUN_O) %>%
+      dplyr::group_by(COD_DPTO2, COD_MUN5, MUN) %>%
       dplyr::summarise(valor = dplyr::n(), .groups = "drop")
   })
   
@@ -568,7 +533,7 @@ server <- function(input, output, session){
   output$map_bpan <- renderLeaflet({
     leaflet::leaflet() %>%
       leaflet::addProviderTiles(leaflet::providers$CartoDB.Positron) %>%
-      leaflet::setView(lng = -74.3, lat = 4.6, zoom = 5)
+      leaflet::setView(lng = -74.9, lat = 10.8, zoom = 9)  # Centro de Atlántico
   })
   
   # Actualizar mapa
@@ -576,100 +541,57 @@ server <- function(input, output, session){
     titulo  <- "Casos"
     fmt_val <- function(x) scales::comma(x)
     
-    if (map_nivel() == "deptos") {
-      shp <- dptos_sf %>%
-        dplyr::left_join(bpan_agg_depto(), by = "COD_DPTO2") %>%
-        dplyr::mutate(
-          valor  = tidyr::replace_na(valor, 0),
-          nombre = dplyr::coalesce(DEP_O, DEPARTAMENTO_N),
-          etq    = paste0("<b>", nombre, "</b><br>", titulo, ": ", fmt_val(valor))
+    sel_cod <- sel_cod_dep()
+    shp <- mpios_sf %>%
+      dplyr::filter(COD_DPTO2 == sel_cod) %>%
+      dplyr::left_join(bpan_agg_mpio(), by = c("COD_DPTO2","COD_MUN5")) %>%
+      dplyr::mutate(
+        valor  = tidyr::replace_na(valor, 0),
+        nombre = dplyr::coalesce(MUN, MUNICIPIO_N),
+        etq    = paste0("<b>", nombre, "</b><br>", titulo, ": ", fmt_val(valor))
+      )
+    
+    pal <- make_quartile_pal(shp$valor)
+    
+    bb  <- sf::st_bbox(shp)
+    leaflet::leafletProxy("map_bpan", data = shp) %>%
+      leaflet::clearShapes() %>%
+      leaflet::clearControls() %>%
+      leaflet::addPolygons(
+        layerId = ~COD_MUN5,
+        fillColor = ~pal(valor),
+        color = BORDER_UI, weight = 0.4, fillOpacity = 0.9,
+        label = ~lapply(etq, htmltools::HTML),
+        highlightOptions = leaflet::highlightOptions(
+          color = BORDER_UI, weight = 2, bringToFront = TRUE
         )
-      
-      pal <- make_quartile_pal(shp$valor)
-      
-      leaflet::leafletProxy("map_bpan", data = shp) %>%
-        leaflet::clearShapes() %>%
-        leaflet::clearControls() %>%
-        leaflet::addPolygons(
-          layerId = ~COD_DPTO2,
-          fillColor = ~pal(valor),
-          color = BORDER_UI, weight = 0.7, fillOpacity = 0.9,
-          label = ~lapply(etq, htmltools::HTML),
-          highlightOptions = leaflet::highlightOptions(
-            color = BORDER_UI, weight = 2, bringToFront = TRUE
-          )
-        ) %>%
-        leaflet::addLegend(
-          position  = "bottomright",
-          pal       = pal, 
-          values    = ~valor, 
-          title     = titulo,
-          labFormat = quartile_lab_format
-        )
-      
-    } else {
-      sel_cod <- sel_cod_dep(); req(!is.na(sel_cod), nzchar(sel_cod))
-      shp <- mpios_sf %>%
-        dplyr::filter(COD_DPTO2 == sel_cod) %>%
-        dplyr::left_join(bpan_agg_mpio(), by = c("COD_DPTO2","COD_MUN5")) %>%
-        dplyr::mutate(
-          valor  = tidyr::replace_na(valor, 0),
-          nombre = dplyr::coalesce(MUN_O, MUNICIPIO_N),
-          etq    = paste0("<b>", nombre, "</b><br>", titulo, ": ", fmt_val(valor))
-        )
-      
-      pal <- make_quartile_pal(shp$valor)
-      
-      bb  <- sf::st_bbox(shp)
-      leaflet::leafletProxy("map_bpan", data = shp) %>%
-        leaflet::clearShapes() %>%
-        leaflet::clearControls() %>%
-        leaflet::addPolygons(
-          layerId = ~COD_MUN5,
-          fillColor = ~pal(valor),
-          color = BORDER_UI, weight = 0.4, fillOpacity = 0.9,
-          label = ~lapply(etq, htmltools::HTML),
-          highlightOptions = leaflet::highlightOptions(
-            color = BORDER_UI, weight = 2, bringToFront = TRUE
-          )
-        ) %>%
-        leaflet::addLegend(
-          position  = "bottomright",
-          pal       = pal, 
-          values    = ~valor, 
-          title     = titulo,
-          labFormat = quartile_lab_format
-        ) %>%
-        leaflet::fitBounds(bb["xmin"], bb["ymin"], bb["xmax"], bb["ymax"])
-    }
+      ) %>%
+      leaflet::addLegend(
+        position  = "bottomright",
+        pal       = pal, 
+        values    = ~valor, 
+        title     = titulo,
+        labFormat = quartile_lab_format
+      ) %>%
+      leaflet::fitBounds(bb["xmin"], bb["ymin"], bb["xmax"], bb["ymax"])
   })
   
   observeEvent(input$map_bpan_shape_click, {
     click <- input$map_bpan_shape_click; req(click$id)
-    if (map_nivel()=="deptos") {
-      cod <- sprintf("%02d", as.integer(click$id))
-      nom_shape <- dptos_sf$DEPARTAMENTO_N[match(cod, dptos_sf$COD_DPTO2)]
-      deps_year <- bpan_base() %>% dplyr::distinct(DEP_O) %>% dplyr::pull(DEP_O)
-      if (!is.na(nom_shape) && nzchar(nom_shape) && nom_shape %in% deps_year)
-        updateSelectInput(session, "f_depto_ocurr", selected = nom_shape)
-    } else {
-      codm <- sprintf("%05d", as.integer(click$id))
-      nom_mpio <- mpios_sf$MUNICIPIO_N[match(codm, mpios_sf$COD_MUN5)]
-      if (!is.null(input$f_depto_ocurr) && input$f_depto_ocurr != "Todos") {
-        mpios_year_dep <- bpan_base() %>%
-          dplyr::distinct(MUN_O) %>% dplyr::pull(MUN_O)
-        if (!is.na(nom_mpio) && nzchar(nom_mpio) && nom_mpio %in% mpios_year_dep)
-          updateSelectInput(session, "f_mpio_ocurr", selected = nom_mpio)
-      }
-    }
+    codm <- sprintf("%05d", as.integer(click$id))
+    nom_mpio <- mpios_sf$MUNICIPIO_N[match(codm, mpios_sf$COD_MUN5)]
+    mpios_year <- bpan_base() %>%
+      dplyr::distinct(MUN) %>% dplyr::pull(MUN)
+    if (!is.na(nom_mpio) && nzchar(nom_mpio) && nom_mpio %in% mpios_year)
+      updateSelectInput(session, "f_mpio", selected = nom_mpio)
   }, ignoreInit = TRUE)
   
-  # Top-10 MUNICIPIOS (OCURRENCIA)
+  # Top-10 MUNICIPIOS
   top10_df <- reactive({
     bpan_base() %>%
-      dplyr::group_by(COD_MUN5, MUN_O) %>%
+      dplyr::group_by(COD_MUN5, MUN) %>%
       dplyr::summarise(valor = dplyr::n(), .groups = "drop") %>%
-      dplyr::mutate(nombre = dplyr::if_else(!is.na(MUN_O) & nzchar(MUN_O), MUN_O, COD_MUN5)) %>%
+      dplyr::mutate(nombre = dplyr::if_else(!is.na(MUN) & nzchar(MUN), MUN, COD_MUN5)) %>%
       dplyr::arrange(dplyr::desc(valor)) %>%
       dplyr::slice_head(n = 10)
   })

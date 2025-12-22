@@ -1,8 +1,7 @@
 # app_nda.R
 # =========================================================
-# NDA — Dashboard (app exclusiva)
+# NDA — Dashboard (app exclusiva) - SANTANDER
 # - Tab 1: Exploración (mapa, top-10, serie, sexo)  → por ocurrencia
-# - Tab 2: Resultados clínicos y supervivencia      → por ocurrencia
 # =========================================================
 
 suppressWarnings({
@@ -85,6 +84,8 @@ if (length(miss_shp)) stop("Faltan componentes de shapefile:\n", paste("-", miss
 
 # ---------- 1) Leer NDA (casos = filas) SOLO ORIGEN ----------
 nda_raw <- readRDS(nda_path)
+
+# CAMBIO: Filtrar solo Santander
 nda_raw <- nda_raw %>% dplyr::filter(DEPARTAMENTO_O=="SANTANDER")
 
 get_col <- function(df, opts, stop_msg){
@@ -92,27 +93,27 @@ get_col <- function(df, opts, stop_msg){
   if (is.na(nm) || !nzchar(nm)) stop(stop_msg) else nm
 }
 
-n_month_col    <- get_col(nda_raw, c("mes","MES"), "NDA: no 'mes'/'MES'")
-n_year_col     <- get_col(nda_raw, c("ano","ANO"), "NDA: no 'ano'/'ANO'")
+# Buscar columnas con nombres alternativos
+n_year_col     <- get_col(nda_raw, c("ano","ANO","year","YEAR"), "NDA: no columna de año")
 
 # Código municipal: usar ORIGEN (COD_DANE_MUNIC_O) o alternativas
 n_mun_code_col <- get_col(
   nda_raw,
-  c("COD_DANE_MUNIC_O", "COD_MUN5", "COD_MPIO", "MPIO_CDPMP"),
+  c("COD_DANE_MUNIC_O", "COD_MUN5", "COD_MPIO", "MPIO_CDPMP", "CODIGO_MUNICIPIO"),
   "NDA: no código municipal de ocurrencia (origen)"
 )
 
 # DEPARTAMENTO_O / DEPARTMENTO_O (origen)
 n_dep_origen_col <- get_col(
   nda_raw,
-  c("DEPARTAMENTO_O", "DEPARTMENTO_O"),
+  c("DEPARTAMENTO_O", "DEPARTMENTO_O", "DEPARTAMENTO", "DEPARTMENTO"),
   "NDA: no 'DEPARTAMENTO_O/DEPARTMENTO_O' (origen)"
 )
 
 # MUNICIPIO_O (origen)
 n_mun_origen_col <- get_col(
   nda_raw,
-  c("MUNICIPIO_O"),
+  c("MUNICIPIO_O", "MUNICIPIO", "MUNICIPIO_NOMBRE"),
   "NDA: no 'MUNICIPIO_O' (origen)"
 )
 
@@ -127,17 +128,17 @@ normalize_sex <- function(x){
 
 nda <- nda_raw %>%
   dplyr::transmute(
-    mes       = suppressWarnings(as.integer(.data[[n_month_col]])),
     ano       = suppressWarnings(as.integer(.data[[n_year_col]])),
-    COD_MUN5  = sprintf("%05d", suppressWarnings(as.integer(.data[[n_mun_code_col]]))), # código DANE (origen)
+    COD_MUN5  = sprintf("%05d", suppressWarnings(as.integer(.data[[n_mun_code_col]]))),
     COD_DPTO2 = substr(COD_MUN5, 1, 2),
-    DEP_O     = title_case_es(.data[[n_dep_origen_col]]), # departamento de ocurrencia (ORIGEN)
-    MUN_O     = title_case_es(.data[[n_mun_origen_col]]), # municipio de ocurrencia (ORIGEN)
+    DEP_O     = title_case_es(.data[[n_dep_origen_col]]),
+    MUN_O     = title_case_es(.data[[n_mun_origen_col]]),
     edad_ni   = suppressWarnings(as.numeric(edad)),
     sexo_ni   = normalize_sex(sexo),
-    confirmados = suppressWarnings(as.integer(confirmados)),
-    PAC_HOS     = suppressWarnings(as.integer(pac_hos)),
-    tip_cas     = trimws(as.character(tip_cas))
+    confirmados = if ("confirmados" %in% names(nda_raw)) 
+      suppressWarnings(as.integer(confirmados)) else NA_integer_,
+    tip_cas     = if ("tip_cas" %in% names(nda_raw))
+      trimws(as.character(tip_cas)) else NA_character_
   ) %>%
   dplyr::filter(
     !is.na(ano),
@@ -373,7 +374,7 @@ ui <- fluidPage(
             div(
               class = "filter",
               div(class = "filter-label", "¿En qué departamento?"),
-              # <<< Atlántico por defecto en la UI
+              # <<< Santander por defecto en la UI
               selectInput("f_depto_nda", NULL,
                           choices  = c("Todos","Santander"),
                           selected = "Santander")
@@ -444,72 +445,8 @@ ui <- fluidPage(
             ),
             div(
               class = "card",
-              div(class = "card-title", textOutput("ttl_top_mpios_dest")),
+              div(class = "card-title", "¿Cómo ha evolucionado en el tiempo el número de casos de NDA en Santander?"),
               plotlyOutput("destinos_mpio_top", height = 240)
-            )
-          )
-        )
-      ),
-      
-      # ================= TAB 2 — Resultados clínicos y supervivencia (por ocurrencia) =================
-      tabPanel(
-        title = "Evolución clínica y supervivencia de los casos",
-        br(),
-        
-        div(
-          class = "filters",
-          div(
-            class = "filters-grid",
-            div(
-              class = "filter",
-              div(class = "filter-label", "¿Qué año analizamos?"),
-              uiOutput("anio_b3_ui")
-            ),
-            div(
-              class = "filter",
-              div(class = "filter-label", "¿En qué departamento?"),
-              uiOutput("dep_o_b3_ui")
-            ),
-            div(
-              class = "filter",
-              div(class = "filter-label", "¿Algún municipio en particular?"),
-              uiOutput("mun_o_b3_ui")
-            ),
-            div(
-              class = "filter",
-              div(class = "filter-label", "¿Hombres o Mujeres?"),
-              uiOutput("sexo_b3_ui")
-            )
-          )
-        ),
-        
-        fluidRow(
-          column(
-            width = 6,
-            div(
-              class = "card",
-              div(class = "card-title", textOutput("ttl_serie_b3")),
-              plotlyOutput("serie_anual_tab3", height = 285)
-            ),
-            div(
-              class = "card",
-              div(class = "card-title", textOutput("ttl_hist_b3")),
-              plotlyOutput("hist_edad_tab3", height = 380)
-            )
-          ),
-          column(
-            width = 6,
-            div(
-              class = "card",
-              div(
-                class = "card-title",
-                textOutput("ttl_map_superv_b3")
-              ),
-              leafletOutput("map_superv_b3", height = 710),
-              div(
-                class = "data-note",
-                HTML("Nota: Los colores del mapa corresponden a los <b>cuartiles</b> de la distribución de la tasa de supervivencia (Vivos/(Vivos+Muertes)) según lugar de ocurrencia.")
-              )
             )
           )
         )
@@ -605,13 +542,13 @@ server <- function(input, output, session){
   observeEvent(input$btn_reset_nda, {
     yrs <- sort(unique(nda_valid$ano))
     
-    # <<< deps_all y Atlántico como valor por defecto al hacer RESET
+    # <<< deps_all y Santander como valor por defecto al hacer RESET
     deps_all <- nda_valid %>%
       dplyr::distinct(DEP_O) %>%
       dplyr::filter(!is.na(DEP_O), DEP_O != "") %>%
       dplyr::arrange(DEP_O) %>%
       dplyr::pull(DEP_O)
-    default_dep <- if ("Atlántico" %in% deps_all) "Atlántico" else (deps_all[1] %||% "Todos")
+    default_dep <- if ("Santander" %in% deps_all) "Santander" else (deps_all[1] %||% "Todos")
     
     updateSelectInput(session, "f_anio_nda",  selected = max(yrs, na.rm = TRUE))
     updateSelectInput(session, "f_depto_nda",
@@ -644,8 +581,8 @@ server <- function(input, output, session){
       dplyr::arrange(DEP_O) %>%
       dplyr::pull(DEP_O)
     
-    # <<< Atlántico como valor por defecto si está disponible
-    default_dep <- if ("Atlántico" %in% deps_o) "Atlántico" else (deps_o[1] %||% "Todos")
+    # <<< Santander como valor por defecto si está disponible
+    default_dep <- if ("Santander" %in% deps_o) "Santander" else (deps_o[1] %||% "Todos")
     sel_dep <- if (!is.null(input$f_depto_nda) && input$f_depto_nda %in% deps_o) {
       input$f_depto_nda
     } else {
@@ -736,25 +673,22 @@ server <- function(input, output, session){
       "la incidencia (x100.000 hab.) de NDA"
     paste0(
       "¿En qué territorios es mayor la cantidad de ",
-      met, "?"
+      met, " en Santander?"
     )
   })
   output$ttl_top10_tab1 <- renderText({
     met <- if (metrica_tab1() == "casos") "más casos de NDA" else "mayor incidencia de NDA"
-    paste0("Top 10 de territorios con ", met)
-  })
-  output$ttl_top_mpios_dest <- renderText({
-    "¿Cómo ha evolucionado en el tiempo el número de casos de NDA?"
+    paste0("Top 10 de territorios con ", met, " en Santander")
   })
   output$ttl_sexo_tab1 <- renderText({
-    "¿Cómo se distribuyen los casos de NDA entre Hombres y Mujeres?"
+    "¿Cómo se distribuyen los casos de NDA entre Hombres y Mujeres en Santander?"
   })
   
   # ---------- Mapa TAB 1 (SOLO OCURRENCIA) ----------
   output$map_nda <- renderLeaflet({
     leaflet::leaflet() %>%
       leaflet::addProviderTiles(leaflet::providers$CartoDB.Positron) %>%
-      leaflet::setView(lng = -74.3, lat = 4.6, zoom = 5)
+      leaflet::setView(lng = -73.5, lat = 7.0, zoom = 8)  # CAMBIO: Coordenadas de Santander
   })
   
   observe({
@@ -1072,476 +1006,6 @@ server <- function(input, output, session){
         showlegend = FALSE
       )
   })
-  
-  # ================= TAB 2 — Resultados clínicos y supervivencia (por ocurrencia) =================
-  output$anio_b3_ui <- renderUI({
-    yrs <- sort(unique(nda$ano))
-    selectInput("f_anio_b3", "", choices = yrs, selected = max(yrs, na.rm = TRUE))
-  })
-  
-  # 👉 Departamentos de ocurrencia sujetos al año seleccionado
-  output$dep_o_b3_ui <- renderUI({
-    req(input$f_anio_b3)
-    deps <- nda %>%
-      dplyr::filter(ano == input$f_anio_b3) %>%
-      dplyr::distinct(DEP_O) %>%
-      dplyr::filter(!is.na(DEP_O), DEP_O != "") %>%
-      dplyr::arrange(DEP_O) %>%
-      dplyr::pull(DEP_O)
-    
-    # <<< Atlántico por defecto en Tab 2 si está disponible
-    default_dep <- if ("Atlántico" %in% deps) "Atlántico" else "Todos"
-    
-    selectInput("f_dep_o_b3", "",
-                choices  = c("Todos", deps),
-                selected = default_dep)
-  })
-  
-  # 👉 Municipios de ocurrencia sujetos a año y departamento
-  output$mun_o_b3_ui <- renderUI({
-    req(input$f_anio_b3, input$f_dep_o_b3)
-    
-    if (input$f_dep_o_b3 == "Todos") {
-      mm <- nda %>%
-        dplyr::filter(ano == input$f_anio_b3) %>%
-        dplyr::distinct(MUN_O) %>%
-        dplyr::filter(!is.na(MUN_O), MUN_O != "") %>%
-        dplyr::arrange(MUN_O)
-      selectInput("f_mun_o_b3", "", choices = c("Todos", mm$MUN_O), selected = "Todos")
-    } else {
-      mm <- nda %>%
-        dplyr::filter(ano == input$f_anio_b3, DEP_O == input$f_dep_o_b3) %>%
-        dplyr::distinct(MUN_O) %>%
-        dplyr::filter(!is.na(MUN_O), MUN_O != "") %>%
-        dplyr::arrange(MUN_O)
-      selectInput("f_mun_o_b3", "", choices = c("Todos", mm$MUN_O), selected = "Todos")
-    }
-  })
-  
-  output$sexo_b3_ui <- renderUI({
-    selectInput("f_sexo_b3", "", choices = c("Todos","Hombres","Mujeres"), selected = "Todos")
-  })
-  
-  # Base de Tab 2 SOLO por ocurrencia (año + filtros)
-  base_b3 <- reactive({
-    req(input$f_anio_b3)
-    df <- nda %>% dplyr::filter(ano == input$f_anio_b3)
-    if (!is.null(input$f_dep_o_b3) && input$f_dep_o_b3 != "Todos")
-      df <- df %>% dplyr::filter(DEP_O == input$f_dep_o_b3)
-    if (!is.null(input$f_mun_o_b3) && input$f_mun_o_b3 != "Todos")
-      df <- df %>% dplyr::filter(MUN_O == input$f_mun_o_b3)
-    if (!is.null(input$f_sexo_b3)  && input$f_sexo_b3  != "Todos")
-      df <- df %>% dplyr::filter(sexo_ni == input$f_sexo_b3)
-    df
-  })
-  
-  # ---- Títulos storytelling TAB 2 ----
-  output$ttl_serie_b3 <- renderText({
-    "¿Cómo ha evolucionado anualmente la supervivencia y las defunciones asociadas al NDA?"
-  })
-  output$ttl_hist_b3 <- renderText({
-    if (is.null(input$f_dep_o_b3) || input$f_dep_o_b3 == "Todos") {
-      "Top 5 de departamentos con más casos, vivos y fallecidos por NDA"
-    } else {
-      "Top 5 de municipios con más casos, vivos y fallecidos por NDA"
-    }
-  })
-  output$ttl_map_superv_b3 <- renderText({
-    "¿Dónde es más alta la tasa de supervivencia (Vivos/(Vivos+Muertes))?"
-  })
-  
-  # --- Serie supervivencia/defunciones (toda la serie histórica, por ocurrencia) ---
-  output$serie_anual_tab3 <- renderPlotly({
-    df0 <- nda %>%
-      dplyr::filter(!is.na(PAC_HOS), PAC_HOS %in% c(1L, 2L))
-    
-    if (!is.null(input$f_dep_o_b3) && input$f_dep_o_b3 != "Todos") {
-      df0 <- df0 %>% dplyr::filter(DEP_O == input$f_dep_o_b3)
-    }
-    if (!is.null(input$f_mun_o_b3) && input$f_mun_o_b3 != "Todos") {
-      df0 <- df0 %>% dplyr::filter(MUN_O == input$f_mun_o_b3)
-    }
-    if (!is.null(input$f_sexo_b3) && input$f_sexo_b3 != "Todos") {
-      df0 <- df0 %>% dplyr::filter(sexo_ni == input$f_sexo_b3)
-    }
-    
-    if (is.null(df0) || nrow(df0) == 0)
-      return(empty_plot("Sin datos para los filtros seleccionados."))
-    
-    dfm <- df0 %>%
-      dplyr::mutate(ANO = suppressWarnings(as.integer(ano))) %>%
-      dplyr::filter(!is.na(ANO)) %>%
-      dplyr::group_by(ANO, PAC_HOS) %>%
-      dplyr::summarise(n = dplyr::n(), .groups = "drop") %>%
-      tidyr::pivot_wider(
-        names_from  = PAC_HOS,
-        values_from = n,
-        values_fill = 0,
-        names_prefix = "cat_"
-      ) %>%
-      dplyr::transmute(
-        ANO,
-        vivos   = cat_1,
-        muertes = cat_2
-      ) %>%
-      dplyr::arrange(ANO) %>%
-      dplyr::mutate(
-        vivos_txt   = format(vivos, big.mark = ".", decimal.mark = ","),
-        muertes_txt = format(muertes, big.mark = ".", decimal.mark = ","),
-        ano_txt     = as.character(ANO)
-      )
-    
-    plot_ly(dfm, x = ~ANO) %>%
-      add_lines(
-        y = ~vivos, name = "Vivos", yaxis = "y",
-        line = list(color = BAR_COLOR),
-        text = ~paste0("Año: ", ano_txt, "<br>Vivos: ", vivos_txt),
-        hoverinfo = "text"
-      ) %>%
-      add_lines(
-        y = ~muertes, name = "Defunciones", yaxis = "y2",
-        line = list(color = "#ffb366"),
-        text = ~paste0("Año: ", ano_txt, "<br>Muertes: ", muertes_txt),
-        hoverinfo = "text"
-      ) %>%
-      layout(
-        xaxis = list(
-          title    = "",
-          dtick    = 1,
-          showgrid = FALSE
-        ),
-        yaxis  = list(
-          title     = "Vivos",
-          showgrid  = TRUE,
-          gridcolor = GRID_COLOR,
-          gridwidth = 0.5
-        ),
-        yaxis2 = list(
-          title      = "Defunciones",
-          overlaying = "y",
-          side       = "right",
-          showgrid   = FALSE
-        ),
-        legend = list(
-          orientation = "h",
-          x = 0.5,
-          xanchor = "center",
-          y = -0.2,
-          yanchor = "top"
-        ),
-        margin = list(l = 50, r = 50, b = 80, t = 10)
-      )
-  })
-  
-  # ---------- Mapa de Supervivencia (Tab 2 por ocurrencia) ----------
-  nivel_b3_map <- reactive({
-    if (!is.null(input$f_dep_o_b3) && input$f_dep_o_b3 != "Todos") "mpios" else "deptos"
-  })
-  
-  agg_superv_depto_b3 <- reactive({
-    base_b3() %>%
-      dplyr::filter(!is.na(PAC_HOS), PAC_HOS %in% c(1L,2L)) %>%
-      dplyr::group_by(DEP_O) %>%
-      dplyr::summarise(
-        vivos   = sum(PAC_HOS == 1L),
-        muertes = sum(PAC_HOS == 2L),
-        n       = vivos + muertes,
-        .groups = "drop"
-      ) %>%
-      dplyr::mutate(tasa = dplyr::if_else(n > 0, vivos / n, NA_real_))
-  })
-  
-  agg_superv_mpio_b3 <- reactive({
-    base_b3() %>%
-      dplyr::filter(!is.na(PAC_HOS), PAC_HOS %in% c(1L,2L)) %>%
-      dplyr::group_by(COD_DPTO2, DEP_O, MUN_O) %>%   # <-- incluye COD_DPTO2
-      dplyr::summarise(
-        vivos   = sum(PAC_HOS == 1L),
-        muertes = sum(PAC_HOS == 2L),
-        n       = vivos + muertes,
-        .groups = "drop"
-      ) %>%
-      dplyr::mutate(tasa = dplyr::if_else(n > 0, vivos / n, NA_real_))
-  })
-  
-  output$map_superv_b3 <- renderLeaflet({
-    leaflet::leaflet() %>%
-      leaflet::addProviderTiles(leaflet::providers$CartoDB.Positron) %>%
-      leaflet::setView(lng = -74.3, lat = 4.6, zoom = 5)
-  })
-  
-  observe({
-    titulo <- "Tasa de supervivencia"
-    fmt_p  <- function(x) {
-      ifelse(
-        is.na(x),
-        "s/d",
-        scales::percent(x, accuracy = 0.1, decimal.mark = ",")
-      )
-    }
-    fmt_n  <- function(x) scales::comma(x, big.mark = ".", decimal.mark = ",")
-    
-    if (nivel_b3_map() == "deptos") {
-      dd <- agg_superv_depto_b3()
-      
-      shp <- dptos_sf %>%
-        dplyr::left_join(
-          dd,
-          by = c("DEPARTAMENTO_N" = "DEP_O")
-        ) %>%
-        dplyr::mutate(
-          nombre  = DEPARTAMENTO_N,
-          vivos   = tidyr::replace_na(vivos, 0L),
-          muertes = tidyr::replace_na(muertes, 0L),
-          n       = tidyr::replace_na(n, 0L),
-          etq     = paste0(
-            "<b>", nombre, "</b><br>",
-            titulo, ": ", fmt_p(tasa), "<br>",
-            "Vivos: ", fmt_n(vivos), "<br>",
-            "Defunciones: ", fmt_n(muertes)
-          )
-        )
-      
-      vals <- shp$tasa
-      vals <- vals[is.finite(vals) & vals >= 0]
-      if (!length(vals)) {
-        bins_q <- c(0, 1)
-      } else {
-        qs   <- stats::quantile(vals, probs = c(0.25, 0.5, 0.75), na.rm = TRUE)
-        minv <- 0
-        maxv <- max(vals, na.rm = TRUE)
-        bins_q <- unique(c(minv, as.numeric(qs), maxv))
-        bins_q <- sort(bins_q)
-      }
-      
-      pal <- leaflet::colorBin(
-        MAP_COLORS,
-        domain = shp$tasa,
-        bins   = bins_q,
-        na.color = "#f0f0f0"
-      )
-      
-      leaflet::leafletProxy("map_superv_b3", data = shp) %>%
-        leaflet::clearShapes() %>%
-        leaflet::clearControls() %>%
-        leaflet::addPolygons(
-          layerId = ~COD_DPTO2,
-          fillColor = ~pal(tasa),
-          color = BORDER_UI, weight = 0.7, fillOpacity = 0.9,
-          label = ~lapply(etq, htmltools::HTML),
-          highlightOptions = leaflet::highlightOptions(
-            color = BORDER_UI, weight = 2, bringToFront = TRUE
-          )
-        ) %>%
-        leaflet::addLegend(
-          "bottomright",
-          pal = pal,
-          values = ~tasa,
-          title = titulo,
-          labFormat = function(type, cuts) {
-            label_bins_gt(cuts, digits = 1, big.mark = ".", decimal.mark = ",", suffix = " %", multiply = 100)
-          }
-        )
-      
-    } else {
-      dep_sel <- input$f_dep_o_b3
-      req(dep_sel, dep_sel != "Todos")
-      dd <- agg_superv_mpio_b3()
-      
-      # código DANE del departamento seleccionado
-      dep_cod <- dptos_sf$COD_DPTO2[match(dep_sel, dptos_sf$DEPARTAMENTO_N)]
-      req(!is.na(dep_cod), nzchar(dep_cod))
-      
-      shp <- mpios_sf %>%
-        dplyr::filter(COD_DPTO2 == dep_cod) %>%
-        dplyr::left_join(
-          dd,
-          by = c("COD_DPTO2", "MUNICIPIO_N" = "MUN_O")
-        ) %>%
-        dplyr::mutate(
-          nombre  = MUNICIPIO_N,
-          vivos   = tidyr::replace_na(vivos, 0L),
-          muertes = tidyr::replace_na(muertes, 0L),
-          n       = tidyr::replace_na(n, 0L),
-          etq     = paste0(
-            "<b>", nombre, "</b><br>",
-            titulo, ": ", fmt_p(tasa), "<br>",
-            "Vivos: ", fmt_n(vivos), "<br>",
-            "Defunciones: ", fmt_n(muertes)
-          )
-        )
-      
-      vals <- shp$tasa
-      vals <- vals[is.finite(vals) & vals >= 0]
-      if (!length(vals)) {
-        bins_q <- c(0, 1)
-      } else {
-        qs   <- stats::quantile(vals, probs = c(0.25, 0.5, 0.75), na.rm = TRUE)
-        minv <- 0
-        maxv <- max(vals, na.rm = TRUE)
-        bins_q <- unique(c(minv, as.numeric(qs), maxv))
-        bins_q <- sort(bins_q)
-      }
-      
-      pal <- leaflet::colorBin(
-        MAP_COLORS,
-        domain = shp$tasa,
-        bins   = bins_q,
-        na.color = "#f0f0f0"
-      )
-      bb <- sf::st_bbox(shp)
-      
-      leaflet::leafletProxy("map_superv_b3", data = shp) %>%
-        leaflet::clearShapes() %>%
-        leaflet::clearControls() %>%
-        leaflet::addPolygons(
-          layerId = ~COD_MUN5,
-          fillColor = ~pal(tasa),
-          color = BORDER_UI, weight = 0.4, fillOpacity = 0.9,
-          label = ~lapply(etq, htmltools::HTML),
-          highlightOptions = leaflet::highlightOptions(
-            color = BORDER_UI, weight = 2, bringToFront = TRUE
-          )
-        ) %>%
-        leaflet::addLegend(
-          "bottomright",
-          pal = pal,
-          values = ~tasa,
-          title = titulo,
-          labFormat = function(type, cuts) {
-            label_bins_gt(cuts, digits = 1, big.mark = ".", decimal.mark = ",", suffix = " %", multiply = 100)
-          }
-        ) %>%
-        leaflet::fitBounds(bb["xmin"], bb["ymin"], bb["xmax"], bb["ymax"])
-    }
-  })
-  
-  # Click en mapa Tab 2 → actualiza departamento de ocurrencia
-  observeEvent(input$map_superv_b3_shape_click, {
-    if (nivel_b3_map() == "deptos") {
-      click <- input$map_superv_b3_shape_click
-      req(click$id, input$f_anio_b3)
-      cod <- sprintf("%02d", as.integer(click$id))
-      nom <- dptos_sf$DEPARTAMENTO_N[match(cod, dptos_sf$COD_DPTO2)]
-      deps_disp <- nda %>%
-        dplyr::filter(ano == input$f_anio_b3) %>%
-        dplyr::distinct(DEP_O) %>%
-        dplyr::pull(DEP_O)
-      if (!is.na(nom) && nzchar(nom) && (nom %in% deps_disp)) {
-        updateSelectInput(session, "f_dep_o_b3", selected = nom)
-      }
-    }
-  }, ignoreInit = TRUE)
-  
-  # ---------- Top 5 vivos/muertos/casos (Tab 2, por ocurrencia) ----------
-  top10_b3 <- reactive({
-    df <- base_b3() %>%
-      dplyr::filter(!is.na(PAC_HOS), PAC_HOS %in% c(1L,2L))
-    if (nrow(df) == 0) return(df[0,])
-    
-    if (is.null(input$f_dep_o_b3) || input$f_dep_o_b3 == "Todos") {
-      agg <- df %>%
-        dplyr::group_by(DEP_O) %>%
-        dplyr::summarise(
-          vivos   = sum(PAC_HOS == 1L),
-          muertes = sum(PAC_HOS == 2L),
-          casos   = dplyr::n(),
-          .groups = "drop"
-        ) %>%
-        dplyr::filter(casos > 0) %>%
-        dplyr::arrange(dplyr::desc(casos)) %>%
-        dplyr::slice_head(n = 5) %>%
-        dplyr::mutate(entidad = DEP_O)
-    } else {
-      agg <- df %>%
-        dplyr::group_by(DEP_O, MUN_O) %>%
-        dplyr::summarise(
-          vivos   = sum(PAC_HOS == 1L),
-          muertes = sum(PAC_HOS == 2L),
-          casos   = dplyr::n(),
-          .groups = "drop"
-        ) %>%
-        dplyr::filter(casos > 0) %>%
-        dplyr::arrange(dplyr::desc(casos)) %>%
-        dplyr::slice_head(n = 5) %>%
-        dplyr::mutate(entidad = MUN_O)
-    }
-    agg
-  })
-  
-  output$hist_edad_tab3 <- renderPlotly({
-    agg <- top10_b3()
-    if (is.null(agg) || nrow(agg) == 0)
-      return(empty_plot("No hay casos con información de resultado hospitalario para los filtros seleccionados."))
-    
-    df_long <- agg %>%
-      dplyr::select(entidad, vivos, muertes, casos) %>%
-      tidyr::pivot_longer(
-        cols = c("casos","vivos","muertes"),
-        names_to = "tipo",
-        values_to = "valor"
-      ) %>%
-      dplyr::mutate(
-        tipo = factor(
-          tipo,
-          levels = c("casos","vivos","muertes"),
-          labels = c("Casos NDA","Vivos","Defunciones")
-        )
-      )
-    
-    orden <- agg %>%
-      dplyr::arrange(casos) %>%
-      dplyr::pull(entidad)
-    
-    df_long <- df_long %>%
-      dplyr::mutate(
-        entidad = factor(entidad, levels = orden),
-        label   = format(valor, big.mark = ".", decimal.mark = ","),
-        hover   = paste0(
-          as.character(tipo),
-          "<br>Territorio de ocurrencia: ", entidad,
-          "<br>Casos: ", label
-        )
-      )
-    
-    plot_ly(
-      data = df_long,
-      x = ~valor,
-      y = ~entidad,
-      color = ~tipo,
-      type = "bar",
-      orientation = "h",
-      text = ~label,
-      textposition = "inside",
-      insidetextanchor = "middle",
-      textfont = list(color = "white", size = 11),
-      customdata = ~hover,
-      hovertemplate = "%{customdata}<extra></extra>",
-      colors = c("#f97316", "#22c55e", "#ef4444")
-    ) %>%
-      layout(
-        barmode = "group",
-        xaxis = list(
-          title = "Casos",
-          showgrid = FALSE
-        ),
-        yaxis = list(
-          title = "",
-          showgrid = TRUE,
-          gridcolor = GRID_COLOR,
-          gridwidth = 0.5
-        ),
-        legend = list(
-          orientation = "h",
-          x = 0.5,
-          xanchor = "center",
-          y = -0.2,
-          yanchor = "top"
-        ),
-        margin = list(l = 120, r = 10, b = 80, t = 10)
-      )
-  })
-  
 }
 
 shinyApp(ui, server)
