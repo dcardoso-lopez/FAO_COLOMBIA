@@ -1131,12 +1131,12 @@ make_finagro_dual_ts_plot <- function(df){
       yaxis = "y2",
       line = list(width = 2, dash = "dot", color = COL_PLOT),
       marker = list(size = 6, color = COL_PLOT),
-      hovertemplate = "<b>Año:</b> %{x}<br><b>Créditos:</b> %{y:,}<extra></extra>"
+      hovertemplate = "<b>Año:</b> %{x}<br><b> Número de operaciones:</b> %{y:,}<extra></extra>"
     ) %>%
     layout(
       xaxis = list(title = "", tickmode = "array", tickvals = ticks_x, ticktext = ticks_x, showgrid = FALSE, automargin = TRUE),
       yaxis = list(title = "Monto real (Miles de millones)", showgrid = FALSE, automargin = TRUE, rangemode = "tozero"),
-      yaxis2 = list(title = "Número de créditos", overlaying = "y", side = "right", showgrid = FALSE, automargin = TRUE, rangemode = "tozero"),
+      yaxis2 = list(title = "Número de operaciones ", overlaying = "y", side = "right", showgrid = FALSE, automargin = TRUE, rangemode = "tozero"),
       legend = list(orientation = "h", x = 0, y = -0.22, xanchor = "left", yanchor = "top"),
       margin = list(l = 70, r = 70, t = 10, b = 95),
       hovermode = "x unified",
