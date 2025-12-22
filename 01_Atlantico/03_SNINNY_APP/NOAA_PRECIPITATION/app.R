@@ -12,17 +12,35 @@ sf::sf_use_s2(FALSE)
 try(Sys.setlocale("LC_CTYPE","es_ES.UTF-8"), silent = TRUE)
 
 # 2) Rutas (ajusta si difieren)
-APP_ROOT      <- ""
-NOAA_DIR      <- file.path(APP_ROOT, "")
-NOAA_DATA_DIR <- file.path(NOAA_DIR, "data")
-SHP_DIR       <- file.path(APP_ROOT, "data/shp")
+APP_ROOT <- getwd()
 
-DATA_RDS <- file.path(NOAA_DATA_DIR, "131_NOAA_Precipitación.rds")
-if (!file.exists(DATA_RDS)) {
-  rds_cands <- list.files(NOAA_DATA_DIR, pattern = "\\.rds$", full.names = TRUE, recursive = FALSE)
-  if (length(rds_cands)) DATA_RDS <- rds_cands[1]
+# Si estás ejecutando desde runApp(), la ruta ya está configurada
+# Ajusta estas rutas según tu estructura de carpetas
+NOAA_DIR <- APP_ROOT  # Asumiendo que el app está en la misma carpeta que los datos
+NOAA_DATA_DIR <- file.path(NOAA_DIR, "data")
+SHP_DIR <- file.path(NOAA_DIR, "data/shp")
+
+# Verificar y mostrar las rutas para depuración
+cat("APP_ROOT:", APP_ROOT, "\n")
+cat("NOAA_DATA_DIR:", NOAA_DATA_DIR, "\n")
+cat("SHP_DIR:", SHP_DIR, "\n")
+
+# Buscar el archivo RDS
+rds_files <- list.files(NOAA_DATA_DIR, pattern = "\\.rds$", full.names = TRUE, recursive = FALSE)
+cat("Archivos RDS encontrados:", paste(rds_files, collapse = ", "), "\n")
+
+if (length(rds_files) == 0) {
+  # Buscar recursivamente
+  rds_files <- list.files(APP_ROOT, pattern = "\\.rds$", full.names = TRUE, recursive = TRUE)
+  cat("Archivos RDS encontrados (búsqueda recursiva):", paste(rds_files, collapse = ", "), "\n")
 }
-if (!file.exists(DATA_RDS)) stop("No encuentro RDS de NOAA en: ", NOAA_DATA_DIR)
+
+if (length(rds_files) > 0) {
+  DATA_RDS <- rds_files[1]
+  cat("Usando archivo RDS:", DATA_RDS, "\n")
+} else {
+  stop("No encuentro RDS de NOAA. Buscando en: ", APP_ROOT)
+}
 
 
 # ---------- Helpers ----------

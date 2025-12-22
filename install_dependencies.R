@@ -40,6 +40,7 @@ paquetes_requeridos <- c(
   
   # Datos geoespaciales
   "sf",
+  "bsicons",
   
   # HTML y tablas
   "htmltools",
