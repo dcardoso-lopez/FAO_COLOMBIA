@@ -42,12 +42,6 @@ BORDER_COL <- "#a1d99b"
 # URL de tu repositorio (cámbiala)
 github_url <- "https://github.com/tu_usuario/tu_repo"
 
-# === Ruta fija de la app y del Rmd ===
-RMD_PATH <- "informe_eva.Rmd"
-
-if (!file.exists(RMD_PATH)) {
-  stop(sprintf("No encuentro el Rmd en: %s", normalizePath(RMD_PATH)))
-}
 # ------------------------------
 # 2) Datos: EVA + Shapefiles
 # ------------------------------
@@ -508,7 +502,6 @@ ui <- fluidPage(
             div(
               class = "dl-footer",
               downloadButton("dl_csv_expl", label = "Descargar CSV"),
-              downloadButton("dl_pdf_expl", label = "Informe PDF (Rmd aparte)"),
               tags$a(
                 href   = github_url,
                 target = "_blank",
@@ -608,7 +601,6 @@ ui <- fluidPage(
             div(
               class = "dl-footer",
               downloadButton("dl_csv_clus", label = "Descargar CSV"),
-              downloadButton("dl_pdf_clus", label = "Informe PDF (Rmd aparte)"),
               tags$a(
                 href   = github_url,
                 target = "_blank",
@@ -753,7 +745,6 @@ ui <- fluidPage(
               class = "dl-footer",
               style = "margin-top: 15px;",
               downloadButton("dl_csv_hhi", label = "Descargar CSV"),
-              downloadButton("dl_pdf_hhi", label = "Informe PDF (Rmd aparte)"),
               tags$a(
                 href   = github_url,
                 target = "_blank",
@@ -768,9 +759,6 @@ ui <- fluidPage(
     )
   )
 )
-
-
-
 
 # ------------------------------
 # 4) Helpers globales
@@ -940,7 +928,6 @@ palBin5_indicator <- function(values, base_col) {
     right    = FALSE
   )
 }
-
 
 server <- function(input, output, session) {
   
@@ -2325,7 +2312,7 @@ server <- function(input, output, session) {
     ) %>%
       plotly::layout(
         yaxis = list(
-          title = "Diversificación productiva (1 - HHI)",
+          title = "Diversificación (1 - HHI)",
           range = c(0, 1),
           gridcolor = "#e6e6e6",
           showgrid = TRUE
@@ -2515,9 +2502,6 @@ server <- function(input, output, session) {
   })
   
   # ==== KPI de DIVERSIFICACIÓN (Tab 3, debajo de la serie) ====
-  # - Municipio seleccionado: HHI del municipio -> se pasa a 1 - HHI.
-  # - Departamento seleccionado (mpio = "Todos"): HHI del departamento -> 1 - HHI.
-  # - Dpto = "Todos" y mpio = "Todos": HHI nacional -> 1 - HHI.
   hhi_kpi_val <- reactive({
     req(input$hhi_anio, input$hhi_base)
     
@@ -2582,9 +2566,7 @@ server <- function(input, output, session) {
     v_div <- pmin(pmax(1 - v_hhi, 0), 1)
     sprintf("%.3f", v_div)
   })
-  
 }
-
 
 # ------------------------------
 # 6) Lanzar App

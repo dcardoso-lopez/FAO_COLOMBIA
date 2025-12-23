@@ -42,12 +42,8 @@ BORDER_COL <- "#a1d99b"
 # URL de tu repositorio (cámbiala)
 github_url <- "https://github.com/tu_usuario/tu_repo"
 
-# === Ruta fija de la app y del Rmd ===
-RMD_PATH <- "informe_eva.Rmd"
+# === ELIMINADO: Ruta del RMD ===
 
-if (!file.exists(RMD_PATH)) {
-  stop(sprintf("No encuentro el Rmd en: %s", normalizePath(RMD_PATH)))
-}
 # ------------------------------
 # 2) Datos: EVA + Shapefiles
 # ------------------------------
@@ -492,7 +488,7 @@ ui <- fluidPage(
             div(
               class = "dl-footer",
               downloadButton("dl_csv_expl", label = "Descargar CSV"),
-              downloadButton("dl_pdf_expl", label = "Informe PDF (Rmd aparte)"),
+              # ELIMINADO: downloadButton("dl_pdf_expl", label = "Informe PDF (Rmd aparte)"),
               tags$a(
                 href   = github_url,
                 target = "_blank",
@@ -592,7 +588,7 @@ ui <- fluidPage(
             div(
               class = "dl-footer",
               downloadButton("dl_csv_clus", label = "Descargar CSV"),
-              downloadButton("dl_pdf_clus", label = "Informe PDF (Rmd aparte)"),
+              # ELIMINADO: downloadButton("dl_pdf_clus", label = "Informe PDF (Rmd aparte)"),
               tags$a(
                 href   = github_url,
                 target = "_blank",
@@ -737,7 +733,7 @@ ui <- fluidPage(
               class = "dl-footer",
               style = "margin-top: 15px;",
               downloadButton("dl_csv_hhi", label = "Descargar CSV"),
-              downloadButton("dl_pdf_hhi", label = "Informe PDF (Rmd aparte)"),
+              # ELIMINADO: downloadButton("dl_pdf_hhi", label = "Informe PDF (Rmd aparte)"),
               tags$a(
                 href   = github_url,
                 target = "_blank",
@@ -752,9 +748,6 @@ ui <- fluidPage(
     )
   )
 )
-
-
-
 
 # ------------------------------
 # 4) Helpers globales
@@ -924,7 +917,6 @@ palBin5_indicator <- function(values, base_col) {
     right    = FALSE
   )
 }
-
 
 server <- function(input, output, session) {
   
@@ -2566,9 +2558,7 @@ server <- function(input, output, session) {
     v_div <- pmin(pmax(1 - v_hhi, 0), 1)
     sprintf("%.3f", v_div)
   })
-  
 }
-
 
 # ------------------------------
 # 6) Lanzar App
