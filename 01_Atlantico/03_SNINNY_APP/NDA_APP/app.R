@@ -93,6 +93,12 @@ get_col <- function(df, opts, stop_msg){
   if (is.na(nm) || !nzchar(nm)) stop(stop_msg) else nm
 }
 
+# opcional: no frena si no existe
+get_col_opt <- function(df, opts){
+  nm <- opts[opts %in% names(df)][1]
+  if (is.na(nm) || !nzchar(nm)) NA_character_ else nm
+}
+
 # Buscar columnas con nombres alternativos
 n_year_col     <- get_col(nda_raw, c("ano","ANO","year","YEAR"), "NDA: no columna de año")
 
@@ -117,19 +123,9 @@ n_mun_origen_col <- get_col(
   "NDA: no 'MUNICIPIO_O' (origen)"
 )
 
-# Buscar columnas relacionadas con confirmación (opcional)
-n_confirmados_col <- get_col(
-  nda_raw,
-  c("confirmados", "CONFIRMADOS", "CONFIRMACION", "confirmacion"),
-  "NDA: no columna de confirmados"
-)
-
-# Buscar columnas relacionadas con tipo de caso (opcional)
-n_tip_cas_col <- get_col(
-  nda_raw,
-  c("tip_cas", "TIP_CAS", "TIPO_CASO", "tipo_caso"),
-  "NDA: no columna de tipo de caso"
-)
+# Confirmación / tipo de caso (opcionales)
+n_confirmados_col <- get_col_opt(nda_raw, c("confirmados", "CONFIRMADOS", "CONFIRMACION", "confirmacion"))
+n_tip_cas_col     <- get_col_opt(nda_raw, c("tip_cas", "TIP_CAS", "TIPO_CASO", "tipo_caso"))
 
 normalize_sex <- function(x){
   x <- trimws(toupper(as.character(x)))
@@ -149,10 +145,8 @@ nda <- nda_raw %>%
     MUN_O     = title_case_es(.data[[n_mun_origen_col]]),
     edad_ni   = suppressWarnings(as.numeric(edad)),
     sexo_ni   = normalize_sex(sexo),
-    confirmados = if (exists("confirmados", where = nda_raw)) 
-      suppressWarnings(as.integer(confirmados)) else NA_integer_,
-    tip_cas     = if (exists("tip_cas", where = nda_raw))
-      trimws(as.character(tip_cas)) else NA_character_
+    confirmados = if (!is.na(n_confirmados_col)) suppressWarnings(as.integer(.data[[n_confirmados_col]])) else NA_integer_,
+    tip_cas     = if (!is.na(n_tip_cas_col)) trimws(as.character(.data[[n_tip_cas_col]])) else NA_character_
   ) %>%
   dplyr::filter(
     !is.na(ano),
@@ -229,9 +223,7 @@ mpios_sf <- mpios_raw %>%
     else if ("NOMBRE_MPIO" %in% names(.)) as.character(NOMBRE_MPIO)
     else "MUNICIPIO"
   ) %>%
-  dplyr::mutate(
-    MUNICIPIO_N = title_case_es(MUNICIPIO_N)
-  ) %>%
+  dplyr::mutate(MUNICIPIO_N = title_case_es(MUNICIPIO_N)) %>%
   sf::st_transform(4326) %>%
   sf::st_make_valid()
 
@@ -245,9 +237,7 @@ dptos_sf <- dptos_raw %>%
     else if ("NOMBRE_DEPTO" %in% names(.)) as.character(NOMBRE_DEPTO)
     else COD_DPTO2
   ) %>%
-  dplyr::mutate(
-    DEPARTAMENTO_N = title_case_es(DEPARTAMENTO_N)
-  ) %>%
+  dplyr::mutate(DEPARTAMENTO_N = title_case_es(DEPARTAMENTO_N)) %>%
   sf::st_transform(4326) %>%
   sf::st_make_valid()
 
@@ -290,7 +280,7 @@ ui <- fluidPage(
       .wrap{max-width:1360px;margin:0 auto;padding:16px 20px 32px;}
       h3{font-weight:700;letter-spacing:.2px;margin-bottom:8px}
       .data-note{font-size:13px;color:#6b7280;margin:8px 0 0}
-      
+
       .filters{
         background:#fff;border:1.5px solid var(--border-col);
         border-radius:16px;padding:14px 16px;margin-bottom:16px;
@@ -325,7 +315,7 @@ ui <- fluidPage(
         border-color:var(--border-col)!important; outline:0 !important;
         box-shadow:0 0 0 .15rem rgba(255,179,102,.35)!important;
       }
-      
+
       .card{
         background:#fff;border:1.5px solid var(--border-col);
         border-radius:16px;padding:12px;
@@ -349,10 +339,10 @@ ui <- fluidPage(
     tags$script(HTML("
       function initBsTooltips(){
         var list = [].slice.call(document.querySelectorAll('[data-bs-toggle=\"tooltip\"]'));
-        list.map(function(el){ 
-          try { 
-            return new bootstrap.Tooltip(el, {container: 'body'}); 
-          } catch(e){} 
+        list.map(function(el){
+          try {
+            return new bootstrap.Tooltip(el, {container: 'body'});
+          } catch(e){}
         });
       }
       document.addEventListener('DOMContentLoaded', initBsTooltips);
@@ -364,10 +354,7 @@ ui <- fluidPage(
   div(
     class = "wrap",
     h3(""),
-    div(
-      class = "data-note",
-      HTML("")
-    ),
+    div(class = "data-note", HTML("")),
     
     tabsetPanel(
       id   = "tabs_nda",
@@ -392,7 +379,6 @@ ui <- fluidPage(
             div(
               class = "filter",
               div(class = "filter-label", "¿En qué departamento?"),
-              # <<< Atlántico por defecto en la UI
               selectInput("f_depto_nda", NULL,
                           choices  = c("Todos","Atlántico"),
                           selected = "Atlántico")
@@ -438,10 +424,7 @@ ui <- fluidPage(
             width = 6,
             div(
               class = "card",
-              div(
-                class = "card-title",
-                textOutput("ttl_map_tab1")
-              ),
+              div(class = "card-title", textOutput("ttl_map_tab1")),
               leafletOutput("map_nda", height = 810),
               div(
                 class = "data-note",
@@ -473,7 +456,6 @@ ui <- fluidPage(
   )
 )
 
-
 # ---------------- SERVER ----------------
 server <- function(input, output, session){
   `%||%` <- function(x, y) if (is.null(x) || length(x) == 0) y else x
@@ -493,7 +475,7 @@ server <- function(input, output, session){
       )
   }
   
-  # Cuartiles robustos, cubriendo todo el rango (para Tab 1)
+  # Cuartiles robustos (para Tab 1)
   make_pal_quartiles <- function(values, palette = MAP_COLORS) {
     vals <- values[is.finite(values)]
     if (!length(vals)) vals <- 0
@@ -514,7 +496,7 @@ server <- function(input, output, session){
     leaflet::colorBin(palette, domain = vals, bins = bins, na.color = "#f0f0f0")
   }
   
-  # Formateador de etiquetas: primer intervalo sin ">", los demás con "> ..."
+  # Formato de etiquetas de bins
   label_bins_gt <- function(cuts,
                             digits = 1,
                             big.mark = ".",
@@ -557,25 +539,93 @@ server <- function(input, output, session){
     selectInput("f_anio_nda", NULL, choices = yrs, selected = max(yrs, na.rm = TRUE))
   })
   
+  # =========================================================
+  # FIX MUNICIPIO (misma lógica que BPAN)
+  # - al iniciar / cambiar AÑO / cambiar DEPTO / reset:
+  #   cargar choices de municipio (no dejarlo solo en "Todos")
+  # =========================================================
+  update_mpio_choices_nda <- function(selected = NULL) {
+    req(input$f_anio_nda)
+    
+    df <- nda_valid %>% dplyr::filter(ano == input$f_anio_nda)
+    
+    # si el depto no es "Todos", restringe municipios a ese depto
+    if (!is.null(input$f_depto_nda) && input$f_depto_nda != "Todos") {
+      df <- df %>% dplyr::filter(DEP_O == input$f_depto_nda)
+    }
+    
+    mpios_o <- df %>%
+      dplyr::distinct(MUN_O) %>%
+      dplyr::filter(!is.na(MUN_O), MUN_O != "") %>%
+      dplyr::arrange(MUN_O) %>%
+      dplyr::pull(MUN_O)
+    
+    sel <- selected %||% input$f_mpio_nda %||% "Todos"
+    if (!sel %in% mpios_o) sel <- "Todos"
+    
+    updateSelectInput(
+      session, "f_mpio_nda",
+      choices  = c("Todos", mpios_o),
+      selected = sel
+    )
+  }
+  
   observeEvent(input$btn_reset_nda, {
     yrs <- sort(unique(nda_valid$ano))
     
-    # <<< deps_all y Atlántico como valor por defecto al hacer RESET
     deps_all <- nda_valid %>%
       dplyr::distinct(DEP_O) %>%
       dplyr::filter(!is.na(DEP_O), DEP_O != "") %>%
       dplyr::arrange(DEP_O) %>%
       dplyr::pull(DEP_O)
+    
     default_dep <- if ("Atlántico" %in% deps_all) "Atlántico" else (deps_all[1] %||% "Todos")
     
     updateSelectInput(session, "f_anio_nda",  selected = max(yrs, na.rm = TRUE))
     updateSelectInput(session, "f_depto_nda",
                       choices  = c("Todos", deps_all),
                       selected = default_dep)
-    updateSelectInput(session, "f_mpio_nda",  choices = "Todos", selected = "Todos")
+    
     updateSelectInput(session, "f_sexo_tab1",  selected = "Todos")
     updateSelectInput(session, "f_metrica_tab1", selected = "casos")
+    
+    # CLAVE: recargar municipios para el nuevo año+depto
+    isolate({
+      update_mpio_choices_nda(selected = "Todos")
+    })
   })
+  
+  # Combos dinámicos sujetos al año (y CLAVE: también carga municipios)
+  observeEvent(input$f_anio_nda, {
+    df_year <- nda_valid %>% dplyr::filter(ano == input$f_anio_nda)
+    
+    deps_o  <- df_year %>%
+      dplyr::distinct(DEP_O) %>%
+      dplyr::filter(!is.na(DEP_O), DEP_O != "") %>%
+      dplyr::arrange(DEP_O) %>%
+      dplyr::pull(DEP_O)
+    
+    default_dep <- if ("Atlántico" %in% deps_o) "Atlántico" else (deps_o[1] %||% "Todos")
+    
+    sel_dep <- if (!is.null(input$f_depto_nda) && input$f_depto_nda %in% deps_o) {
+      input$f_depto_nda
+    } else {
+      default_dep
+    }
+    
+    updateSelectInput(session, "f_depto_nda", choices = c("Todos", deps_o), selected = sel_dep)
+    
+    # CLAVE: cargar municipios del año + depto seleccionado
+    isolate({
+      update_mpio_choices_nda(selected = "Todos")
+    })
+  }, ignoreInit = FALSE)
+  
+  # Al cambiar depto: recargar municipios (ANTES estaba ignoreInit=TRUE y no corría al inicio)
+  observeEvent(input$f_depto_nda, {
+    req(input$f_anio_nda)
+    update_mpio_choices_nda(selected = "Todos")
+  }, ignoreInit = FALSE)
   
   # Base por ocurrencia (Tab 1) — SIEMPRE filtrada por año
   nda_base_tab1 <- reactive({
@@ -589,42 +639,6 @@ server <- function(input, output, session){
       df <- df %>% dplyr::filter(sexo_ni == input$f_sexo_tab1)
     df
   })
-  
-  # Combos dinámicos de ocurrencia, sujetos al año
-  observeEvent(input$f_anio_nda, {
-    df_year <- nda_valid %>% dplyr::filter(ano == input$f_anio_nda)
-    deps_o  <- df_year %>%
-      dplyr::distinct(DEP_O) %>%
-      dplyr::filter(!is.na(DEP_O), DEP_O != "") %>%
-      dplyr::arrange(DEP_O) %>%
-      dplyr::pull(DEP_O)
-    
-    # <<< Atlántico como valor por defecto si está disponible
-    default_dep <- if ("Atlántico" %in% deps_o) "Atlántico" else (deps_o[1] %||% "Todos")
-    sel_dep <- if (!is.null(input$f_depto_nda) && input$f_depto_nda %in% deps_o) {
-      input$f_depto_nda
-    } else {
-      default_dep
-    }
-    
-    updateSelectInput(session, "f_depto_nda", choices = c("Todos", deps_o), selected = sel_dep)
-    updateSelectInput(session, "f_mpio_nda",  choices = "Todos", selected = "Todos")
-  }, ignoreInit = FALSE)
-  
-  observeEvent(input$f_depto_nda, {
-    req(input$f_anio_nda)
-    df <- nda_valid %>% dplyr::filter(ano == input$f_anio_nda)
-    if (!is.null(input$f_depto_nda) && input$f_depto_nda != "Todos") {
-      mpios_o <- df %>% dplyr::filter(DEP_O == input$f_depto_nda) %>%
-        dplyr::distinct(MUN_O) %>%
-        dplyr::filter(!is.na(MUN_O), MUN_O != "") %>%
-        dplyr::arrange(MUN_O) %>%
-        dplyr::pull(MUN_O)
-      updateSelectInput(session, "f_mpio_nda", choices = c("Todos", mpios_o), selected = "Todos")
-    } else {
-      updateSelectInput(session, "f_mpio_nda", choices = "Todos", selected = "Todos")
-    }
-  }, ignoreInit = TRUE)
   
   # Nivel del mapa según ocurrencia
   map_nivel <- reactive({
@@ -685,9 +699,9 @@ server <- function(input, output, session){
   
   # ----- Títulos storytelling TAB 1 -----
   output$ttl_map_tab1 <- renderText({
-    met <- if (metrica_tab1() == "casos") 
-      "casos de niños con desnutrición aguda (NDA)" 
-    else 
+    met <- if (metrica_tab1() == "casos")
+      "casos de niños con desnutrición aguda (NDA)"
+    else
       "la incidencia (x100.000 hab.) de NDA"
     paste0(
       "¿En qué territorios es mayor la cantidad de ",
@@ -706,7 +720,7 @@ server <- function(input, output, session){
   output$map_nda <- renderLeaflet({
     leaflet::leaflet() %>%
       leaflet::addProviderTiles(leaflet::providers$CartoDB.Positron) %>%
-      leaflet::setView(lng = -74.9, lat = 10.8, zoom = 9)  # CAMBIO: Coordenadas de Atlántico
+      leaflet::setView(lng = -74.9, lat = 10.8, zoom = 9)
   })
   
   observe({
@@ -730,10 +744,7 @@ server <- function(input, output, session){
           valor = if (is_casos) casos else incidencia,
           valor = tidyr::replace_na(valor, 0),
           nombre = dplyr::coalesce(DEP_O, DEPARTAMENTO_N, COD_DPTO2),
-          etq   = paste0(
-            "<b>", nombre, "</b><br>",
-            titulo, ": ", fmt_val(valor)
-          )
+          etq   = paste0("<b>", nombre, "</b><br>", titulo, ": ", fmt_val(valor))
         )
       
       pal <- make_pal_quartiles(shp$valor, MAP_COLORS)
@@ -745,9 +756,7 @@ server <- function(input, output, session){
           fillColor = ~pal(valor),
           color = BORDER_UI, weight = 0.7, fillOpacity = 0.9,
           label = ~lapply(etq, htmltools::HTML),
-          highlightOptions = leaflet::highlightOptions(
-            color = BORDER_UI, weight = 2, bringToFront = TRUE
-          )
+          highlightOptions = leaflet::highlightOptions(color = BORDER_UI, weight = 2, bringToFront = TRUE)
         ) %>%
         leaflet::addLegend(
           position = "bottomright",
@@ -769,10 +778,7 @@ server <- function(input, output, session){
           valor = if (is_casos) casos else incidencia,
           valor = tidyr::replace_na(valor, 0),
           nombre = dplyr::coalesce(MUN_O, MUNICIPIO_N, COD_MUN5),
-          etq   = paste0(
-            "<b>", nombre, "</b><br>",
-            titulo, ": ", fmt_val(valor)
-          )
+          etq   = paste0("<b>", nombre, "</b><br>", titulo, ": ", fmt_val(valor))
         )
       
       pal <- make_pal_quartiles(shp$valor, MAP_COLORS)
@@ -785,9 +791,7 @@ server <- function(input, output, session){
           fillColor = ~pal(valor),
           color = BORDER_UI, weight = 0.4, fillOpacity = 0.9,
           label = ~lapply(etq, htmltools::HTML),
-          highlightOptions = leaflet::highlightOptions(
-            color = BORDER_UI, weight = 2, bringToFront = TRUE
-          )
+          highlightOptions = leaflet::highlightOptions(color = BORDER_UI, weight = 2, bringToFront = TRUE)
         ) %>%
         leaflet::addLegend(
           position = "bottomright",
@@ -806,6 +810,7 @@ server <- function(input, output, session){
   observeEvent(input$map_nda_shape_click, {
     click <- input$map_nda_shape_click
     req(click$id, input$f_anio_nda)
+    
     if (map_nivel() == "deptos") {
       cod <- sprintf("%02d", as.integer(click$id))
       nom <- nda_valid %>%
@@ -827,36 +832,26 @@ server <- function(input, output, session){
     }
   }, ignoreInit = TRUE)
   
-  # ---------- Top-10 (según métrica, por ocurrencia) ----------
+  # ---------- Top-10 ----------
   top10_df <- reactive({
     metric <- metrica_tab1()
     is_casos <- identical(metric, "casos")
     
     if (map_nivel() == "deptos") {
       dd <- nda_agg_depto_tab1() %>%
-        dplyr::mutate(
-          nombre = ifelse(!is.na(DEP_O) & nzchar(DEP_O), DEP_O, COD_DPTO2)
-        )
+        dplyr::mutate(nombre = ifelse(!is.na(DEP_O) & nzchar(DEP_O), DEP_O, COD_DPTO2))
     } else {
       dd <- nda_agg_mpio_tab1() %>%
-        dplyr::mutate(
-          nombre = ifelse(!is.na(MUN_O) & nzchar(MUN_O), MUN_O, COD_MUN5)
-        )
+        dplyr::mutate(nombre = ifelse(!is.na(MUN_O) & nzchar(MUN_O), MUN_O, COD_MUN5))
     }
     
     if (is_casos) {
-      df <- dd %>%
-        dplyr::filter(is.finite(casos)) %>%
-        dplyr::transmute(nombre, valor = casos)
+      df <- dd %>% dplyr::filter(is.finite(casos)) %>% dplyr::transmute(nombre, valor = casos)
     } else {
-      df <- dd %>%
-        dplyr::filter(is.finite(incidencia)) %>%
-        dplyr::transmute(nombre, valor = incidencia)
+      df <- dd %>% dplyr::filter(is.finite(incidencia)) %>% dplyr::transmute(nombre, valor = incidencia)
     }
     
-    df %>%
-      dplyr::arrange(dplyr::desc(valor)) %>%
-      dplyr::slice_head(n = 10)
+    df %>% dplyr::arrange(dplyr::desc(valor)) %>% dplyr::slice_head(n = 10)
   })
   
   output$bar_nda <- renderPlotly({
@@ -910,7 +905,7 @@ server <- function(input, output, session){
       )
   })
   
-  # ======= Serie temporal de casos NDA (por ocurrencia, todos los años) =======
+  # ======= Serie temporal de casos NDA =======
   serie_origen_df <- reactive({
     origen_dep <- input$f_depto_nda %||% "Todos"
     origen_mun <- input$f_mpio_nda  %||% "Todos"
@@ -957,23 +952,14 @@ server <- function(input, output, session){
       hoverlabel  = list(align = "left")
     ) %>%
       layout(
-        xaxis = list(
-          title    = "",
-          dtick    = 1,
-          showgrid = FALSE
-        ),
-        yaxis = list(
-          title    = "Casos",
-          showgrid = TRUE,
-          gridcolor = GRID_COLOR,
-          gridwidth = 0.5
-        ),
+        xaxis = list(title = "", dtick = 1, showgrid = FALSE),
+        yaxis = list(title = "Casos", showgrid = TRUE, gridcolor = GRID_COLOR, gridwidth = 0.5),
         margin = list(l = 60, r = 20, b = 40, t = 10),
         showlegend = FALSE
       )
   })
   
-  # ---- BARRAS: distribución por sexo (Tab 1, ocurrencia) ----
+  # ---- BARRAS: distribución por sexo ----
   output$sexo_nna_barras <- renderPlotly({
     df <- nda_base_tab1() %>%
       dplyr::mutate(
@@ -1014,12 +1000,7 @@ server <- function(input, output, session){
     ) %>%
       layout(
         xaxis = list(title = "Casos", showgrid = FALSE),
-        yaxis = list(
-          title = "",
-          showgrid = TRUE,
-          gridcolor = GRID_COLOR,
-          gridwidth = 0.5
-        ),
+        yaxis = list(title = "", showgrid = TRUE, gridcolor = GRID_COLOR, gridwidth = 0.5),
         margin = list(l = 90, r = 10, b = 20, t = 10),
         showlegend = FALSE
       )

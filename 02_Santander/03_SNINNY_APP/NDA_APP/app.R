@@ -1,7 +1,8 @@
-# app_nda.R
+# app_nda_santander.R
 # =========================================================
 # NDA — Dashboard (app exclusiva) - SANTANDER
 # - Tab 1: Exploración (mapa, top-10, serie, sexo)  → por ocurrencia
+# - FIX: selector de MUNICIPIO (carga choices al iniciar / cambiar año / cambiar dpto / reset)
 # =========================================================
 
 suppressWarnings({
@@ -59,6 +60,24 @@ title_case_es <- function(x){
   x
 }
 
+get_col <- function(df, opts, stop_msg){
+  nm <- opts[opts %in% names(df)][1]
+  if (is.na(nm) || !nzchar(nm)) stop(stop_msg) else nm
+}
+get_col_opt <- function(df, opts){
+  nm <- opts[opts %in% names(df)][1]
+  if (is.na(nm) || !nzchar(nm)) NA_character_ else nm
+}
+
+normalize_sex <- function(x){
+  x <- trimws(toupper(as.character(x)))
+  dplyr::case_when(
+    x %in% c("M","MASCULINO","HOMBRE","HOMBRES","1") ~ "Hombres",
+    x %in% c("F","FEMENINO","MUJER","MUJERES","2")   ~ "Mujeres",
+    TRUE                                            ~ NA_character_
+  )
+}
+
 # ---------- Rutas ----------
 local_data_dir <- "data"
 app_root     <- tryCatch(normalizePath(getwd(), winslash = "/", mustWork = TRUE), error = function(e) getwd())
@@ -85,60 +104,49 @@ if (length(miss_shp)) stop("Faltan componentes de shapefile:\n", paste("-", miss
 # ---------- 1) Leer NDA (casos = filas) SOLO ORIGEN ----------
 nda_raw <- readRDS(nda_path)
 
-# CAMBIO: Filtrar solo Santander
-nda_raw <- nda_raw %>% dplyr::filter(DEPARTAMENTO_O=="SANTANDER")
+# detectar columna de dpto (para poder filtrar robusto)
+n_dep_origen_col_raw <- get_col(
+  nda_raw,
+  c("DEPARTAMENTO_O", "DEPARTMENTO_O", "DEPARTAMENTO", "DEPARTMENTO"),
+  "NDA: no 'DEPARTAMENTO_O/DEPARTMENTO_O' (origen)"
+)
 
-get_col <- function(df, opts, stop_msg){
-  nm <- opts[opts %in% names(df)][1]
-  if (is.na(nm) || !nzchar(nm)) stop(stop_msg) else nm
-}
+# CAMBIO: Filtrar solo Santander (robusto a mayúsculas / tildes)
+nda_raw <- nda_raw %>%
+  dplyr::filter(NUP(.data[[n_dep_origen_col_raw]]) == "SANTANDER")
 
 # Buscar columnas con nombres alternativos
 n_year_col     <- get_col(nda_raw, c("ano","ANO","year","YEAR"), "NDA: no columna de año")
 
-# Código municipal: usar ORIGEN (COD_DANE_MUNIC_O) o alternativas
+# Código municipal: usar ORIGEN o alternativas
 n_mun_code_col <- get_col(
   nda_raw,
   c("COD_DANE_MUNIC_O", "COD_MUN5", "COD_MPIO", "MPIO_CDPMP", "CODIGO_MUNICIPIO"),
   "NDA: no código municipal de ocurrencia (origen)"
 )
 
-# DEPARTAMENTO_O / DEPARTMENTO_O (origen)
-n_dep_origen_col <- get_col(
-  nda_raw,
-  c("DEPARTAMENTO_O", "DEPARTMENTO_O", "DEPARTAMENTO", "DEPARTMENTO"),
-  "NDA: no 'DEPARTAMENTO_O/DEPARTMENTO_O' (origen)"
-)
-
-# MUNICIPIO_O (origen)
+# MUNICIPIO origen
 n_mun_origen_col <- get_col(
   nda_raw,
   c("MUNICIPIO_O", "MUNICIPIO", "MUNICIPIO_NOMBRE"),
   "NDA: no 'MUNICIPIO_O' (origen)"
 )
 
-normalize_sex <- function(x){
-  x <- trimws(toupper(as.character(x)))
-  dplyr::case_when(
-    x %in% c("M","MASCULINO","HOMBRE","HOMBRES","1") ~ "Hombres",
-    x %in% c("F","FEMENINO","MUJER","MUJERES","2")   ~ "Mujeres",
-    TRUE                                            ~ NA_character_
-  )
-}
+# Confirmación / tipo de caso (opcionales)
+n_confirmados_col <- get_col_opt(nda_raw, c("confirmados", "CONFIRMADOS", "CONFIRMACION", "confirmacion"))
+n_tip_cas_col     <- get_col_opt(nda_raw, c("tip_cas", "TIP_CAS", "TIPO_CASO", "tipo_caso"))
 
 nda <- nda_raw %>%
   dplyr::transmute(
     ano       = suppressWarnings(as.integer(.data[[n_year_col]])),
     COD_MUN5  = sprintf("%05d", suppressWarnings(as.integer(.data[[n_mun_code_col]]))),
     COD_DPTO2 = substr(COD_MUN5, 1, 2),
-    DEP_O     = title_case_es(.data[[n_dep_origen_col]]),
+    DEP_O     = title_case_es(.data[[n_dep_origen_col_raw]]),
     MUN_O     = title_case_es(.data[[n_mun_origen_col]]),
     edad_ni   = suppressWarnings(as.numeric(edad)),
     sexo_ni   = normalize_sex(sexo),
-    confirmados = if ("confirmados" %in% names(nda_raw)) 
-      suppressWarnings(as.integer(confirmados)) else NA_integer_,
-    tip_cas     = if ("tip_cas" %in% names(nda_raw))
-      trimws(as.character(tip_cas)) else NA_character_
+    confirmados = if (!is.na(n_confirmados_col)) suppressWarnings(as.integer(.data[[n_confirmados_col]])) else NA_integer_,
+    tip_cas     = if (!is.na(n_tip_cas_col)) trimws(as.character(.data[[n_tip_cas_col]])) else NA_character_
   ) %>%
   dplyr::filter(
     !is.na(ano),
@@ -148,7 +156,10 @@ nda <- nda_raw %>%
     !is.na(MUN_O), MUN_O != ""
   )
 
-# Solo filas válidas por ORIGEN
+# Normalizar nombre de Santander
+nda <- nda %>%
+  dplyr::mutate(DEP_O = ifelse(NUP(DEP_O) == "SANTANDER", "Santander", DEP_O))
+
 nda_valid <- nda
 
 # ---------- 1b) Población ----------
@@ -211,9 +222,7 @@ mpios_sf <- mpios_raw %>%
     else if ("NOMBRE_MPIO" %in% names(.)) as.character(NOMBRE_MPIO)
     else "MUNICIPIO"
   ) %>%
-  dplyr::mutate(
-    MUNICIPIO_N = title_case_es(MUNICIPIO_N)
-  ) %>%
+  dplyr::mutate(MUNICIPIO_N = title_case_es(MUNICIPIO_N)) %>%
   sf::st_transform(4326) %>%
   sf::st_make_valid()
 
@@ -227,32 +236,9 @@ dptos_sf <- dptos_raw %>%
     else if ("NOMBRE_DEPTO" %in% names(.)) as.character(NOMBRE_DEPTO)
     else COD_DPTO2
   ) %>%
-  dplyr::mutate(
-    DEPARTAMENTO_N = title_case_es(DEPARTAMENTO_N)
-  ) %>%
+  dplyr::mutate(DEPARTAMENTO_N = title_case_es(DEPARTAMENTO_N)) %>%
   sf::st_transform(4326) %>%
   sf::st_make_valid()
-
-# ---------- Helper paleta cuartiles (global, no se usa en server) ----------
-make_pal_quartiles <- function(values, palette = MAP_COLORS) {
-  vals <- values[is.finite(values)]
-  if (!length(vals)) vals <- 0
-  vals_pos <- vals[vals > 0]
-  
-  if (!length(vals_pos)) {
-    minv <- min(vals, na.rm = TRUE)
-    maxv <- max(vals, na.rm = TRUE)
-    bins <- c(minv, maxv)
-  } else {
-    qs   <- stats::quantile(vals_pos, probs = c(0.25, 0.5, 0.75), na.rm = TRUE)
-    minv <- min(vals, na.rm = TRUE)
-    maxv <- max(vals, na.rm = TRUE)
-    bins <- unique(c(minv, as.numeric(qs), maxv))
-    bins <- sort(bins)
-  }
-  
-  leaflet::colorBin(palette, domain = vals, bins = bins, na.color = "#f0f0f0")
-}
 
 # ---------------- UI ----------------
 ui <- fluidPage(
@@ -265,14 +251,13 @@ ui <- fluidPage(
     "font-size-base" = "0.98rem"
   ),
   
-  # ===== CSS + JS =====
   tags$head(
     tags$style(HTML(sprintf("
       :root{ --border-col:%s; }
       .wrap{max-width:1360px;margin:0 auto;padding:16px 20px 32px;}
       h3{font-weight:700;letter-spacing:.2px;margin-bottom:8px}
       .data-note{font-size:13px;color:#6b7280;margin:8px 0 0}
-      
+
       .filters{
         background:#fff;border:1.5px solid var(--border-col);
         border-radius:16px;padding:14px 16px;margin-bottom:16px;
@@ -283,20 +268,11 @@ ui <- fluidPage(
         grid-template-columns: repeat(auto-fit, minmax(180px,1fr));
         gap:12px;
       }
-      .filter{
-        display:flex;
-        flex-direction:column;
-      }
+      .filter{display:flex;flex-direction:column;}
       .filter-label{
         font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-        font-size:14px;
-        font-weight:500;
-        color:#000000;
-        letter-spacing:.2px;
-        margin-bottom:6px;
-        min-height:32px;
-        display:flex;
-        align-items:flex-end;
+        font-size:14px;font-weight:500;color:#000000;letter-spacing:.2px;
+        margin-bottom:6px;min-height:32px;display:flex;align-items:flex-end;
       }
 
       .selectize-input,.form-control{
@@ -307,60 +283,29 @@ ui <- fluidPage(
         border-color:var(--border-col)!important; outline:0 !important;
         box-shadow:0 0 0 .15rem rgba(255,179,102,.35)!important;
       }
-      
+
       .card{
         background:#fff;border:1.5px solid var(--border-col);
         border-radius:16px;padding:12px;
         box-shadow:0 2px 10px rgba(0,0,0,.05);
         margin-bottom:12px
       }
-      .card-title{
-        font-weight:700;
-        font-size:16px;
-        margin-bottom:8px;
-        color:#111827
-      }
-      .nav-tabs .nav-link.active{
-        border-color:var(--border-col) var(--border-col) #fff !important
-      }
-      .nav-tabs{
-        border-bottom:1.5px solid var(--border-col)
-      }
-    ", BORDER_UI))),
-    
-    tags$script(HTML("
-      function initBsTooltips(){
-        var list = [].slice.call(document.querySelectorAll('[data-bs-toggle=\"tooltip\"]'));
-        list.map(function(el){ 
-          try { 
-            return new bootstrap.Tooltip(el, {container: 'body'}); 
-          } catch(e){} 
-        });
-      }
-      document.addEventListener('DOMContentLoaded', initBsTooltips);
-      document.addEventListener('shiny:value', initBsTooltips);
-      document.addEventListener('shown.bs.tab', initBsTooltips);
-    "))
+      .card-title{font-weight:700;font-size:16px;margin-bottom:8px;color:#111827}
+      .nav-tabs .nav-link.active{border-color:var(--border-col) var(--border-col) #fff !important}
+      .nav-tabs{border-bottom:1.5px solid var(--border-col)}
+    ", BORDER_UI)))
   ),
   
   div(
     class = "wrap",
-    h3(""),
-    div(
-      class = "data-note",
-      HTML("")
-    ),
-    
     tabsetPanel(
       id   = "tabs_nda",
       type = "tabs",
       
-      # ================= TAB 1 =================
       tabPanel(
         title = "Distribución territorial de Niños con Desnutrición Aguda (NDA)",
         br(),
         
-        # ---- filtros ----
         div(
           class = "filters",
           div(
@@ -374,7 +319,6 @@ ui <- fluidPage(
             div(
               class = "filter",
               div(class = "filter-label", "¿En qué departamento?"),
-              # <<< Santander por defecto en la UI
               selectInput("f_depto_nda", NULL,
                           choices  = c("Todos","Santander"),
                           selected = "Santander")
@@ -387,11 +331,9 @@ ui <- fluidPage(
             div(
               class = "filter",
               div(class = "filter-label", "¿Hombres o Mujeres?"),
-              selectInput(
-                "f_sexo_tab1", NULL,
-                choices  = c("Todos","Hombres","Mujeres"),
-                selected = "Todos"
-              )
+              selectInput("f_sexo_tab1", NULL,
+                          choices = c("Todos","Hombres","Mujeres"),
+                          selected = "Todos")
             ),
             div(
               class = "filter",
@@ -414,40 +356,28 @@ ui <- fluidPage(
           )
         ),
         
-        # ---- contenido ----
         fluidRow(
           column(
             width = 6,
             div(
               class = "card",
-              div(
-                class = "card-title",
-                textOutput("ttl_map_tab1")
-              ),
+              div(class = "card-title", textOutput("ttl_map_tab1")),
               leafletOutput("map_nda", height = 810),
-              div(
-                class = "data-note",
-                HTML("Nota: Los colores del mapa corresponden a los <b>cuartiles</b> de la distribución del indicador seleccionado (según los datos visibles), usando el lugar de ocurrencia.")
-              )
+              div(class = "data-note",
+                  HTML("Nota: Los colores del mapa corresponden a los <b>cuartiles</b> de la distribución del indicador seleccionado (según los datos visibles), usando el lugar de ocurrencia."))
             )
           ),
           column(
             width = 6,
-            div(
-              class = "card",
-              div(class = "card-title", textOutput("ttl_top10_tab1")),
-              plotlyOutput("bar_nda", height = 260)
-            ),
-            div(
-              class = "card",
-              div(class = "card-title", textOutput("ttl_sexo_tab1")),
-              plotlyOutput("sexo_nna_barras", height = 240)
-            ),
-            div(
-              class = "card",
-              div(class = "card-title", "¿Cómo ha evolucionado en el tiempo el número de casos de NDA en Santander?"),
-              plotlyOutput("destinos_mpio_top", height = 240)
-            )
+            div(class = "card",
+                div(class = "card-title", textOutput("ttl_top10_tab1")),
+                plotlyOutput("bar_nda", height = 260)),
+            div(class = "card",
+                div(class = "card-title", textOutput("ttl_sexo_tab1")),
+                plotlyOutput("sexo_nna_barras", height = 240)),
+            div(class = "card",
+                div(class = "card-title", "¿Cómo ha evolucionado en el tiempo el número de casos de NDA en Santander?"),
+                plotlyOutput("destinos_mpio_top", height = 240))
           )
         )
       )
@@ -455,12 +385,10 @@ ui <- fluidPage(
   )
 )
 
-
 # ---------------- SERVER ----------------
 server <- function(input, output, session){
   `%||%` <- function(x, y) if (is.null(x) || length(x) == 0) y else x
   
-  # ---------- Helpers ----------
   empty_plot <- function(txt = "Sin datos para los filtros seleccionados.") {
     plotly::plotly_empty(type = "scatter", mode = "markers") %>%
       plotly::layout(
@@ -475,7 +403,6 @@ server <- function(input, output, session){
       )
   }
   
-  # Cuartiles robustos, cubriendo todo el rango (para Tab 1)
   make_pal_quartiles <- function(values, palette = MAP_COLORS) {
     vals <- values[is.finite(values)]
     if (!length(vals)) vals <- 0
@@ -496,13 +423,8 @@ server <- function(input, output, session){
     leaflet::colorBin(palette, domain = vals, bins = bins, na.color = "#f0f0f0")
   }
   
-  # Formateador de etiquetas: primer intervalo sin ">", los demás con "> ..."
-  label_bins_gt <- function(cuts,
-                            digits = 1,
-                            big.mark = ".",
-                            decimal.mark = ",",
-                            suffix = "",
-                            multiply = 1) {
+  label_bins_gt <- function(cuts, digits = 1, big.mark = ".", decimal.mark = ",",
+                            suffix = "", multiply = 1) {
     cuts <- cuts * multiply
     n <- length(cuts)
     if (n < 2) return(character(0))
@@ -533,56 +455,67 @@ server <- function(input, output, session){
     if (is.null(input$f_metrica_tab1)) "casos" else input$f_metrica_tab1
   })
   
-  # ================= TAB 1 — Exploración (ocurrencia) =================
   output$anio_nda_ui <- renderUI({
     yrs <- sort(unique(nda_valid$ano))
     selectInput("f_anio_nda", NULL, choices = yrs, selected = max(yrs, na.rm = TRUE))
   })
   
+  # ===== FIX MUNICIPIO =====
+  update_mpio_choices_nda <- function(selected = NULL) {
+    req(input$f_anio_nda)
+    
+    df <- nda_valid %>% dplyr::filter(ano == input$f_anio_nda)
+    
+    if (!is.null(input$f_depto_nda) && input$f_depto_nda != "Todos") {
+      df <- df %>% dplyr::filter(DEP_O == input$f_depto_nda)
+    }
+    
+    mpios_o <- df %>%
+      dplyr::distinct(MUN_O) %>%
+      dplyr::filter(!is.na(MUN_O), MUN_O != "") %>%
+      dplyr::arrange(MUN_O) %>%
+      dplyr::pull(MUN_O)
+    
+    sel <- selected %||% input$f_mpio_nda %||% "Todos"
+    if (!sel %in% mpios_o) sel <- "Todos"
+    
+    updateSelectInput(
+      session, "f_mpio_nda",
+      choices  = c("Todos", mpios_o),
+      selected = sel
+    )
+  }
+  
   observeEvent(input$btn_reset_nda, {
     yrs <- sort(unique(nda_valid$ano))
     
-    # <<< deps_all y Santander como valor por defecto al hacer RESET
     deps_all <- nda_valid %>%
       dplyr::distinct(DEP_O) %>%
       dplyr::filter(!is.na(DEP_O), DEP_O != "") %>%
       dplyr::arrange(DEP_O) %>%
       dplyr::pull(DEP_O)
+    
     default_dep <- if ("Santander" %in% deps_all) "Santander" else (deps_all[1] %||% "Todos")
     
     updateSelectInput(session, "f_anio_nda",  selected = max(yrs, na.rm = TRUE))
-    updateSelectInput(session, "f_depto_nda",
-                      choices  = c("Todos", deps_all),
-                      selected = default_dep)
-    updateSelectInput(session, "f_mpio_nda",  choices = "Todos", selected = "Todos")
-    updateSelectInput(session, "f_sexo_tab1",  selected = "Todos")
+    updateSelectInput(session, "f_depto_nda", choices = c("Todos", deps_all), selected = default_dep)
+    updateSelectInput(session, "f_sexo_tab1", selected = "Todos")
     updateSelectInput(session, "f_metrica_tab1", selected = "casos")
+    
+    isolate({ update_mpio_choices_nda(selected = "Todos") })
   })
   
-  # Base por ocurrencia (Tab 1) — SIEMPRE filtrada por año
-  nda_base_tab1 <- reactive({
-    req(input$f_anio_nda)
-    df <- nda_valid %>% dplyr::filter(ano == input$f_anio_nda)
-    if (!is.null(input$f_depto_nda) && input$f_depto_nda != "Todos")
-      df <- df %>% dplyr::filter(DEP_O == input$f_depto_nda)
-    if (!is.null(input$f_mpio_nda)  && input$f_mpio_nda  != "Todos")
-      df <- df %>% dplyr::filter(MUN_O == input$f_mpio_nda)
-    if (!is.null(input$f_sexo_tab1) && input$f_sexo_tab1 != "Todos")
-      df <- df %>% dplyr::filter(sexo_ni == input$f_sexo_tab1)
-    df
-  })
-  
-  # Combos dinámicos de ocurrencia, sujetos al año
   observeEvent(input$f_anio_nda, {
     df_year <- nda_valid %>% dplyr::filter(ano == input$f_anio_nda)
+    
     deps_o  <- df_year %>%
       dplyr::distinct(DEP_O) %>%
       dplyr::filter(!is.na(DEP_O), DEP_O != "") %>%
       dplyr::arrange(DEP_O) %>%
       dplyr::pull(DEP_O)
     
-    # <<< Santander como valor por defecto si está disponible
     default_dep <- if ("Santander" %in% deps_o) "Santander" else (deps_o[1] %||% "Todos")
+    
     sel_dep <- if (!is.null(input$f_depto_nda) && input$f_depto_nda %in% deps_o) {
       input$f_depto_nda
     } else {
@@ -590,30 +523,31 @@ server <- function(input, output, session){
     }
     
     updateSelectInput(session, "f_depto_nda", choices = c("Todos", deps_o), selected = sel_dep)
-    updateSelectInput(session, "f_mpio_nda",  choices = "Todos", selected = "Todos")
+    
+    isolate({ update_mpio_choices_nda(selected = "Todos") })
   }, ignoreInit = FALSE)
   
   observeEvent(input$f_depto_nda, {
     req(input$f_anio_nda)
-    df <- nda_valid %>% dplyr::filter(ano == input$f_anio_nda)
-    if (!is.null(input$f_depto_nda) && input$f_depto_nda != "Todos") {
-      mpios_o <- df %>% dplyr::filter(DEP_O == input$f_depto_nda) %>%
-        dplyr::distinct(MUN_O) %>%
-        dplyr::filter(!is.na(MUN_O), MUN_O != "") %>%
-        dplyr::arrange(MUN_O) %>%
-        dplyr::pull(MUN_O)
-      updateSelectInput(session, "f_mpio_nda", choices = c("Todos", mpios_o), selected = "Todos")
-    } else {
-      updateSelectInput(session, "f_mpio_nda", choices = "Todos", selected = "Todos")
-    }
-  }, ignoreInit = TRUE)
+    update_mpio_choices_nda(selected = "Todos")
+  }, ignoreInit = FALSE)
   
-  # Nivel del mapa según ocurrencia
+  nda_base_tab1 <- reactive({
+    req(input$f_anio_nda)
+    df <- nda_valid %>% dplyr::filter(ano == input$f_anio_nda)
+    if (!is.null(input$f_depto_nda) && input$f_depto_nda != "Todos")
+      df <- df %>% dplyr::filter(DEP_O == input$f_depto_nda)
+    if (!is.null(input$f_mpio_nda) && input$f_mpio_nda != "Todos")
+      df <- df %>% dplyr::filter(MUN_O == input$f_mpio_nda)
+    if (!is.null(input$f_sexo_tab1) && input$f_sexo_tab1 != "Todos")
+      df <- df %>% dplyr::filter(sexo_ni == input$f_sexo_tab1)
+    df
+  })
+  
   map_nivel <- reactive({
     if (!is.null(input$f_depto_nda) && input$f_depto_nda != "Todos") "mpios" else "deptos"
   })
   
-  # Código DANE del departamento "de ocurrencia"
   sel_cod_dep <- reactive({
     if (map_nivel() == "mpios") {
       req(input$f_anio_nda, input$f_depto_nda)
@@ -629,7 +563,6 @@ server <- function(input, output, session){
     }
   })
   
-  # Agregados por ocurrencia (DEPARTAMENTOS)
   nda_agg_depto_tab1 <- reactive({
     req(input$f_anio_nda)
     df <- nda_base_tab1()
@@ -642,12 +575,9 @@ server <- function(input, output, session){
     
     casos %>%
       dplyr::left_join(pop, by = "COD_DPTO2") %>%
-      dplyr::mutate(
-        incidencia = dplyr::if_else(POB > 0, (casos / POB) * 1e5, NA_real_)
-      )
+      dplyr::mutate(incidencia = dplyr::if_else(POB > 0, (casos / POB) * 1e5, NA_real_))
   })
   
-  # Agregados por ocurrencia (MUNICIPIOS)
   nda_agg_mpio_tab1 <- reactive({
     req(input$f_anio_nda)
     df <- nda_base_tab1()
@@ -660,21 +590,15 @@ server <- function(input, output, session){
     
     casos %>%
       dplyr::left_join(pop, by = c("COD_DPTO2", "COD_MUN5")) %>%
-      dplyr::mutate(
-        incidencia = dplyr::if_else(POB > 0, (casos / POB) * 1e5, NA_real_)
-      )
+      dplyr::mutate(incidencia = dplyr::if_else(POB > 0, (casos / POB) * 1e5, NA_real_))
   })
   
-  # ----- Títulos storytelling TAB 1 -----
   output$ttl_map_tab1 <- renderText({
-    met <- if (metrica_tab1() == "casos") 
-      "casos de niños con desnutrición aguda (NDA)" 
-    else 
+    met <- if (metrica_tab1() == "casos")
+      "casos de niños con desnutrición aguda (NDA)"
+    else
       "la incidencia (x100.000 hab.) de NDA"
-    paste0(
-      "¿En qué territorios es mayor la cantidad de ",
-      met, " en Santander?"
-    )
+    paste0("¿En qué territorios es mayor la cantidad de ", met, " en Santander?")
   })
   output$ttl_top10_tab1 <- renderText({
     met <- if (metrica_tab1() == "casos") "más casos de NDA" else "mayor incidencia de NDA"
@@ -684,11 +608,11 @@ server <- function(input, output, session){
     "¿Cómo se distribuyen los casos de NDA entre Hombres y Mujeres en Santander?"
   })
   
-  # ---------- Mapa TAB 1 (SOLO OCURRENCIA) ----------
+  # ---------- Mapa ----------
   output$map_nda <- renderLeaflet({
     leaflet::leaflet() %>%
       leaflet::addProviderTiles(leaflet::providers$CartoDB.Positron) %>%
-      leaflet::setView(lng = -73.5, lat = 7.0, zoom = 8)  # CAMBIO: Coordenadas de Santander
+      leaflet::setView(lng = -73.12, lat = 7.12, zoom = 8)  # centro aprox. Santander (Bucaramanga)
   })
   
   observe({
@@ -712,10 +636,7 @@ server <- function(input, output, session){
           valor = if (is_casos) casos else incidencia,
           valor = tidyr::replace_na(valor, 0),
           nombre = dplyr::coalesce(DEP_O, DEPARTAMENTO_N, COD_DPTO2),
-          etq   = paste0(
-            "<b>", nombre, "</b><br>",
-            titulo, ": ", fmt_val(valor)
-          )
+          etq   = paste0("<b>", nombre, "</b><br>", titulo, ": ", fmt_val(valor))
         )
       
       pal <- make_pal_quartiles(shp$valor, MAP_COLORS)
@@ -727,9 +648,7 @@ server <- function(input, output, session){
           fillColor = ~pal(valor),
           color = BORDER_UI, weight = 0.7, fillOpacity = 0.9,
           label = ~lapply(etq, htmltools::HTML),
-          highlightOptions = leaflet::highlightOptions(
-            color = BORDER_UI, weight = 2, bringToFront = TRUE
-          )
+          highlightOptions = leaflet::highlightOptions(color = BORDER_UI, weight = 2, bringToFront = TRUE)
         ) %>%
         leaflet::addLegend(
           position = "bottomright",
@@ -751,10 +670,7 @@ server <- function(input, output, session){
           valor = if (is_casos) casos else incidencia,
           valor = tidyr::replace_na(valor, 0),
           nombre = dplyr::coalesce(MUN_O, MUNICIPIO_N, COD_MUN5),
-          etq   = paste0(
-            "<b>", nombre, "</b><br>",
-            titulo, ": ", fmt_val(valor)
-          )
+          etq   = paste0("<b>", nombre, "</b><br>", titulo, ": ", fmt_val(valor))
         )
       
       pal <- make_pal_quartiles(shp$valor, MAP_COLORS)
@@ -767,9 +683,7 @@ server <- function(input, output, session){
           fillColor = ~pal(valor),
           color = BORDER_UI, weight = 0.4, fillOpacity = 0.9,
           label = ~lapply(etq, htmltools::HTML),
-          highlightOptions = leaflet::highlightOptions(
-            color = BORDER_UI, weight = 2, bringToFront = TRUE
-          )
+          highlightOptions = leaflet::highlightOptions(color = BORDER_UI, weight = 2, bringToFront = TRUE)
         ) %>%
         leaflet::addLegend(
           position = "bottomright",
@@ -784,10 +698,10 @@ server <- function(input, output, session){
     }
   })
   
-  # Click en mapa → actualiza filtros de ocurrencia
   observeEvent(input$map_nda_shape_click, {
     click <- input$map_nda_shape_click
     req(click$id, input$f_anio_nda)
+    
     if (map_nivel() == "deptos") {
       cod <- sprintf("%02d", as.integer(click$id))
       nom <- nda_valid %>%
@@ -809,36 +723,23 @@ server <- function(input, output, session){
     }
   }, ignoreInit = TRUE)
   
-  # ---------- Top-10 (según métrica, por ocurrencia) ----------
   top10_df <- reactive({
     metric <- metrica_tab1()
     is_casos <- identical(metric, "casos")
     
     if (map_nivel() == "deptos") {
-      dd <- nda_agg_depto_tab1() %>%
-        dplyr::mutate(
-          nombre = ifelse(!is.na(DEP_O) & nzchar(DEP_O), DEP_O, COD_DPTO2)
-        )
+      dd <- nda_agg_depto_tab1() %>% dplyr::mutate(nombre = ifelse(!is.na(DEP_O) & nzchar(DEP_O), DEP_O, COD_DPTO2))
     } else {
-      dd <- nda_agg_mpio_tab1() %>%
-        dplyr::mutate(
-          nombre = ifelse(!is.na(MUN_O) & nzchar(MUN_O), MUN_O, COD_MUN5)
-        )
+      dd <- nda_agg_mpio_tab1() %>% dplyr::mutate(nombre = ifelse(!is.na(MUN_O) & nzchar(MUN_O), MUN_O, COD_MUN5))
     }
     
     if (is_casos) {
-      df <- dd %>%
-        dplyr::filter(is.finite(casos)) %>%
-        dplyr::transmute(nombre, valor = casos)
+      df <- dd %>% dplyr::filter(is.finite(casos)) %>% dplyr::transmute(nombre, valor = casos)
     } else {
-      df <- dd %>%
-        dplyr::filter(is.finite(incidencia)) %>%
-        dplyr::transmute(nombre, valor = incidencia)
+      df <- dd %>% dplyr::filter(is.finite(incidencia)) %>% dplyr::transmute(nombre, valor = incidencia)
     }
     
-    df %>%
-      dplyr::arrange(dplyr::desc(valor)) %>%
-      dplyr::slice_head(n = 10)
+    df %>% dplyr::arrange(dplyr::desc(valor)) %>% dplyr::slice_head(n = 10)
   })
   
   output$bar_nda <- renderPlotly({
@@ -866,10 +767,8 @@ server <- function(input, output, session){
     
     plot_ly(
       data = df2,
-      x = ~valor,
-      y = ~nombre,
-      type = "bar",
-      orientation = "h",
+      x = ~valor, y = ~nombre,
+      type = "bar", orientation = "h",
       marker = list(color = BAR_COLOR),
       text = ~label,
       textposition = "inside",
@@ -880,33 +779,23 @@ server <- function(input, output, session){
     ) %>%
       layout(
         xaxis = list(title = x_title, showgrid = FALSE),
-        yaxis = list(
-          title = "",
-          automargin = TRUE,
-          showgrid = TRUE,
-          gridcolor = GRID_COLOR,
-          gridwidth = 0.5
-        ),
+        yaxis = list(title = "", automargin = TRUE, showgrid = TRUE, gridcolor = GRID_COLOR, gridwidth = 0.5),
         margin = list(l = 10, r = 10, t = 10, b = 10),
         showlegend = FALSE
       )
   })
   
-  # ======= Serie temporal de casos NDA (por ocurrencia, todos los años) =======
   serie_origen_df <- reactive({
     origen_dep <- input$f_depto_nda %||% "Todos"
     origen_mun <- input$f_mpio_nda  %||% "Todos"
     
     df <- nda_valid
-    if (!is.null(input$f_sexo_tab1) && input$f_sexo_tab1 != "Todos") {
+    if (!is.null(input$f_sexo_tab1) && input$f_sexo_tab1 != "Todos")
       df <- df %>% dplyr::filter(sexo_ni == input$f_sexo_tab1)
-    }
-    if (!is.null(origen_dep) && origen_dep != "Todos") {
+    if (!is.null(origen_dep) && origen_dep != "Todos")
       df <- df %>% dplyr::filter(DEP_O == origen_dep)
-    }
-    if (!is.null(origen_mun) && origen_mun != "Todos") {
+    if (!is.null(origen_mun) && origen_mun != "Todos")
       df <- df %>% dplyr::filter(MUN_O == origen_mun)
-    }
     
     df %>%
       dplyr::group_by(ano) %>%
@@ -916,9 +805,8 @@ server <- function(input, output, session){
   
   output$destinos_mpio_top <- renderPlotly({
     df <- serie_origen_df()
-    if (is.null(df) || nrow(df) == 0) {
+    if (is.null(df) || nrow(df) == 0)
       return(empty_plot("No hay casos de NDA para los filtros de ocurrencia seleccionados."))
-    }
     
     df <- df %>%
       dplyr::mutate(
@@ -928,34 +816,21 @@ server <- function(input, output, session){
     
     plot_ly(
       data = df,
-      x    = ~ano,
-      y    = ~casos,
-      type = "scatter",
-      mode = "lines+markers",
+      x = ~ano, y = ~casos,
+      type = "scatter", mode = "lines+markers",
       line   = list(color = BAR_COLOR),
       marker = list(size = 7, color = BAR_COLOR),
-      text        = ~label,
-      hoverinfo   = "text",
-      hoverlabel  = list(align = "left")
+      text = ~label, hoverinfo = "text",
+      hoverlabel = list(align = "left")
     ) %>%
       layout(
-        xaxis = list(
-          title    = "",
-          dtick    = 1,
-          showgrid = FALSE
-        ),
-        yaxis = list(
-          title    = "Casos",
-          showgrid = TRUE,
-          gridcolor = GRID_COLOR,
-          gridwidth = 0.5
-        ),
+        xaxis = list(title = "", dtick = 1, showgrid = FALSE),
+        yaxis = list(title = "Casos", showgrid = TRUE, gridcolor = GRID_COLOR, gridwidth = 0.5),
         margin = list(l = 60, r = 20, b = 40, t = 10),
         showlegend = FALSE
       )
   })
   
-  # ---- BARRAS: distribución por sexo (Tab 1, ocurrencia) ----
   output$sexo_nna_barras <- renderPlotly({
     df <- nda_base_tab1() %>%
       dplyr::mutate(
@@ -982,10 +857,8 @@ server <- function(input, output, session){
     
     plot_ly(
       df,
-      x = ~Casos,
-      y = ~sexo_cat,
-      type = "bar",
-      orientation = "h",
+      x = ~Casos, y = ~sexo_cat,
+      type = "bar", orientation = "h",
       marker = list(color = cols),
       text = ~label,
       textposition = "inside",
@@ -996,12 +869,7 @@ server <- function(input, output, session){
     ) %>%
       layout(
         xaxis = list(title = "Casos", showgrid = FALSE),
-        yaxis = list(
-          title = "",
-          showgrid = TRUE,
-          gridcolor = GRID_COLOR,
-          gridwidth = 0.5
-        ),
+        yaxis = list(title = "", showgrid = TRUE, gridcolor = GRID_COLOR, gridwidth = 0.5),
         margin = list(l = 90, r = 10, b = 20, t = 10),
         showlegend = FALSE
       )

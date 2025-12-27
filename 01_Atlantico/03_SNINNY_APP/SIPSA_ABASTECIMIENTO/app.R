@@ -290,6 +290,12 @@ server <- function(input, output, session){
     df
   })
   
+  # --- Total global para cálculo de porcentajes ---
+  total_global <- reactive({
+    df <- datos_filtrados()
+    sum(df$kg, na.rm = TRUE)
+  })
+  
   # --- estado: grupo seleccionado ---
   grupo_sel <- reactiveVal(NULL)
   
@@ -317,13 +323,14 @@ server <- function(input, output, session){
     
     validate(need(nrow(agg) > 0, "Sin datos para treemap por grupo"))
     
-    total <- sum(agg$kg, na.rm = TRUE)
+    total <- total_global()
     agg <- agg %>%
       mutate(
-        pct = ifelse(total > 0, kg/total, NA_real_),
+        pct_global = ifelse(total > 0, kg/total, NA_real_),
+        # Para el color usamos el porcentaje global
+        color_val = round(pct_global * 100, 2),
         tooltip_text = paste0(
           "Grupo: ", grupo,
-          "<br>Participación: ", round(pct*100, 1), "%",
           "<br>Kg: ", fmt_int_co(kg),
           "<br>Ton: ", fmt_dec_co(kg/1000, 1)
         )
@@ -334,10 +341,13 @@ server <- function(input, output, session){
     
     hchart(
       agg, "treemap",
-      hcaes(x = grupo, value = round(pct*100, 2), color = round(pct*100, 2))
+      hcaes(x = grupo, value = kg, color = color_val)
     ) %>%
       hc_title(text = "") %>%
-      hc_colorAxis(minColor = low_color, maxColor = high_color) %>%
+      hc_colorAxis(min = 0, max = max(agg$color_val, na.rm = TRUE), 
+                   minColor = low_color, maxColor = high_color,
+                   labels = list(enabled = FALSE),  # Quita las etiquetas de la escala de color
+                   showInLegend = FALSE) %>%  # Esto elimina completamente la barrita/leyenda de color
       hc_tooltip(pointFormat = "{point.tooltip_text}") %>%
       hc_plotOptions(
         series = list(
@@ -348,7 +358,7 @@ server <- function(input, output, session){
           )
         )
       ) %>%
-      hc_caption(text = "Participación (%)", align = "center", verticalAlign = "bottom", y = -10)
+      hc_caption(enabled = FALSE)  # Quitamos la etiqueta de participación
   })
   
   # --- Título Treemap 2 ---
@@ -364,28 +374,37 @@ server <- function(input, output, session){
     g  <- grupo_sel()
     
     if (is.null(g)) {
-      return(
-        highchart() %>%
-          hc_title(text = "") %>%
-          hc_subtitle(text = "Haz clic en un grupo (treemap superior) para ver el desglose por alimentos.") %>%
-          hc_add_series(
+      # Sin grupo seleccionado - mostrar mensaje
+      hc <- highchart() %>%
+        hc_title(text = "Selecciona un grupo") %>%
+        hc_subtitle(text = "Haz clic en un grupo en el treemap superior para ver el desglose por alimentos") %>%
+        hc_chart(type = "treemap") %>%
+        hc_plotOptions(
+          treemap = list(
+            layoutAlgorithm = "squarified",
+            borderWidth = 1,
+            borderColor = "#e5e7eb",
+            dataLabels = list(enabled = FALSE)
+          )
+        ) %>%
+        hc_add_series(
+          name = "Datos",
+          type = "treemap",
+          layoutAlgorithm = "squarified",
+          allowDrillToNode = TRUE,
+          data = list(
             list(
-              type = "treemap",
-              layoutAlgorithm = "squarified",
-              data = list(list(
-                name = "Selecciona un grupo",
-                value = 100,
-                colorValue = 100,
-                tooltip_text = "Haz clic en un grupo arriba"
-              ))
-            ),
-            hcaes(x = name, value = value, color = colorValue)
-          ) %>%
-          hc_colorAxis(minColor = "#e5e7eb", maxColor = "#9ca3af") %>%
-          hc_tooltip(pointFormat = "{point.tooltip_text}")
-      )
+              id = "mensaje",
+              name = "Selecciona un grupo",
+              value = 1,
+              color = "#f3f4f6"
+            )
+          )
+        )
+      return(hc)
     }
     
+    # Primero obtenemos los alimentos del grupo seleccionado
     det <- df %>%
       filter(grupo == g) %>%
       group_by(alimento) %>%
@@ -394,13 +413,15 @@ server <- function(input, output, session){
     
     validate(need(nrow(det) > 0, "No hay alimentos para ese grupo con los filtros actuales"))
     
-    total_g <- sum(det$kg, na.rm = TRUE)
+    total <- total_global()
     det <- det %>%
       mutate(
-        pct = ifelse(total_g > 0, kg/total_g, NA_real_),
+        # Porcentaje GLOBAL (del total de todos los alimentos)
+        pct_global = ifelse(total > 0, kg/total, NA_real_),
+        # Para el color usamos el porcentaje global para que coincida con las áreas
+        color_val = round(pct_global * 100, 2),
         tooltip_text = paste0(
           "Alimento: ", alimento,
-          "<br>% dentro del grupo: ", round(pct*100, 1), "%",
           "<br>Kg: ", fmt_int_co(kg),
           "<br>Ton: ", fmt_dec_co(kg/1000, 1)
         )
@@ -411,15 +432,16 @@ server <- function(input, output, session){
     
     hchart(
       det, "treemap",
-      hcaes(x = alimento, value = round(pct*100, 2), color = round(pct*100, 2))
+      hcaes(x = alimento, value = kg, color = color_val)
     ) %>%
       hc_title(text = "") %>%
-      hc_colorAxis(minColor = low_color, maxColor = high_color) %>%
+      hc_colorAxis(min = 0, max = max(det$color_val, na.rm = TRUE),
+                   minColor = low_color, maxColor = high_color,
+                   labels = list(enabled = FALSE),  # Quita las etiquetas de la escala de color
+                   showInLegend = FALSE) %>%  # Esto elimina completamente la barrita/leyenda de color
       hc_tooltip(pointFormat = "{point.tooltip_text}") %>%
-      hc_caption(text = "% dentro del grupo", align = "center", verticalAlign = "bottom", y = -10)
+      hc_caption(enabled = FALSE)  # Quitamos la etiqueta de participación
   })
 }
 
 shinyApp(ui, server)
-
-
