@@ -1,6 +1,6 @@
-# app_sninny_estructura_multi_bases_con_finagro.R
-# (MODIFICADO — POBLACIÓN por quinquenio + labels mapas con DEPARTAMENTO_D)
-# (AJUSTE ÚNICO ADICIONAL — FINAGRO: ahora carga 081_FINAGRO_CFA y usa variables de la imagen)
+# app_sninny_estructura_multi_bases_con_finagro_con_crecimiento.R
+# (MODIFICADO — Incluye indicador de crecimiento poblacional de 30 años)
+# (MODIFICADO — SE ELIMINA TODO LO DE FINAGRO)
 # -------------------------------------------------------------------
 
 suppressWarnings({
@@ -148,42 +148,41 @@ norm_dep2 <- function(x){
 sistemas_df <- tibble::tribble(
   ~sistema,              ~archivos,
   "DANE_POPULATION",     list("051_DANE_Proyecciones_P.rds"),
+  "DANE_POP_CRECIMIENTO",list("051_DANE_Proyecciones_P.rds"),
   "DANE_ECV",            list("052_DANE_ECV.rds"),
   "INS_SIVIGILA_BPAN",   list("021_INS_SIVIGILA-BPAN.rds"),
   "INS_SIVIGILA_ETA",    list("022_INS_SIVIGILA-ETA.rds"),
   "INS_SIVIGILA_NDA",    list("023_INS_SIVIGILA-NDA.rds"),
   "DNP_SISBEN",          list("031_DNP_SISBEN.rds"),
   "NOAA_PRECIPITACION",  list("131_NOAA_Precipitación.rds"),
-  "HANSEN_DEFORESTATION",list("141_HANSEN_DEFORESTATION.rds"),
-  # (CAMBIO FINAGRO) antes: 081_FINAGRO_CFA_fast.rds
-  "FINAGRO_CFA_FAST",    list("081_FINAGRO_CFA.rds")
+  "HANSEN_DEFORESTATION",list("141_HANSEN_DEFORESTATION.rds")
 ) %>%
   mutate(rutas = lapply(archivos, function(v) file.path(data_dir, v)))
 
 indicadores_df <- tibble::tribble(
   ~titulo,                                                               ~dimension,   ~sistema,
   "Transición demográfica territorial — Razón de dependencia",           "Estructura", "DANE_POPULATION",
+  "Crecimiento poblacional promedio anual (30 años)",                    "Estructura", "DANE_POP_CRECIMIENTO",
   "Condiciones de inseguridad alimentaria y consumo de ultra-procesados en los hogares", "Estructura", "DANE_ECV",
   "Enfermedades Transmitidas por Alimentos",                             "Estructura", "INS_SIVIGILA_ETA",
   "Bajo peso al nacer",                                                  "Estructura", "INS_SIVIGILA_BPAN",
   "Desnutrición aguda infantil",                                         "Estructura", "INS_SIVIGILA_NDA",
   "Condiciones socio-económicas de la población",                        "Estructura", "DNP_SISBEN",
   "Lluvia en el territorio",                                             "Estructura", "NOAA_PRECIPITACION",
-  "Pérdida de bosque en el territorio",                                  "Estructura", "HANSEN_DEFORESTATION",
-  "Financiamiento rural y agropecuario",                                 "Estructura", "FINAGRO_CFA_FAST"
+  "Pérdida de bosque en el territorio",                                  "Estructura", "HANSEN_DEFORESTATION"
 )
 
 choices_por_dimension <- function(dim){
   orden_estructura <- c(
     "DANE_POPULATION",
+    "DANE_POP_CRECIMIENTO",
     "DANE_ECV",
     "INS_SIVIGILA_ETA",
     "INS_SIVIGILA_BPAN",
     "INS_SIVIGILA_NDA",
     "DNP_SISBEN",
     "NOAA_PRECIPITACION",
-    "HANSEN_DEFORESTATION",
-    "FINAGRO_CFA_FAST"
+    "HANSEN_DEFORESTATION"
   )
   df <- indicadores_df %>% dplyr::filter(dimension == dim)
   if (!nrow(df)) return(setNames("NINGUNO", "Sin sistemas asociados para esta dimensión"))
@@ -200,14 +199,14 @@ base_to_indicator_code <- function(sistema){
   switch(
     sistema,
     "DANE_POPULATION"      = "DEP_RATIO",
+    "DANE_POP_CRECIMIENTO" = "DEP_CRECIMIENTO",
     "DANE_ECV"             = "ECV_FIES",
-    "INS_SIVIGILA_BPAN"    = "BPAN",
+    "INS_SIVIGILA_BPAN"    = "BPAN",     # (FIX) antes tenía una 'a' minúscula
     "INS_SIVIGILA_ETA"     = "ETA",
     "INS_SIVIGILA_NDA"     = "NDA",
     "DNP_SISBEN"           = "SISBEN",
     "NOAA_PRECIPITACION"   = "PRECIP",
     "HANSEN_DEFORESTATION" = "HANSEN",
-    "FINAGRO_CFA_FAST"     = "FINAGRO",
     NA_character_
   )
 }
@@ -237,7 +236,7 @@ dep_name_col_shp <- if (!is.null(shp_dep)) pick_dep_name_col(names(shp_dep)) els
 
 if (!is.null(shp_dep)) {
   shp_dep <- sf::st_transform(shp_dep, 4326)
-  shp_dep <- sf::st_simplify(shp_dep, dTolerance = 0.01, preserveTopology = TRUE)
+  shp_dep <- sf::st_simplify(shp_dep, dTolerance = 0.001, preserveTopology = TRUE)
   shp_dep$join_code <- if (!is.na(dep_code_col_shp)) as.character(shp_dep[[dep_code_col_shp]]) else NA_character_
   shp_dep$join_name <- if (!is.na(dep_name_col_shp)) stringi::stri_trans_general(as.character(shp_dep[[dep_name_col_shp]]), "Latin-ASCII") else NA_character_
   shp_dep$join_name <- stringi::stri_trim_both(toupper(shp_dep$join_name))
@@ -266,7 +265,6 @@ join_dep_shp <- function(df, shp, df_key_code = NULL, df_key_name = NULL){
   ok_code  <- if ("valor" %in% names(out_code)) mean(!is.na(out_code$valor)) else 0
   out <- if (is.finite(ok_code) && ok_code >= 0.20) out_code else suppressWarnings(dplyr::left_join(shp, df2, by = c("join_name" = "join_name")))
   
-  # Asegurar que exista DEPARTAMENTO_D para labels
   if (!("DEPARTAMENTO_D" %in% names(out))) {
     if ("dep_nom" %in% names(out)) out$DEPARTAMENTO_D <- out$dep_nom
     else if ("join_name" %in% names(out)) out$DEPARTAMENTO_D <- out$join_name
@@ -277,7 +275,6 @@ join_dep_shp <- function(df, shp, df_key_code = NULL, df_key_name = NULL){
 
 # =========================================================
 # 1) DANE POPULATION — razón de dependencia (serie + dep)
-#    AJUSTADO a tu estructura: ano, COD_DANE_DPTO_D, DEPARTAMENTO_D, quinquenio, poblacion
 # =========================================================
 parse_quinquenio_bounds <- function(q){
   q <- as.character(q)
@@ -435,10 +432,134 @@ pob_dep_all <- tryCatch({
   NULL
 })
 
+# =========================================================
+# NUEVO: Crecimiento poblacional promedio anual (30 años)
+# =========================================================
+L <- 30L
+
+pob_crecimiento_30 <- tryCatch({
+  if (is.null(pob_raw) || !nrow(pob_raw)) return(NULL)
+  
+  nms <- names(pob_raw)
+  col_ano  <- pick_col_simple(nms, c("ano","año","anio","year"))
+  col_dep  <- pick_col_simple(nms, c("COD_DANE_DPTO_D","cod_dane_dpto_d","COD_DPTO2","cod_dpto2","cod_dpto","cod_depto"))
+  col_nom  <- pick_col_simple(nms, c("DEPARTAMENTO_D","departamento_d","departamento","nom_dpto","depto"))
+  col_pob  <- pick_col_simple(nms, c("poblacion","pob","population"))
+  
+  if (any(is.na(c(col_ano, col_dep, col_pob)))) return(NULL)
+  
+  df_total <- pob_raw %>%
+    transmute(
+      ano             = suppressWarnings(as.integer(parse_num_co(.data[[col_ano]]))),
+      COD_DANE_DPTO_D = norm_dep2(.data[[col_dep]]),
+      DEPARTAMENTO_D  = if (!is.na(col_nom)) safe_chr(.data[[col_nom]]) else NA_character_,
+      poblacion       = parse_num_co(.data[[col_pob]])
+    ) %>%
+    filter(!is.na(ano), !is.na(COD_DANE_DPTO_D), nzchar(COD_DANE_DPTO_D),
+           is.finite(poblacion), poblacion >= 0) %>%
+    group_by(ano, COD_DANE_DPTO_D, DEPARTAMENTO_D) %>%
+    summarise(poblacion = sum(poblacion, na.rm = TRUE), .groups = "drop")
+  
+  if (!nrow(df_total)) return(NULL)
+  
+  df_total %>%
+    group_by(COD_DANE_DPTO_D, DEPARTAMENTO_D) %>%
+    arrange(ano) %>%
+    mutate(
+      poblacion_tminusL = dplyr::lag(poblacion, n = L),
+      g_aprox = dplyr::if_else(
+        !is.na(poblacion_tminusL) & poblacion_tminusL > 0,
+        (poblacion / poblacion_tminusL - 1) / L,
+        NA_real_
+      )
+    ) %>%
+    filter(!is.na(g_aprox)) %>%
+    ungroup() %>%
+    transmute(
+      ano = ano,
+      cod_dep = COD_DANE_DPTO_D,
+      dep_nom = DEPARTAMENTO_D,
+      DEPARTAMENTO_D = DEPARTAMENTO_D,
+      valor = g_aprox * 100
+    ) %>%
+    arrange(cod_dep, ano)
+  
+}, error = function(e){
+  message("DANE_POPULATION (crecimiento 30 años): error -> ", conditionMessage(e))
+  NULL
+})
+
+pob_crecimiento_ts <- tryCatch({
+  if (is.null(pob_raw) || !nrow(pob_raw)) return(NULL)
+  
+  nms <- names(pob_raw)
+  col_ano  <- pick_col_simple(nms, c("ano","año","anio","year"))
+  col_pob  <- pick_col_simple(nms, c("poblacion","pob","population"))
+  if (any(is.na(c(col_ano, col_pob)))) return(NULL)
+  
+  df_total <- pob_raw %>%
+    transmute(
+      ano       = suppressWarnings(as.integer(parse_num_co(.data[[col_ano]]))),
+      poblacion = parse_num_co(.data[[col_pob]])
+    ) %>%
+    filter(!is.na(ano), is.finite(poblacion), poblacion >= 0) %>%
+    group_by(ano) %>%
+    summarise(poblacion = sum(poblacion, na.rm = TRUE), .groups = "drop") %>%
+    arrange(ano)
+  
+  if (!nrow(df_total)) return(NULL)
+  
+  df_total %>%
+    mutate(
+      poblacion_tminusL = dplyr::lag(poblacion, n = L),
+      g_aprox = dplyr::if_else(
+        !is.na(poblacion_tminusL) & poblacion_tminusL > 0,
+        (poblacion / poblacion_tminusL - 1) / L,
+        NA_real_
+      )
+    ) %>%
+    filter(!is.na(g_aprox)) %>%
+    transmute(ano = ano, valor = g_aprox * 100) %>%
+    arrange(ano)
+  
+}, error = function(e){
+  message("DANE_POPULATION (crecimiento ts): error -> ", conditionMessage(e))
+  NULL
+})
+
+make_pob_crecimiento_ts_plot <- function(){
+  if (is.null(pob_crecimiento_ts) || !nrow(pob_crecimiento_ts))
+    return(empty_ts_plot("Sin datos para estimar la serie de crecimiento poblacional."))
+  
+  df <- pob_crecimiento_ts
+  ticks_x <- year_ticks_5(df$ano)
+  
+  plotly::plot_ly(
+    data = df, x = ~ano, y = ~valor,
+    type = "scatter", mode = "lines+markers",
+    line = list(width = 2, color = COL_PLOT),
+    marker = list(size = 6, color = COL_PLOT),
+    customdata = fmt_pct(df$valor, 2),
+    hovertemplate = paste0(
+      "<b>Año t:</b> %{x}<br>",
+      "<b>Rezago (L):</b> ", L, " años<br>",
+      "<b>Crec. promedio anual:</b> %{customdata}<extra></extra>"
+    )
+  ) %>%
+    plotly::layout(
+      xaxis = list(title = "", tickmode = "array", tickvals = ticks_x, ticktext = ticks_x, showgrid = FALSE, automargin = TRUE),
+      yaxis = list(title = "Crecimiento promedio anual (%)", showgrid = FALSE, automargin = TRUE),
+      margin = list(l = 70, r = 20, t = 10, b = 60),
+      hovermode = "x unified",
+      hoverlabel = PLOTLY_HOVERLABEL,
+      plot_bgcolor  = "rgba(0,0,0,0)",
+      paper_bgcolor = "rgba(0,0,0,0)"
+    )
+}
+
 make_dep_ratio_ts_plot <- function(){
   if (is.null(pob_ts) || !nrow(pob_ts)) return(empty_ts_plot("Sin datos demográficos disponibles."))
   df <- pob_ts %>% mutate(valor = razon_dependencia_pct)
-  
   ticks_x <- year_ticks_5(df$ano)
   
   plotly::plot_ly(
@@ -551,7 +672,7 @@ make_sivigila_ts_plot <- function(which_one = c("BPAN","NDA","ETA")){
 }
 
 # =========================================================
-# 3) SISBEN — prevalencia i# usando agregados (Nw_hogares + i# ya sumados por grupo)
+# 3) SISBEN — prevalencia i# usando agregados
 # =========================================================
 sisben_i_labels <- c(
   i1  = "Bajo logro educativo",
@@ -631,11 +752,45 @@ prep_sisben_agg_preval_long <- function(df){
       valor = if_else(denom > 0, 100 * numer / denom, NA_real_),
       DEPARTAMENTO_D = dep_nom
     ) %>%
-    filter(is.finite(valor)) %>%
+    filter(is.finite(denom)) %>%
     arrange(metric, ano, cod_dep, dep_nom, grupo)
 }
 
+prep_sisben_hogares_long <- function(df){
+  if (is.null(df) || !nrow(df)) return(NULL)
+  
+  nms <- names(df)
+  col_ano <- pick_year_col(nms)
+  col_w   <- pick_col_simple(nms, c("Nw_hogares","nw_hogares","nw","peso","weight","ponderador"))
+  col_dep_code <- pick_dep_col(nms)
+  col_dep_name <- pick_dep_name_col(nms)
+  col_grp <- pick_col_simple(nms, c("grupo","group","categoria","categoría","segmento","nivel","grupo_sisben"))
+  
+  if (is.na(col_ano) || is.na(col_w)) return(NULL)
+  
+  out <- df %>%
+    transmute(
+      ano     = suppressWarnings(as.integer(parse_num_co(.data[[col_ano]]))),
+      cod_dep = if (!is.na(col_dep_code)) norm_dep2(.data[[col_dep_code]]) else NA_character_,
+      dep_nom = if (!is.na(col_dep_name)) safe_chr(.data[[col_dep_name]]) else NA_character_,
+      grupo   = if (!is.na(col_grp)) safe_chr(.data[[col_grp]]) else "TOTAL",
+      hogares = parse_num_co(.data[[col_w]])
+    ) %>%
+    filter(!is.na(ano), is.finite(hogares), hogares > 0) %>%
+    mutate(
+      grupo   = toupper(stringi::stri_trim_both(grupo)),
+      dep_nom = stringi::stri_trans_general(dep_nom, "Latin-ASCII"),
+      dep_nom = stringi::stri_trim_both(toupper(dep_nom))
+    )
+  
+  out %>%
+    group_by(ano, cod_dep, dep_nom, grupo) %>%
+    summarise(hogares = sum(hogares, na.rm = TRUE), .groups = "drop") %>%
+    mutate(DEPARTAMENTO_D = dep_nom)
+}
+
 sisben_prev_long <- prep_sisben_agg_preval_long(sisben_raw)
+sisben_hog_long  <- prep_sisben_hogares_long(sisben_raw)
 
 sisben_metric_choices <- {
   if (is.null(sisben_prev_long) || !nrow(sisben_prev_long)) c("Sin datos Sisbén" = "i1")
@@ -655,51 +810,137 @@ sisben_group_choices <- {
   }
 }
 
-make_sisben_ts_plot <- function(metric_sel = "i1", grupo_sel = "Todos"){
-  if (is.null(sisben_prev_long) || !nrow(sisben_prev_long)) return(empty_ts_plot("Sin datos Sisbén disponibles."))
-  metric_sel <- metric_sel %||% "i1"
-  grupo_sel  <- grupo_sel  %||% "Todos"
+make_sisben_ts_plot <- function(view_sel = c("prevalencia","hogares"),
+                                metric_sel = "i1",
+                                grupo_sel = "Todos"){
+  view_sel <- match.arg(view_sel)
   
-  dd <- sisben_prev_long %>% filter(metric == metric_sel)
-  if ("grupo" %in% names(dd) && !is.null(grupo_sel) && grupo_sel != "Todos") dd <- dd %>% filter(grupo == grupo_sel)
-  if (!nrow(dd)) return(empty_ts_plot("Sin datos para la privación (y grupo) seleccionados."))
-  
-  ts <- dd %>%
-    group_by(ano) %>%
-    summarise(
-      denom = sum(denom, na.rm = TRUE),
-      numer = sum(numer, na.rm = TRUE),
-      valor = if_else(denom > 0, 100 * numer / denom, NA_real_),
-      .groups = "drop"
+  if (view_sel == "hogares") {
+    
+    if (is.null(sisben_hog_long) || !nrow(sisben_hog_long))
+      return(empty_ts_plot("Sin datos de hogares por grupo."))
+    
+    dd <- sisben_hog_long
+    if (grupo_sel != "Todos") dd <- dd %>% filter(grupo == grupo_sel)
+    
+    dd <- dd %>%
+      group_by(ano, grupo) %>%
+      summarise(hogares = sum(hogares, na.rm = TRUE), .groups = "drop") %>%
+      filter(is.finite(ano), is.finite(hogares))
+    
+    if (!nrow(dd)) return(empty_ts_plot("Sin datos de hogares por grupo."))
+    
+    dd_base <- dd %>% filter(grupo != "TOTAL")
+    
+    if (grupo_sel == "Todos") {
+      total <- dd_base %>%
+        group_by(ano) %>%
+        summarise(hogares = sum(hogares, na.rm = TRUE), .groups = "drop") %>%
+        mutate(grupo = "TOTAL")
+      ts <- bind_rows(dd_base, total) %>% arrange(ano, grupo)
+    } else {
+      ts <- dd %>% arrange(ano, grupo)
+    }
+    
+    ticks_x <- year_ticks_2(ts$ano)
+    
+    plotly::plot_ly(
+      data = ts,
+      x = ~ano, y = ~hogares,
+      type = "scatter", mode = "lines+markers",
+      split = ~grupo,
+      customdata = fmt_short(ts$hogares),
+      hovertemplate = "<b>Año:</b> %{x}<br><b>Grupo:</b> %{fullData.name}<br><b>Hogares:</b> %{customdata}<extra></extra>"
     ) %>%
-    arrange(ano)
-  
-  ticks_x <- year_ticks_2(ts$ano)
-  ticks_y <- seq(0, 100, by = 5)
-  
-  nm <- if (metric_sel %in% names(sisben_i_labels)) sisben_i_labels[[metric_sel]] else metric_sel
-  
-  plotly::plot_ly(
-    data = ts, x = ~ano, y = ~valor,
-    type = "scatter", mode = "lines+markers",
-    line = list(width = 2, color = COL_PLOT),
-    marker = list(size = 6, color = COL_PLOT),
-    customdata = fmt_pct(ts$valor, 1),
-    hovertemplate = "<b>Año:</b> %{x}<br><b>Prevalencia:</b> %{customdata}<extra></extra>"
-  ) %>%
-    plotly::layout(
-      xaxis = list(title = "", tickmode = "array", tickvals = ticks_x, ticktext = ticks_x, showgrid = FALSE, automargin = TRUE),
-      yaxis = list(title = paste0(nm, " (%)"), tickvals = ticks_y, ticktext = fmt_pct(ticks_y, 1), showgrid = FALSE, automargin = TRUE, rangemode = "tozero"),
-      margin = list(l = 70, r = 20, t = 10, b = 60),
-      hovermode = "x unified",
-      hoverlabel = PLOTLY_HOVERLABEL,
-      plot_bgcolor  = "rgba(0,0,0,0)",
-      paper_bgcolor = "rgba(0,0,0,0)"
-    )
+      plotly::layout(
+        xaxis = list(title = "", tickmode = "array", tickvals = ticks_x, ticktext = ticks_x, showgrid = FALSE, automargin = TRUE),
+        yaxis = list(title = "Hogares ponderados", showgrid = FALSE, automargin = TRUE, rangemode = "tozero"),
+        legend = list(orientation = "h", x = 0, y = -0.22, xanchor = "left", yanchor = "top"),
+        margin = list(l = 70, r = 20, t = 10, b = 95),
+        hovermode = "x unified",
+        hoverlabel = PLOTLY_HOVERLABEL,
+        plot_bgcolor  = "rgba(0,0,0,0)",
+        paper_bgcolor = "rgba(0,0,0,0)"
+      )
+    
+  } else {
+    
+    if (is.null(sisben_prev_long) || !nrow(sisben_prev_long))
+      return(empty_ts_plot("Sin datos Sisbén disponibles."))
+    
+    metric_sel <- metric_sel %||% "i1"
+    nm <- if (metric_sel %in% names(sisben_i_labels)) sisben_i_labels[[metric_sel]] else metric_sel
+    
+    dd <- sisben_prev_long %>% filter(metric == metric_sel)
+    if (!nrow(dd)) return(empty_ts_plot("Sin datos para la privación seleccionada."))
+    
+    if (grupo_sel != "Todos") dd <- dd %>% filter(grupo == grupo_sel)
+    
+    if (grupo_sel == "Todos") {
+      ts_g <- dd %>%
+        group_by(ano, grupo) %>%
+        summarise(
+          denom = sum(denom, na.rm = TRUE),
+          numer = sum(numer, na.rm = TRUE),
+          valor = if_else(denom > 0, 100 * numer / denom, NA_real_),
+          .groups = "drop"
+        ) %>% filter(is.finite(valor))
+      
+      ts_t <- dd %>%
+        group_by(ano) %>%
+        summarise(
+          denom = sum(denom, na.rm = TRUE),
+          numer = sum(numer, na.rm = TRUE),
+          valor = if_else(denom > 0, 100 * numer / denom, NA_real_),
+          .groups = "drop"
+        ) %>% filter(is.finite(valor)) %>% mutate(grupo = "TOTAL")
+      
+      ts <- bind_rows(ts_g, ts_t) %>% arrange(ano, grupo)
+    } else {
+      ts <- dd %>%
+        group_by(ano, grupo) %>%
+        summarise(
+          denom = sum(denom, na.rm = TRUE),
+          numer = sum(numer, na.rm = TRUE),
+          valor = if_else(denom > 0, 100 * numer / denom, NA_real_),
+          .groups = "drop"
+        ) %>% filter(is.finite(valor))
+    }
+    
+    if (!nrow(ts)) return(empty_ts_plot("Sin serie temporal para la prevalencia por grupo."))
+    
+    ticks_x <- year_ticks_2(ts$ano)
+    ticks_y <- seq(0, 100, by = 5)
+    
+    plotly::plot_ly(
+      data = ts,
+      x = ~ano, y = ~valor,
+      type = "scatter", mode = "lines+markers",
+      split = ~grupo,
+      customdata = fmt_pct(ts$valor, 1),
+      hovertemplate = paste0(
+        "<b>Año:</b> %{x}<br>",
+        "<b>Grupo:</b> %{fullData.name}<br>",
+        "<b>Prevalencia:</b> %{customdata}",
+        "<extra></extra>"
+      )
+    ) %>%
+      plotly::layout(
+        xaxis = list(title = "", tickmode = "array", tickvals = ticks_x, ticktext = ticks_x, showgrid = FALSE, automargin = TRUE),
+        yaxis = list(title = paste0(nm, " (%)"), tickvals = ticks_y, ticktext = fmt_pct(ticks_y, 1),
+                     showgrid = FALSE, automargin = TRUE, rangemode = "tozero"),
+        legend = list(orientation = "h", x = 0, y = -0.22, xanchor = "left", yanchor = "top"),
+        margin = list(l = 70, r = 20, t = 10, b = 95),
+        hovermode = "x unified",
+        hoverlabel = PLOTLY_HOVERLABEL,
+        plot_bgcolor  = "rgba(0,0,0,0)",
+        paper_bgcolor = "rgba(0,0,0,0)"
+      )
+  }
 }
 
 # =========================================================
-# 4) ECV — FIES-8 (prevalencia ponderada) — SOLO indicador
+# 4) ECV — FIES-8
 # =========================================================
 mk_event_fies <- function(v){
   vv <- suppressWarnings(as.integer(parse_num_co(v)))
@@ -851,7 +1092,7 @@ make_ecv_fies_ts_plot <- function(metric_sel){
 }
 
 # =========================================================
-# 5) NOAA — Precipitación (mm³) — anual nacional + dep
+# 5) NOAA — Precipitación (mm³)
 # =========================================================
 noaa_raw <- tryCatch({
   p <- file.path(data_dir, "131_NOAA_Precipitación.rds")
@@ -934,7 +1175,7 @@ make_noaa_ts_plot <- function(){
 }
 
 # =========================================================
-# 6) HANSEN — Deforestación (ha) — TS + dep
+# 6) HANSEN — Deforestación (ha)
 # =========================================================
 hansen_raw <- tryCatch({
   p <- file.path(data_dir, "141_HANSEN_DEFORESTATION.rds")
@@ -1003,176 +1244,33 @@ make_hansen_ts_plot <- function(){
 }
 
 # =========================================================
-# 7) FINAGRO — 081_FINAGRO_CFA (según variables de la imagen)
-#    columnas esperadas: COD_DANE_DPTO_D, DEPARTAMENTO_D, TIPO_PRODUCTOR,
-#    SEXO, LINEA_CREDITO, ESLABON_CADENA, ano, mes, VALOR_CREDITO, NUMERO_CREDITO
-# =========================================================
-finagro_raw <- tryCatch({
-  p <- file.path(data_dir, "081_FINAGRO_CFA.rds")
-  if (!file.exists(p)) return(NULL)
-  df <- readRDS(p)
-  if (is.null(df) || !nrow(df)) return(NULL)
-  df
-}, error = function(e) NULL)
-
-finagro_df <- NULL
-
-ipp_tbl <- data.frame(
-  ano = c(2010:2025),
-  IPP = c(
-    0.8851, 0.9633, 0.9625, 0.9502, 0.9778, 1.0158, 1.0707, 1.0801,
-    1.1356, 1.1848, 1.1758, 1.3756, 1.7822, 1.7923, 1.7989, 1.8585
-  )
-)
-
-if (!is.null(finagro_raw)) {
-  nms <- names(finagro_raw)
-  
-  col_ano   <- pick_year_col(nms)  # "ano"
-  col_mes   <- pick_col_simple(nms, c("mes","MES","month"))
-  col_dep   <- pick_col_simple(nms, c("COD_DANE_DPTO_D","cod_dane_dpto_d","COD_DPTO2","cod_dpto2","cod_dpto","cod_depto"))
-  col_depnm <- pick_col_simple(nms, c("DEPARTAMENTO_D","departamento_d","DEPARTAMENTO","departamento","NOM_DPTO","nom_dpto"))
-  
-  col_val   <- pick_col_simple(nms, c("VALOR_CREDITO","valor_credito","VALOR_CREDITO_REAL","valor_credito_real"))
-  col_num   <- pick_col_simple(nms, c("NUMERO_CREDITO","numero_credito","N_CREDITOS","creditos","CREDITOS"))
-  
-  # Variables según la imagen
-  col_tipo  <- pick_col_simple(nms, c("TIPO_PRODUCTOR","tipo_productor","TIPO_PERSONA","tipo_persona"))
-  col_sexo  <- pick_col_simple(nms, c("SEXO","sexo","SEXO2","sexo2"))
-  col_lin   <- pick_col_simple(nms, c("LINEA_CREDITO","linea_credito","LINEA","linea"))
-  col_esl   <- pick_col_simple(nms, c("ESLABON_CADENA","eslabon_cadena","ESLABON","eslabon"))
-  
-  if (!is.na(col_ano) && !is.na(col_val) && !is.na(col_num)) {
-    df <- finagro_raw %>%
-      mutate(
-        ano = as.integer(parse_num_co(.data[[col_ano]])),
-        mes = if (!is.na(col_mes)) as.integer(parse_num_co(.data[[col_mes]])) else NA_integer_,
-        VALOR_CREDITO  = parse_num_co(.data[[col_val]]),
-        NUMERO_CREDITO = parse_num_co(.data[[col_num]]),
-        COD_DPTO2      = if (!is.na(col_dep)) norm_dep2(.data[[col_dep]]) else NA_character_,
-        DEPARTAMENTO   = if (!is.na(col_depnm)) safe_chr(.data[[col_depnm]]) else NA_character_,
-        TIPO_PERSONA   = if (!is.na(col_tipo)) safe_chr(.data[[col_tipo]]) else NA_character_,
-        SEXO2          = if (!is.na(col_sexo)) safe_chr(.data[[col_sexo]]) else NA_character_,
-        LINEA_CREDITO  = if (!is.na(col_lin))  safe_chr(.data[[col_lin]])  else NA_character_,
-        ESLABON_CADENA = if (!is.na(col_esl))  safe_chr(.data[[col_esl]])  else NA_character_
-      ) %>%
-      filter(!is.na(ano), is.finite(VALOR_CREDITO), is.finite(NUMERO_CREDITO))
-    
-    df <- df %>%
-      left_join(ipp_tbl, by = "ano") %>%
-      mutate(
-        IPP = ifelse(is.na(IPP), 1, IPP),
-        VALOR_CREDITO_REAL = VALOR_CREDITO / IPP
-      )
-    
-    df <- df %>%
-      mutate(
-        DEPARTAMENTO = stringi::stri_trans_general(DEPARTAMENTO, "Latin-ASCII"),
-        DEPARTAMENTO = stringi::stri_trim_both(toupper(DEPARTAMENTO)),
-        DEPARTAMENTO_D = DEPARTAMENTO
-      )
-    
-    finagro_df <- df
-  }
-}
-
-finagro_choices <- list(
-  tipo    = c("Todos"),
-  sexo    = c("Todos"),
-  linea   = c("Todos"),
-  eslabon = c("Todos")
-)
-if (!is.null(finagro_df) && nrow(finagro_df)) {
-  finagro_choices$tipo    <- c("Todos", sort(unique(na.omit(finagro_df$TIPO_PERSONA))))
-  finagro_choices$sexo    <- c("Todos", sort(unique(na.omit(finagro_df$SEXO2))))
-  finagro_choices$linea   <- c("Todos", sort(unique(na.omit(finagro_df$LINEA_CREDITO))))
-  finagro_choices$eslabon <- c("Todos", sort(unique(na.omit(finagro_df$ESLABON_CADENA))))
-}
-
-finagro_apply_filters <- function(df, tipo, sexo, linea, eslabon){
-  if (is.null(df) || !nrow(df)) return(df)
-  if (!is.null(tipo)   && tipo   != "Todos") df <- df %>% filter(TIPO_PERSONA == tipo)
-  if (!is.null(sexo)   && sexo   != "Todos") df <- df %>% filter(SEXO2 == sexo)
-  if (!is.null(linea)  && linea  != "Todos") df <- df %>% filter(LINEA_CREDITO == linea)
-  if (!is.null(eslabon)&& eslabon!= "Todos") df <- df %>% filter(ESLABON_CADENA == eslabon)
-  df
-}
-
-make_finagro_dual_ts_plot <- function(df){
-  if (is.null(df) || !nrow(df)) return(empty_ts_plot("Sin datos FINAGRO para los filtros seleccionados."))
-  
-  ts <- df %>%
-    group_by(ano) %>%
-    summarise(
-      monto_real = sum(VALOR_CREDITO_REAL, na.rm = TRUE) / 1e9,
-      creditos   = sum(NUMERO_CREDITO, na.rm = TRUE),
-      .groups = "drop"
-    ) %>%
-    arrange(ano)
-  
-  if (!nrow(ts)) return(empty_ts_plot("Sin serie temporal FINAGRO."))
-  
-  ticks_x <- year_ticks_2(ts$ano)
-  
-  plot_ly(ts, x = ~ano) %>%
-    add_trace(
-      y = ~monto_real,
-      type = "scatter", mode = "lines+markers",
-      name = "Monto real (Mil M)",
-      yaxis = "y1",
-      line = list(width = 2, color = COL_PLOT),
-      marker = list(size = 6, color = COL_PLOT),
-      hovertemplate = "<b>Año:</b> %{x}<br><b>Monto real:</b> %{y:.2f} Mil M<extra></extra>"
-    ) %>%
-    add_trace(
-      y = ~creditos,
-      type = "scatter", mode = "lines+markers",
-      name = "Número de créditos",
-      yaxis = "y2",
-      line = list(width = 2, dash = "dot", color = COL_PLOT),
-      marker = list(size = 6, color = COL_PLOT),
-      hovertemplate = "<b>Año:</b> %{x}<br><b> Número de operaciones:</b> %{y:,}<extra></extra>"
-    ) %>%
-    layout(
-      xaxis = list(title = "", tickmode = "array", tickvals = ticks_x, ticktext = ticks_x, showgrid = FALSE, automargin = TRUE),
-      yaxis = list(title = "Monto real (Miles de millones)", showgrid = FALSE, automargin = TRUE, rangemode = "tozero"),
-      yaxis2 = list(title = "Número de operaciones ", overlaying = "y", side = "right", showgrid = FALSE, automargin = TRUE, rangemode = "tozero"),
-      legend = list(orientation = "h", x = 0, y = -0.22, xanchor = "left", yanchor = "top"),
-      margin = list(l = 70, r = 70, t = 10, b = 95),
-      hovermode = "x unified",
-      hoverlabel = PLOTLY_HOVERLABEL,
-      plot_bgcolor  = "rgba(0,0,0,0)",
-      paper_bgcolor = "rgba(0,0,0,0)"
-    )
-}
-
-# =========================================================
 # Datos departamentales precomputados (para mapas)
 # =========================================================
 get_dep_data <- function(ind_code){
   switch(ind_code,
-         "DEP_RATIO" = pob_dep_all,
-         "ECV_FIES"  = ecv_fies_agg_dep,
-         "BPAN"      = bpan_dep_all,
-         "ETA"       = eta_dep_all,
-         "NDA"       = nda_dep_all,
-         "SISBEN"    = sisben_prev_long,
-         "PRECIP"    = noaa_dep_all,
-         "HANSEN"    = hansen_dep_all,
-         "FINAGRO"   = NULL,
+         "DEP_RATIO"       = pob_dep_all,
+         "DEP_CRECIMIENTO" = pob_crecimiento_30,
+         "ECV_FIES"        = ecv_fies_agg_dep,
+         "BPAN"            = bpan_dep_all,
+         "ETA"             = eta_dep_all,
+         "NDA"             = nda_dep_all,
+         "SISBEN"          = sisben_prev_long,
+         "PRECIP"          = noaa_dep_all,
+         "HANSEN"          = hansen_dep_all,
          NULL)
 }
 
 all_years_dep <- sort(unique(c(
-  if (!is.null(pob_dep_all))      pob_dep_all$ano,
-  if (!is.null(ecv_fies_agg_dep)) ecv_fies_agg_dep$ano,
-  if (!is.null(bpan_dep_all))     bpan_dep_all$ano,
-  if (!is.null(eta_dep_all))      eta_dep_all$ano,
-  if (!is.null(nda_dep_all))      nda_dep_all$ano,
-  if (!is.null(sisben_prev_long)) sisben_prev_long$ano,
-  if (!is.null(noaa_dep_all))     noaa_dep_all$ano,
-  if (!is.null(hansen_dep_all))   hansen_dep_all$ano,
-  if (!is.null(finagro_df))       finagro_df$ano
+  if (!is.null(pob_dep_all))         pob_dep_all$ano,
+  if (!is.null(pob_crecimiento_30))  pob_crecimiento_30$ano,
+  if (!is.null(ecv_fies_agg_dep))    ecv_fies_agg_dep$ano,
+  if (!is.null(bpan_dep_all))        bpan_dep_all$ano,
+  if (!is.null(eta_dep_all))         eta_dep_all$ano,
+  if (!is.null(nda_dep_all))         nda_dep_all$ano,
+  if (!is.null(sisben_prev_long))    sisben_prev_long$ano,
+  if (!is.null(sisben_hog_long))     sisben_hog_long$ano,
+  if (!is.null(noaa_dep_all))        noaa_dep_all$ano,
+  if (!is.null(hansen_dep_all))      hansen_dep_all$ano
 )), na.last = NA)
 
 default_fixed_year <- if (length(all_years_dep)) max(all_years_dep, na.rm = TRUE) else NA_integer_
@@ -1351,35 +1449,51 @@ server <- function(input, output, session){
     if (is.null(base_sel)) return(NULL)
     
     if (base_sel == "DNP_SISBEN") {
+      
       tagList(
-        div(lbl("Tipología de privación"),
-            selectInput("estr_sisben_metric", label = NULL,
-                        choices = sisben_metric_choices,
-                        selected = unname(sisben_metric_choices)[1] %||% "i1")),
-        div(lbl("Grupo (A/B/C/D)"),
-            selectInput("estr_sisben_grupo", label = NULL,
-                        choices = sisben_group_choices,
-                        selected = "Todos"))
+        div(
+          lbl("¿Qué quiere ver en Sisbén?"),
+          selectInput(
+            "estr_sisben_view", label = NULL,
+            choices = c(
+              "Prevalencia (privaciones IPM)" = "prevalencia",
+              "Número de hogares ponderados por grupo" = "hogares"
+            ),
+            selected = "prevalencia"
+          )
+        ),
+        
+        conditionalPanel(
+          condition = "input.estr_sisben_view == 'prevalencia'",
+          div(
+            lbl("Tipología de privación"),
+            selectInput(
+              "estr_sisben_metric", label = NULL,
+              choices = sisben_metric_choices,
+              selected = unname(sisben_metric_choices)[1] %||% "i1"
+            )
+          )
+        ),
+        
+        div(
+          lbl("Grupo SISBÉN (A/B/C/D/TOTAL)"),
+          selectInput(
+            "estr_sisben_grupo", label = NULL,
+            choices = sisben_group_choices,
+            selected = "Todos"
+          )
+        )
       )
+      
     } else if (base_sel == "DANE_ECV") {
+      
       tagList(
         div(lbl("Indicador FIES-8"),
             selectInput("estr_ecv_fies_metric", label = NULL,
                         choices = inds_fies,
                         selected = unname(inds_fies)[1]))
       )
-    } else if (base_sel == "FINAGRO_CFA_FAST") {
-      # (CAMBIO FINAGRO) agrega ESLABON_CADENA
-      tagList(
-        div(lbl("Tipo de productor"),
-            selectInput("estr_fin_tipo", NULL, choices = finagro_choices$tipo, selected = "Todos")),
-        div(lbl("Sexo"),
-            selectInput("estr_fin_sexo", NULL, choices = finagro_choices$sexo, selected = "Todos")),
-        div(lbl("Línea de crédito"),
-            selectInput("estr_fin_linea", NULL, choices = finagro_choices$linea, selected = "Todos")),
-        div(lbl("Eslabón de la cadena"),
-            selectInput("estr_fin_eslabon", NULL, choices = finagro_choices$eslabon, selected = "Todos"))
-      )
+      
     } else {
       NULL
     }
@@ -1391,6 +1505,8 @@ server <- function(input, output, session){
     
     p <- if (base_sel == "DANE_POPULATION") {
       make_dep_ratio_ts_plot()
+    } else if (base_sel == "DANE_POP_CRECIMIENTO") {
+      make_pob_crecimiento_ts_plot()
     } else if (base_sel == "DANE_ECV") {
       make_ecv_fies_ts_plot(metric_sel = input$estr_ecv_fies_metric %||% unname(inds_fies)[1])
     } else if (base_sel == "INS_SIVIGILA_BPAN") {
@@ -1400,23 +1516,21 @@ server <- function(input, output, session){
     } else if (base_sel == "INS_SIVIGILA_NDA") {
       make_sivigila_ts_plot("NDA")
     } else if (base_sel == "DNP_SISBEN") {
+      
+      view_sel  <- input$estr_sisben_view %||% "prevalencia"
+      met_sel   <- input$estr_sisben_metric %||% "i1"
+      grupo_sel <- input$estr_sisben_grupo %||% "Todos"
+      
       make_sisben_ts_plot(
-        metric_sel = input$estr_sisben_metric %||% "i1",
-        grupo_sel  = input$estr_sisben_grupo %||% "Todos"
+        view_sel   = view_sel,
+        metric_sel = met_sel,
+        grupo_sel  = grupo_sel
       )
+      
     } else if (base_sel == "NOAA_PRECIPITACION") {
       make_noaa_ts_plot()
     } else if (base_sel == "HANSEN_DEFORESTATION") {
       make_hansen_ts_plot()
-    } else if (base_sel == "FINAGRO_CFA_FAST") {
-      df <- finagro_apply_filters(
-        finagro_df,
-        tipo    = input$estr_fin_tipo %||% "Todos",
-        sexo    = input$estr_fin_sexo %||% "Todos",
-        linea   = input$estr_fin_linea %||% "Todos",
-        eslabon = input$estr_fin_eslabon %||% "Todos"
-      )
-      make_finagro_dual_ts_plot(df)
     } else {
       empty_ts_plot("Seleccione una base.")
     }
@@ -1425,7 +1539,7 @@ server <- function(input, output, session){
   })
   
   # =========================================================
-  # Tarjetas (calcular para TODAS las bases)
+  # Tarjetas
   # =========================================================
   summary_from_ts <- function(ts, year_col = "ano", value_col = "valor",
                               titulo = "Indicador",
@@ -1491,65 +1605,13 @@ server <- function(input, output, session){
   current_summary <- reactive({
     base_sel <- input$estr_base1 %||% default_base_estructura
     
-    # FINAGRO (dual: monto + créditos)
-    if (base_sel == "FINAGRO_CFA_FAST") {
-      df <- finagro_apply_filters(
-        finagro_df,
-        tipo    = input$estr_fin_tipo %||% "Todos",
-        sexo    = input$estr_fin_sexo %||% "Todos",
-        linea   = input$estr_fin_linea %||% "Todos",
-        eslabon = input$estr_fin_eslabon %||% "Todos"
-      )
-      if (is.null(df) || !nrow(df)) {
-        return(list(
-          story = "Sin datos FINAGRO para los filtros actuales.",
-          last_rows = list(list(k="Año", v=na_txt()), list(k="Monto real", v=na_txt()), list(k="Créditos", v=na_txt())),
-          growth_rows = list(list(k="Año anterior", v=na_txt()), list(k="Δ Monto", v=na_txt()), list(k="Δ Créditos", v=na_txt()))
-        ))
-      }
-      
-      ts <- df %>%
-        group_by(ano) %>%
-        summarise(
-          monto_real = sum(VALOR_CREDITO_REAL, na.rm = TRUE) / 1e9,
-          creditos   = sum(NUMERO_CREDITO, na.rm = TRUE),
-          .groups = "drop"
-        ) %>% arrange(ano)
-      
-      last_year <- max(ts$ano, na.rm = TRUE)
-      last <- ts %>% filter(ano == last_year) %>% slice(1)
-      prev <- ts %>% filter(ano == (last_year - 1)) %>% slice(1)
-      
-      m_last <- last$monto_real
-      c_last <- last$creditos
-      m_prev <- if (nrow(prev)) prev$monto_real else NA_real_
-      c_prev <- if (nrow(prev)) prev$creditos   else NA_real_
-      gm <- safe_growth(m_last, m_prev)
-      gc <- safe_growth(c_last, c_prev)
-      
-      return(list(
-        story = sprintf(
-          "FINAGRO (crédito agropecuario): en %d el monto real fue %s Mil M y se registraron %s créditos. Variación interanual: monto %s y créditos %s.",
-          last_year,
-          fmt_num_es(m_last, 2),
-          fmt_num_es(c_last, 0),
-          ifelse(is.na(gm), "NA", fmt_pct(100*gm, 1)),
-          ifelse(is.na(gc), "NA", fmt_pct(100*gc, 1))
-        ),
-        last_rows = list(
-          list(k="Año", v=as.character(last_year)),
-          list(k="Monto real", v=paste0(fmt_num_es(m_last, 2), " Mil M")),
-          list(k="Créditos", v=fmt_num_es(c_last, 0))
-        ),
-        growth_rows = list(
-          list(k="Año anterior", v=if (nrow(prev)) as.character(last_year-1) else na_txt()),
-          list(k="Δ Monto", v=ifelse(is.na(gm), na_txt(), fmt_pct(100*gm, 1))),
-          list(k="Δ Créditos", v=ifelse(is.na(gc), na_txt(), fmt_pct(100*gc, 1)))
-        )
-      ))
+    if (base_sel == "DANE_POP_CRECIMIENTO") {
+      ts <- pob_crecimiento_ts
+      return(summary_from_ts(ts, "ano", "valor",
+                             titulo = "Crecimiento poblacional promedio anual (30 años)",
+                             value_type = "percent"))
     }
     
-    # DANE POPULATION
     if (base_sel == "DANE_POPULATION") {
       ts <- pob_ts %>% mutate(valor = razon_dependencia_pct)
       return(summary_from_ts(ts, "ano", "valor",
@@ -1557,7 +1619,6 @@ server <- function(input, output, session){
                              value_type = "percent"))
     }
     
-    # ECV (FIES)
     if (base_sel == "DANE_ECV") {
       met <- input$estr_ecv_fies_metric %||% unname(inds_fies)[1]
       ts <- ecv_fies_agg_nat %>% filter(metric == met) %>% arrange(ano)
@@ -1567,7 +1628,6 @@ server <- function(input, output, session){
                              value_type = "percent"))
     }
     
-    # SIVIGILA
     if (base_sel == "INS_SIVIGILA_BPAN")
       return(summary_from_ts(bpan_ts, "ano", "valor", "SIVIGILA — Bajo peso al nacer (registros)", "number"))
     if (base_sel == "INS_SIVIGILA_NDA")
@@ -1575,37 +1635,89 @@ server <- function(input, output, session){
     if (base_sel == "INS_SIVIGILA_ETA")
       return(summary_from_ts(eta_ts,  "ano", "valor", "SIVIGILA — ETA (total enfermos)", "number"))
     
-    # SISBEN (según privación + grupo)
     if (base_sel == "DNP_SISBEN") {
-      met <- input$estr_sisben_metric %||% "i1"
-      grp <- input$estr_sisben_grupo %||% "Todos"
-      nm  <- if (met %in% names(sisben_i_labels)) sisben_i_labels[[met]] else met
       
-      dd <- sisben_prev_long %>% filter(metric == met)
-      if ("grupo" %in% names(dd) && grp != "Todos") dd <- dd %>% filter(grupo == grp)
+      view_sel  <- input$estr_sisben_view %||% "prevalencia"
+      grupo_sel <- input$estr_sisben_grupo %||% "Todos"
       
-      ts <- dd %>%
-        group_by(ano) %>%
-        summarise(
-          denom = sum(denom, na.rm = TRUE),
-          numer = sum(numer, na.rm = TRUE),
-          valor = if_else(denom > 0, 100 * numer / denom, NA_real_),
-          .groups = "drop"
-        ) %>% arrange(ano)
-      
-      return(summary_from_ts(ts, "ano", "valor",
-                             titulo = paste0("Sisbén — ", nm, " (prevalencia)"),
-                             value_type = "percent"))
+      if (view_sel == "hogares") {
+        
+        if (is.null(sisben_hog_long) || !nrow(sisben_hog_long)) {
+          return(list(
+            story = "Sin datos Sisbén para hogares.",
+            last_rows = list(list(k="Año", v=na_txt()), list(k="Hogares", v=na_txt())),
+            growth_rows = list(list(k="Año anterior", v=na_txt()), list(k="Variación", v=na_txt()))
+          ))
+        }
+        
+        dd <- sisben_hog_long
+        if (grupo_sel != "Todos") dd <- dd %>% filter(grupo == grupo_sel)
+        
+        if (grupo_sel == "Todos") {
+          ts <- dd %>%
+            group_by(ano) %>%
+            summarise(valor = sum(hogares, na.rm = TRUE), .groups = "drop") %>%
+            arrange(ano)
+          titulo <- "Sisbén — Hogares ponderados (TOTAL)"
+        } else {
+          ts <- dd %>%
+            filter(grupo == grupo_sel) %>%
+            group_by(ano) %>%
+            summarise(valor = sum(hogares, na.rm = TRUE), .groups = "drop") %>%
+            arrange(ano)
+          titulo <- paste0("Sisbén — Hogares ponderados (Grupo ", grupo_sel, ")")
+        }
+        
+        return(summary_from_ts(
+          ts, "ano", "valor",
+          titulo = titulo,
+          value_type = "number",
+          unit = " hogares"
+        ))
+        
+      } else {
+        
+        met <- input$estr_sisben_metric %||% "i1"
+        nm  <- if (met %in% names(sisben_i_labels)) sisben_i_labels[[met]] else met
+        
+        dd <- sisben_prev_long %>% filter(metric == met)
+        if (grupo_sel != "Todos") dd <- dd %>% filter(grupo == grupo_sel)
+        
+        if (grupo_sel == "Todos") {
+          ts <- dd %>%
+            group_by(ano) %>%
+            summarise(
+              denom = sum(denom, na.rm = TRUE),
+              numer = sum(numer, na.rm = TRUE),
+              valor = if_else(denom > 0, 100 * numer / denom, NA_real_),
+              .groups = "drop"
+            ) %>% arrange(ano)
+          titulo <- paste0("Sisbén — ", nm, " (prevalencia, TOTAL)")
+        } else {
+          ts <- dd %>%
+            filter(grupo == grupo_sel) %>%
+            group_by(ano) %>%
+            summarise(
+              denom = sum(denom, na.rm = TRUE),
+              numer = sum(numer, na.rm = TRUE),
+              valor = if_else(denom > 0, 100 * numer / denom, NA_real_),
+              .groups = "drop"
+            ) %>% arrange(ano)
+          titulo <- paste0("Sisbén — ", nm, " (prevalencia, Grupo ", grupo_sel, ")")
+        }
+        
+        return(summary_from_ts(ts, "ano", "valor",
+                               titulo = titulo,
+                               value_type = "percent"))
+      }
     }
     
-    # NOAA
     if (base_sel == "NOAA_PRECIPITACION") {
       return(summary_from_ts(noaa_ts, "ano", "valor",
                              titulo = "NOAA — Precipitación anual",
                              value_type = "number"))
     }
     
-    # HANSEN
     if (base_sel == "HANSEN_DEFORESTATION") {
       return(summary_from_ts(hansen_ts, "ano", "valor",
                              titulo = "HANSEN — Deforestación anual",
@@ -1636,6 +1748,7 @@ server <- function(input, output, session){
     selectInput("fixed_year", label = NULL, choices = yrs, selected = default_fixed_year)
   })
   
+  # ----- Extra UI mapas -----
   render_extra_map <- function(base_input_id, output_id, prefix){
     output[[output_id]] <- renderUI({
       base_sel <- input[[base_input_id]]
@@ -1644,13 +1757,27 @@ server <- function(input, output, session){
       if (base_sel == "DNP_SISBEN") {
         tagList(
           div(
-            lbl("Tipología de privación"),
-            selectInput(paste0(prefix, "_sisben_metric"), label = NULL,
-                        choices = sisben_metric_choices,
-                        selected = unname(sisben_metric_choices)[1] %||% "i1")
+            lbl("¿Qué quiere ver en Sisbén?"),
+            selectInput(
+              paste0(prefix, "_sisben_view"), label = NULL,
+              choices = c(
+                "Prevalencia (privaciones IPM)" = "prevalencia",
+                "Número de hogares ponderados por grupo" = "hogares"
+              ),
+              selected = "prevalencia"
+            )
+          ),
+          conditionalPanel(
+            condition = paste0("input.", prefix, "_sisben_view == 'prevalencia'"),
+            div(
+              lbl("Tipología de privación"),
+              selectInput(paste0(prefix, "_sisben_metric"), label = NULL,
+                          choices = sisben_metric_choices,
+                          selected = unname(sisben_metric_choices)[1] %||% "i1")
+            )
           ),
           div(
-            lbl("Grupo (A/B/C/D)"),
+            lbl("Grupo (A/B/C/D/TOTAL)"),
             selectInput(paste0(prefix, "_sisben_grupo"), label = NULL,
                         choices = sisben_group_choices,
                         selected = "Todos")
@@ -1662,36 +1789,6 @@ server <- function(input, output, session){
           selectInput(paste0(prefix, "_ecv_fies_metric"), label = NULL,
                       choices = inds_fies,
                       selected = unname(inds_fies)[1])
-        )
-      } else if (base_sel == "FINAGRO_CFA_FAST") {
-        # (CAMBIO FINAGRO) agrega ESLABON_CADENA para mapas
-        tagList(
-          div(
-            lbl("Métrica para el mapa"),
-            selectInput(paste0(prefix, "_fin_metric"), NULL,
-                        choices = c("Monto real del crédito"="monto", "Número de créditos"="creditos"),
-                        selected = "monto")
-          ),
-          div(
-            lbl("Tipo de productor"),
-            selectInput(paste0(prefix, "_fin_tipo"), NULL,
-                        choices = finagro_choices$tipo, selected = "Todos")
-          ),
-          div(
-            lbl("Sexo"),
-            selectInput(paste0(prefix, "_fin_sexo"), NULL,
-                        choices = finagro_choices$sexo, selected = "Todos")
-          ),
-          div(
-            lbl("Línea de crédito"),
-            selectInput(paste0(prefix, "_fin_linea"), NULL,
-                        choices = finagro_choices$linea, selected = "Todos")
-          ),
-          div(
-            lbl("Eslabón de la cadena"),
-            selectInput(paste0(prefix, "_fin_eslabon"), NULL,
-                        choices = finagro_choices$eslabon, selected = "Todos")
-          )
         )
       } else {
         NULL
@@ -1708,13 +1805,13 @@ server <- function(input, output, session){
     base_sel <- input$estr_base2_map1 %||% default_base_estructura
     ind_sel  <- base_to_indicator_code(base_sel)
     
-    if (ind_sel == "FINAGRO") {
-      if (is.null(finagro_df) || !nrow(finagro_df)) return(tags$span("Sin años FINAGRO disponibles.", style="font-size:12px;color:#9ca3af;"))
-      yrs <- sort(unique(finagro_df$ano))
-      return(selectInput("map1_year", label = NULL, choices = yrs, selected = max(yrs, na.rm = TRUE)))
+    if (ind_sel == "SISBEN") {
+      view_sel <- input$map1_sisben_view %||% "prevalencia"
+      df <- if (view_sel == "hogares") sisben_hog_long else sisben_prev_long
+    } else {
+      df <- get_dep_data(ind_sel)
     }
     
-    df <- get_dep_data(ind_sel)
     if (is.null(df) || !nrow(df)) return(tags$span("Sin años disponibles para esta base", style="font-size:12px;color:#9ca3af;"))
     
     yrs <- sort(unique(df$ano))
@@ -1728,13 +1825,13 @@ server <- function(input, output, session){
     base_sel <- input$estr_base2_map2 %||% default_base_estructura
     ind_sel  <- base_to_indicator_code(base_sel)
     
-    if (ind_sel == "FINAGRO") {
-      if (is.null(finagro_df) || !nrow(finagro_df)) return(tags$span("Sin años FINAGRO disponibles.", style="font-size:12px;color:#9ca3af;"))
-      yrs <- sort(unique(finagro_df$ano))
-      return(selectInput("map2_year", label = NULL, choices = yrs, selected = max(yrs, na.rm = TRUE)))
+    if (ind_sel == "SISBEN") {
+      view_sel <- input$map2_sisben_view %||% "prevalencia"
+      df <- if (view_sel == "hogares") sisben_hog_long else sisben_prev_long
+    } else {
+      df <- get_dep_data(ind_sel)
     }
     
-    df <- get_dep_data(ind_sel)
     if (is.null(df) || !nrow(df)) return(tags$span("Sin años disponibles para esta base", style="font-size:12px;color:#9ca3af;"))
     
     yrs <- sort(unique(df$ano))
@@ -1745,61 +1842,56 @@ server <- function(input, output, session){
     ind_sel <- base_to_indicator_code(base_sel)
     if (is.null(year_val) || is.null(shp_dep)) return(NULL)
     
-    if (ind_sel == "FINAGRO") {
-      if (is.null(finagro_df) || !nrow(finagro_df)) return(NULL)
-      met <- input[[paste0(prefix, "_fin_metric")]] %||% "monto"
-      
-      df <- finagro_apply_filters(
-        finagro_df,
-        tipo    = input[[paste0(prefix, "_fin_tipo")]] %||% "Todos",
-        sexo    = input[[paste0(prefix, "_fin_sexo")]] %||% "Todos",
-        linea   = input[[paste0(prefix, "_fin_linea")]] %||% "Todos",
-        eslabon = input[[paste0(prefix, "_fin_eslabon")]] %||% "Todos"
-      )
-      
-      dd <- df %>%
-        filter(ano == as.integer(year_val), !is.na(COD_DPTO2), nzchar(COD_DPTO2)) %>%
-        group_by(cod_dep = COD_DPTO2, dep_nom = DEPARTAMENTO_D) %>%
-        summarise(
-          monto = sum(VALOR_CREDITO_REAL, na.rm = TRUE),
-          creditos = sum(NUMERO_CREDITO, na.rm = TRUE),
-          .groups = "drop"
-        ) %>%
-        mutate(valor = if (met == "monto") monto else creditos,
-               DEPARTAMENTO_D = dep_nom) %>%
-        select(cod_dep, dep_nom, DEPARTAMENTO_D, valor)
-      
-      return(join_dep_shp(dd, shp_dep, df_key_code = "cod_dep", df_key_name = "dep_nom"))
-    }
-    
-    df <- get_dep_data(ind_sel)
-    if (is.null(df) || !nrow(df)) return(NULL)
-    
-    dd <- df %>% filter(ano == as.integer(year_val))
-    if (!nrow(dd)) return(NULL)
-    
     if (ind_sel == "SISBEN") {
-      met <- input[[paste0(prefix, "_sisben_metric")]] %||% "i1"
-      grp <- input[[paste0(prefix, "_sisben_grupo")]]  %||% "Todos"
+      view_sel <- input[[paste0(prefix, "_sisben_view")]] %||% "prevalencia"
       
-      dd <- dd %>% filter(metric == met)
-      if (!nrow(dd)) return(NULL)
+      if (view_sel == "hogares") {
+        if (is.null(sisben_hog_long) || !nrow(sisben_hog_long)) return(NULL)
+        
+        dd <- sisben_hog_long %>% filter(ano == as.integer(year_val))
+        grp <- input[[paste0(prefix, "_sisben_grupo")]] %||% "Todos"
+        if (grp != "Todos") dd <- dd %>% filter(grupo == grp)
+        if (!nrow(dd)) return(NULL)
+        
+        dd <- dd %>%
+          group_by(cod_dep, dep_nom) %>%
+          summarise(valor = sum(hogares, na.rm = TRUE), .groups = "drop") %>%
+          mutate(DEPARTAMENTO_D = dep_nom)
+        
+      } else {
+        if (is.null(sisben_prev_long) || !nrow(sisben_prev_long)) return(NULL)
+        
+        dd <- sisben_prev_long %>% filter(ano == as.integer(year_val))
+        if (!nrow(dd)) return(NULL)
+        
+        met <- input[[paste0(prefix, "_sisben_metric")]] %||% "i1"
+        grp <- input[[paste0(prefix, "_sisben_grupo")]]  %||% "Todos"
+        
+        dd <- dd %>% filter(metric == met)
+        if (!nrow(dd)) return(NULL)
+        if ("grupo" %in% names(dd) && grp != "Todos") dd <- dd %>% filter(grupo == grp)
+        if (!nrow(dd)) return(NULL)
+        
+        dd <- dd %>%
+          group_by(cod_dep, dep_nom) %>%
+          summarise(
+            denom = sum(denom, na.rm = TRUE),
+            numer = sum(numer, na.rm = TRUE),
+            valor = if_else(denom > 0, 100 * numer / denom, NA_real_),
+            .groups = "drop"
+          ) %>%
+          mutate(DEPARTAMENTO_D = dep_nom)
+      }
       
-      if ("grupo" %in% names(dd) && grp != "Todos") dd <- dd %>% filter(grupo == grp)
-      if (!nrow(dd)) return(NULL)
-      
-      dd <- dd %>%
-        group_by(cod_dep, dep_nom) %>%
-        summarise(
-          denom = sum(denom, na.rm = TRUE),
-          numer = sum(numer, na.rm = TRUE),
-          valor = if_else(denom > 0, 100 * numer / denom, NA_real_),
-          .groups = "drop"
-        ) %>%
-        mutate(DEPARTAMENTO_D = dep_nom)
     } else if (ind_sel == "ECV_FIES") {
+      if (is.null(ecv_fies_agg_dep) || !nrow(ecv_fies_agg_dep)) return(NULL)
+      
+      dd <- ecv_fies_agg_dep %>% filter(ano == as.integer(year_val))
+      if (!nrow(dd)) return(NULL)
+      
       met <- input[[paste0(prefix, "_ecv_fies_metric")]] %||% unname(inds_fies)[1]
       dd <- dd %>% filter(metric == met)
+      
       dd <- dd %>%
         group_by(cod_dep, dep_nom) %>%
         summarise(
@@ -1809,13 +1901,25 @@ server <- function(input, output, session){
           .groups = "drop"
         ) %>%
         mutate(DEPARTAMENTO_D = dep_nom)
+      
+    } else if (ind_sel == "DEP_CRECIMIENTO") {
+      if (is.null(pob_crecimiento_30) || !nrow(pob_crecimiento_30)) return(NULL)
+      dd <- pob_crecimiento_30 %>% filter(ano == as.integer(year_val)) %>% mutate(DEPARTAMENTO_D = dep_nom)
+      
     } else {
+      df <- get_dep_data(ind_sel)
+      if (is.null(df) || !nrow(df)) return(NULL)
+      
+      dd <- df %>% filter(ano == as.integer(year_val))
+      if (!nrow(dd)) return(NULL)
+      
       dd <- dd %>%
         group_by(cod_dep, dep_nom) %>%
         summarise(valor = sum(valor, na.rm = TRUE), .groups = "drop") %>%
         mutate(DEPARTAMENTO_D = dep_nom)
     }
     
+    if (is.null(dd) || !nrow(dd)) return(NULL)
     join_dep_shp(dd, shp_dep, df_key_code = "cod_dep", df_key_name = "dep_nom")
   }
   
@@ -1857,9 +1961,6 @@ server <- function(input, output, session){
     labs
   }
   
-  # =======================================================
-  # (MOD) Labels: SIEMPRE usar DEPARTAMENTO_D
-  # =======================================================
   update_dep_leaflet <- function(map_id, md, palette_name, legend_title, value_type = c("percent","number"), unit_suffix = ""){
     value_type <- match.arg(value_type)
     
@@ -1881,13 +1982,11 @@ server <- function(input, output, session){
     
     pal <- leaflet::colorBin(palette = palette_name, domain = vals, bins = bins, na.color = "#f5f5f5")
     
-    # NOMBRE: DEPARTAMENTO_D (siempre que exista)
     dep_name <- if ("DEPARTAMENTO_D" %in% names(md)) as.character(md$DEPARTAMENTO_D) else NA_character_
     if (all(is.na(dep_name) | !nzchar(dep_name))) {
       dep_name <- if ("dep_nom" %in% names(md)) as.character(md$dep_nom) else md$join_name
     }
     if (all(is.na(dep_name) | !nzchar(dep_name))) dep_name <- md$join_code
-    
     dep_name <- ifelse(is.na(dep_name) | !nzchar(dep_name), md$join_code, dep_name)
     
     lab_vals <- if (value_type == "percent") fmt_pct(md$valor, 1) else fmt_short(md$valor)
@@ -1926,16 +2025,31 @@ server <- function(input, output, session){
     ind_sel  <- base_to_indicator_code(base_sel)
     md       <- map1_data()
     
-    tipo_val <- if (ind_sel %in% c("DEP_RATIO","SISBEN","ECV_FIES")) "percent" else "number"
-    legend_title <- if (tipo_val == "percent") "Porcentaje" else "Cantidad"
+    tipo_val <- "number"
+    legend_title <- "Cantidad"
     
-    if (ind_sel == "FINAGRO") {
-      met <- input$map1_fin_metric %||% "monto"
-      if (met == "monto")   legend_title <- "Monto real (COP)"
-      if (met == "creditos")legend_title <- "Número de créditos"
+    if (ind_sel == "DEP_CRECIMIENTO") {
+      tipo_val <- "percent"
+      legend_title <- "Crecimiento anual (%)"
+    } else if (ind_sel == "SISBEN") {
+      view_sel  <- input$map1_sisben_view %||% "prevalencia"
+      grupo_sel <- input$map1_sisben_grupo %||% "Todos"
+      
+      tipo_val <- if (view_sel == "prevalencia") "percent" else "number"
+      
+      if (view_sel == "prevalencia") {
+        legend_title <- if (grupo_sel == "Todos") "Prevalencia (%)" else paste0("Prevalencia - Grupo ", grupo_sel, " (%)")
+      } else {
+        legend_title <- if (grupo_sel == "Todos") "Hogares (Total)" else paste0("Hogares - Grupo ", grupo_sel)
+      }
+    } else if (ind_sel %in% c("DEP_RATIO","ECV_FIES")) {
+      tipo_val <- "percent"
+      legend_title <- "Porcentaje"
     }
     
-    update_dep_leaflet("map_1", md, palette_name = "Greens", legend_title = legend_title, value_type = tipo_val, unit_suffix = "")
+    update_dep_leaflet("map_1", md, palette_name = "Greens",
+                       legend_title = legend_title,
+                       value_type = tipo_val, unit_suffix = "")
   })
   
   observe({
@@ -1943,16 +2057,31 @@ server <- function(input, output, session){
     ind_sel  <- base_to_indicator_code(base_sel)
     md       <- map2_data()
     
-    tipo_val <- if (ind_sel %in% c("DEP_RATIO","SISBEN","ECV_FIES")) "percent" else "number"
-    legend_title <- if (tipo_val == "percent") "Porcentaje" else "Cantidad"
+    tipo_val <- "number"
+    legend_title <- "Cantidad"
     
-    if (ind_sel == "FINAGRO") {
-      met <- input$map2_fin_metric %||% "monto"
-      if (met == "monto")   legend_title <- "Monto real (COP)"
-      if (met == "creditos")legend_title <- "Número de créditos"
+    if (ind_sel == "DEP_CRECIMIENTO") {
+      tipo_val <- "percent"
+      legend_title <- "Crecimiento anual (%)"
+    } else if (ind_sel == "SISBEN") {
+      view_sel  <- input$map2_sisben_view %||% "prevalencia"
+      grupo_sel <- input$map2_sisben_grupo %||% "Todos"
+      
+      tipo_val <- if (view_sel == "prevalencia") "percent" else "number"
+      
+      if (view_sel == "prevalencia") {
+        legend_title <- if (grupo_sel == "Todos") "Prevalencia (%)" else paste0("Prevalencia - Grupo ", grupo_sel, " (%)")
+      } else {
+        legend_title <- if (grupo_sel == "Todos") "Hogares (Total)" else paste0("Hogares - Grupo ", grupo_sel)
+      }
+    } else if (ind_sel %in% c("DEP_RATIO","ECV_FIES")) {
+      tipo_val <- "percent"
+      legend_title <- "Porcentaje"
     }
     
-    update_dep_leaflet("map_2", md, palette_name = "Blues", legend_title = legend_title, value_type = tipo_val, unit_suffix = "")
+    update_dep_leaflet("map_2", md, palette_name = "Blues",
+                       legend_title = legend_title,
+                       value_type = tipo_val, unit_suffix = "")
   })
 }
 

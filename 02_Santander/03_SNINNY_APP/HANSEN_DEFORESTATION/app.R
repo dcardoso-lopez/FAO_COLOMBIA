@@ -1,5 +1,6 @@
 # =========================================================
 # Shiny App — HANSEN Deforestación (Solo Tab 1)
+# (MODIFICADO: Serie temporal con 2do eje (acumulado) + eje X cada 2 años)
 # =========================================================
 
 # 1) Paquetes
@@ -13,21 +14,13 @@ options(stringsAsFactors = FALSE, scipen = 999)
 sf::sf_use_s2(FALSE)
 
 # 2) Rutas (CORREGIDAS - usando el directorio actual del script)
-# Obtener el directorio donde está este script
 if (interactive()) {
-  # Cuando se ejecuta desde RStudio
   APP_DIR <- dirname(rstudioapi::getActiveDocumentContext()$path)
 } else {
-  # Cuando se ejecuta desde Shiny
   APP_DIR <- getwd()
 }
+if (is.null(APP_DIR) || APP_DIR == "") APP_DIR <- getwd()
 
-# Si APP_DIR está vacío, usar el directorio de trabajo actual
-if (is.null(APP_DIR) || APP_DIR == "") {
-  APP_DIR <- getwd()
-}
-
-# Construir rutas relativas
 DATA_RDS <- file.path(APP_DIR, "data/141_HANSEN_DEFORESTATION.rds")
 SHP_DIR  <- file.path(APP_DIR, "data/shp")
 
@@ -42,7 +35,6 @@ norm_txt <- function(x){
   x <- stringi::stri_trans_nfc(x)
   x
 }
-
 safe_chr <- function(x) if (is.null(x)) "" else as.character(x)
 
 title_case_es <- function(x){
@@ -68,7 +60,6 @@ title_case_es <- function(x){
   }, character(1))
 }
 
-# Helpers filtros (pares únicos)
 distinct_pairs <- function(df, key_col, disp_col){
   df |>
     dplyr::distinct(dplyr::across(all_of(c(key_col, disp_col)))) |>
@@ -84,14 +75,8 @@ mk_tc_from_pairs <- function(keys, labels_disp){
   c("Todos" = "Todos", out)
 }
 
-# Formato numérico es-CO
 fmt_num <- function(x, accuracy = 1){
-  scales::number(
-    x,
-    accuracy     = accuracy,
-    big.mark     = ".",
-    decimal.mark = ","
-  )
+  scales::number(x, accuracy = accuracy, big.mark = ".", decimal.mark = ",")
 }
 
 format_short <- function(x){
@@ -121,7 +106,7 @@ legend_lab_es <- function(prefix = "", suffix = "", between = " – "){
   }
 }
 
-# Paleta
+# Paleta / colores
 SERIE_COLOR <- "#6B4F2C"
 BAR_COLOR   <- "#6B4F2C"
 
@@ -146,9 +131,9 @@ make_bins4 <- function(values){
 palBin4 <- function(values){
   bins <- make_bins4(values)
   pal <- leaflet::colorBin(
-    palette = pal4_vec,
-    bins    = bins,
-    domain  = values,
+    palette  = pal4_vec,
+    bins     = bins,
+    domain   = values,
     na.color = "#f0f0f0",
     right    = FALSE
   )
@@ -157,11 +142,8 @@ palBin4 <- function(values){
 }
 
 # =========================================================
-# 4) Shapefiles — usando columnas exactas:
-#    - Dptos: DPTO_CCDGO, DPTO_CNMBR
-#    - Mpios: DPTO_CCDGO, MPIO_CDPMP, MPIO_CNMBR
+# 4) Shapefiles
 # =========================================================
-
 ruta_shp_dptos <- shp_files[grep("DPTOS", basename(shp_files), ignore.case = TRUE)][1]
 ruta_shp_mpios <- shp_files[grep("MPIOS", basename(shp_files), ignore.case = TRUE)][1]
 
@@ -172,7 +154,6 @@ if (is.na(ruta_shp_dptos) || is.na(ruta_shp_mpios)) {
 depto_sf_raw <- sf::st_read(ruta_shp_dptos, quiet = TRUE)
 mpios_sf_raw <- sf::st_read(ruta_shp_mpios, quiet = TRUE)
 
-# Departamentos shapefile
 depto_sf <- depto_sf_raw |>
   dplyr::mutate(
     COD_DANE_DPTO_D = stringi::stri_pad_left(as.character(DPTO_CCDGO), 2, "0"),
@@ -187,7 +168,6 @@ depto_key <- depto_sf |>
   dplyr::select(COD_DANE_DPTO_D, DEPARTAMENTO_D) |>
   dplyr::distinct()
 
-# Municipios shapefile
 mpios_sf <- mpios_sf_raw |>
   dplyr::mutate(
     COD_DANE_DPTO_D = stringi::stri_pad_left(as.character(DPTO_CCDGO), 2, "0"),
@@ -203,7 +183,6 @@ mpios_sf <- mpios_sf_raw |>
     DEPARTAMENTO_D = toupper(norm_txt(DEPARTAMENTO_D))
   )
 
-# Claves de nombres desde shapefile (para asegurar nombres bonitos en filtros)
 depto_key_shp <- depto_key |>
   dplyr::rename(DEPARTAMENTO_SH = DEPARTAMENTO_D)
 
@@ -214,7 +193,6 @@ mpio_key_shp <- mpios_sf |>
 
 # =========================================================
 # 5) Base HANSEN (RDS)
-#    Debe tener COD_DANE_DPTO_D, COD_DANE_MPIO_D, año, valor y nombres
 # =========================================================
 base_raw <- readRDS(DATA_RDS)
 base_raw <- base_raw %>% dplyr::filter(DEPARTAMENTO_D=="SANTANDER")
@@ -245,22 +223,15 @@ if (is.na(col_year) || is.na(col_val))
 if (is.na(col_dep_code) || is.na(col_mun_code))
   stop("No pude detectar COD_DANE_DPTO_D / COD_DANE_MPIO_D en la base RDS.")
 
-# Construimos eva_df y SOBREESCRIBIMOS nombres con los de shapefile
 eva_df <- base_raw |>
   dplyr::mutate(
     anio  = as.integer(.data[[col_year]]),
     valor = suppressWarnings(as.numeric(.data[[col_val]])),
-    COD_DANE_DPTO_D = stringi::stri_pad_left(
-      as.character(.data[[col_dep_code]]), width = 2, pad = "0"
-    ),
-    COD_DANE_MPIO_D = stringi::stri_pad_left(
-      as.character(.data[[col_mun_code]]), width = 5, pad = "0"
-    ),
-    # Nombres originales (por si acaso)
+    COD_DANE_DPTO_D = stringi::stri_pad_left(as.character(.data[[col_dep_code]]), 2, "0"),
+    COD_DANE_MPIO_D = stringi::stri_pad_left(as.character(.data[[col_mun_code]]), 5, "0"),
     MUNICIPIO_D_RAW    = norm_txt(dplyr::coalesce(.data[[col_mpio_name]], "")),
     DEPARTAMENTO_D_RAW = toupper(norm_txt(dplyr::coalesce(.data[[col_dep_name]], "")))
   ) |>
-  # Traemos nombres del shapefile (asegura que el filtro NO muestre números)
   dplyr::left_join(depto_key_shp, by = "COD_DANE_DPTO_D") |>
   dplyr::left_join(mpio_key_shp,  by = "COD_DANE_MPIO_D") |>
   dplyr::mutate(
@@ -292,162 +263,67 @@ ui <- fluidPage(
         --viz-row-top:360px;
         --viz-row-bottom:320px;
       }
-      .wrap{
-        max-width:1360px;
-        margin:0 auto;
-        padding:16px 20px 32px;
-      }
-      h2#app-title{
-        font-weight:700;
-        letter-spacing:.2px;
-        margin-top:4px;
-        margin-bottom:6px;
-        text-align:left;
-      }
-      .data-note{
-        font-size:13px;
-        color:#6b7280;
-        margin:0 0 16px;
-      }
+      .wrap{ max-width:1360px; margin:0 auto; padding:16px 20px 32px; }
+      h2#app-title{ font-weight:700; letter-spacing:.2px; margin-top:4px; margin-bottom:6px; text-align:left; }
+      .data-note{ font-size:13px; color:#6b7280; margin:0 0 16px; }
       .filters{
-        background:#fff;
-        border:1px solid var(--accent-border);
-        border-radius:16px;
-        box-shadow:0 2px 10px rgba(0,0,0,.05);
-        padding:6px 12px 8px;
-        margin-bottom:12px;
+        background:#fff; border:1px solid var(--accent-border); border-radius:16px;
+        box-shadow:0 2px 10px rgba(0,0,0,.05); padding:6px 12px 8px; margin-bottom:12px;
       }
       .filters-grid{
-        display:grid;
-        grid-template-columns:repeat(3,minmax(220px,1fr));
-        gap:12px;
-        align-items:stretch;
+        display:grid; grid-template-columns:repeat(3,minmax(220px,1fr));
+        gap:12px; align-items:stretch;
       }
-      .filter{
-        display:flex;
-        flex-direction:column;
-        justify-content:flex-start;
-      }
-      .filter-label,
-      .filters-grid label,
-      .filters-grid .control-label{
+      .filter{ display:flex; flex-direction:column; justify-content:flex-start; }
+      .filter-label, .filters-grid label, .filters-grid .control-label{
         font-family:'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-        font-size:14px;
-        font-weight:500;
-        letter-spacing:.2px;
-        color:#111827;
-        margin-bottom:6px;
+        font-size:14px; font-weight:500; letter-spacing:.2px; color:#111827; margin-bottom:6px;
       }
-      .filters-grid .shiny-input-container{
-        margin:0 !important;
+      .filters-grid .shiny-input-container{ margin:0 !important; }
+      .filters-grid .selectize-input, .filters-grid .form-control, .filters-grid .form-select{
+        height:60px !important; min-height:60px; padding-top:10px; padding-bottom:10px;
+        border-radius:10px; border:1px solid var(--accent-border) !important;
       }
-      .filters-grid .selectize-input,
-      .filters-grid .form-control,
-      .filters-grid .form-select{
-        height:60px !important;
-        min-height:60px;
-        padding-top:10px;
-        padding-bottom:10px;
-        border-radius:10px;
-        border:1px solid var(--accent-border) !important;
-      }
-      .filters-grid .selectize-input:focus,
-      .filters-grid .form-control:focus,
-      .filters-grid .form-select:focus{
-        border-color:var(--accent-border) !important;
-        box-shadow:0 0 0 .2rem rgba(245,124,0,.25) !important;
+      .filters-grid .selectize-input:focus, .filters-grid .form-control:focus, .filters-grid .form-select:focus{
+        border-color:var(--accent-border) !important; box-shadow:0 0 0 .2rem rgba(245,124,0,.25) !important;
       }
       .card{
-        background:#fff;
-        border:1px solid var(--accent-border);
-        border-radius:16px;
-        box-shadow:0 2px 10px rgba(0,0,0,.05);
-        padding:12px;
-        margin-bottom:12px;
+        background:#fff; border:1px solid var(--accent-border); border-radius:16px;
+        box-shadow:0 2px 10px rgba(0,0,0,.05); padding:12px; margin-bottom:12px;
       }
-      .card-title{
-        font-weight:700;
-        font-size:16px;
-        margin-bottom:8px;
-        color:#111827;
-      }
+      .card-title{ font-weight:700; font-size:16px; margin-bottom:8px; color:#111827; }
       .content-grid{
-        display:grid;
-        grid-template-columns:1.05fr 1fr;
-        grid-template-rows:var(--viz-row-top) var(--viz-row-bottom);
+        display:grid; grid-template-columns:1.05fr 1fr; grid-template-rows:var(--viz-row-top) var(--viz-row-bottom);
         gap:var(--gap);
       }
-      .viz-card{
-        display:flex;
-        flex-direction:column;
-        height:100%;
-        margin:0;
-      }
-      .viz-body{
-        flex:1 1 auto;
-        min-height:0;
-      }
-      .viz-map{
-        grid-row:1 / span 2;
-      }
-      .viz-body .leaflet,
-      .viz-body .plotly.html-widget{
-        height:100% !important;
-      }
+      .viz-card{ display:flex; flex-direction:column; height:100%; margin:0; }
+      .viz-body{ flex:1 1 auto; min-height:0; }
+      .viz-map{ grid-row:1 / span 2; }
+      .viz-body .leaflet, .viz-body .plotly.html-widget{ height:100% !important; }
       .leaflet-tooltip.lbl-clean{
-        background: rgba(255,255,255,.92);
-        border: 1px solid #e6e6e6;
-        border-radius: 6px;
-        padding: 4px 6px;
-        color: #222;
-        font-weight: 600;
-        box-shadow: 0 1px 4px rgba(0,0,0,.08);
+        background: rgba(255,255,255,.92); border: 1px solid #e6e6e6; border-radius: 6px;
+        padding: 4px 6px; color: #222; font-weight: 600; box-shadow: 0 1px 4px rgba(0,0,0,.08);
       }
-      .leaflet-control, .leaflet-control .legend, .leaflet-control .info{
-        border-radius:12px;
-      }
+      .leaflet-control, .leaflet-control .legend, .leaflet-control .info{ border-radius:12px; }
       .leaflet-top .leaflet-control { margin-top: 6px; }
       .leaflet-left .leaflet-control { margin-left: 6px; }
       .btn, .btn-default {
-        font-size:12px;
-        padding:6px 10px;
-        border-radius:8px;
-        border-color:var(--accent-border) !important;
+        font-size:12px; padding:6px 10px; border-radius:8px; border-color:var(--accent-border) !important;
       }
-      .form-control{
-        border-color:var(--accent-border) !important;
-      }
-      .form-control:focus{
-        border-color:var(--accent-border) !important;
-        box-shadow:0 0 0 0.2rem rgba(245,124,0,0.25);
-      }
-      .selectize-input{
-        border-color:var(--accent-border) !important;
-      }
-      .selectize-input.focus{
-        border-color:var(--accent-border) !important;
-        box-shadow:0 0 0 0.2rem rgba(245,124,0,0.25);
-      }
-      input[type='radio'],
-      input[type='checkbox']{
-        accent-color:#F57C00;
-      }
+      .form-control{ border-color:var(--accent-border) !important; }
+      .form-control:focus{ border-color:var(--accent-border) !important; box-shadow:0 0 0 0.2rem rgba(245,124,0,0.25); }
+      .selectize-input{ border-color:var(--accent-border) !important; }
+      .selectize-input.focus{ border-color:var(--accent-border) !important; box-shadow:0 0 0 0.2rem rgba(245,124,0,0.25); }
+      input[type='radio'], input[type='checkbox']{ accent-color:#F57C00; }
       .dl-under{ margin-top:8px; text-align:right; }
       .dl-footer{ margin-top:10px; text-align:right; }
-      .map-note{
-        font-size:12px;
-        color:#4b5563;
-        margin-top:6px;
-      }
+      .map-note{ font-size:12px; color:#4b5563; margin-top:6px; }
     "))
   ),
   div(
     class = "wrap",
     h2("", id = "app-title"),
-    div(
-      class = "data-note",
-      HTML("")
-    ),
+    div(class = "data-note", HTML("")),
     div(
       class = "filters",
       div(
@@ -462,10 +338,7 @@ ui <- fluidPage(
           div(class="filter-label","¿En qué departamento?"),
           {
             dep_pairs <- distinct_pairs(eva_df, "DEPTO_KEY", "DEPTO_DISP")
-            # Default: Santander según nombre, pero seleccionamos el CÓDIGO
-            idx_santander <- which(
-              toupper(norm_txt(dep_pairs$DEPTO_DISP)) %in% c("SANTANDER")
-            )
+            idx_santander <- which(toupper(norm_txt(dep_pairs$DEPTO_DISP)) %in% c("SANTANDER"))
             default_dep <- if (length(idx_santander)) dep_pairs$DEPTO_KEY[idx_santander[1]] else "Todos"
             selectInput(
               "f_depto", NULL,
@@ -492,19 +365,15 @@ ui <- fluidPage(
       class = "content-grid",
       div(
         class = "card viz-card viz-map",
-        div(
-          class="card-title d-flex align-items-center",
-          span(textOutput("titulo_mapa"))
-        ),
+        div(class="card-title d-flex align-items-center", span(textOutput("titulo_mapa"))),
         div(
           style="display:flex; gap:10px; align-items:center; margin-bottom:8px;",
           actionButton("btn_volver", "◀ Volver a Departamentos", class="btn btn-light"),
           strong(textOutput("nivel_txt", inline = TRUE))
         ),
         div(class="viz-body", leafletOutput("map_eva", height = "100%")),
-        div(
-          class = "map-note",
-          "Nota: los rangos de color del mapa se construyen con cuartiles del indicador (4 clases) según el filtro actual."
+        div(class = "map-note",
+            "Nota: los rangos de color del mapa se construyen con cuartiles del indicador (4 clases) según el filtro actual."
         ),
         div(class="dl-under", downloadButton("dl_png_mapa","PNG — Mapa (simple)"))
       ),
@@ -531,7 +400,7 @@ ui <- fluidPage(
 server <- function(input, output, session){
   
   nivel_mapa <- reactiveVal("depto")
-  depto_sel  <- reactiveVal(NULL)  # guarda COD_DANE_DPTO_D
+  depto_sel  <- reactiveVal(NULL)
   
   output$nivel_txt <- renderText({
     if (nivel_mapa() == "depto") {
@@ -552,7 +421,6 @@ server <- function(input, output, session){
     selectInput("f_anio", NULL, choices = yrs, selected = max(yrs))
   })
   
-  # Cascada dpto -> mpio (usando DEPTO_KEY/MPIO_KEY, que son códigos)
   observeEvent(input$f_depto, ignoreInit = TRUE, {
     if (is.null(input$f_depto) || input$f_depto == "Todos"){
       munis <- distinct_pairs(eva_df, "MPIO_KEY", "MPIO_DISP")
@@ -568,7 +436,6 @@ server <- function(input, output, session){
     )
   })
   
-  # Datos filtrados (PARA SERIE, RANKING, CSV)
   datos_filtrados <- reactive({
     df <- eva_df
     if (!is.null(input$f_depto) && input$f_depto != "Todos")
@@ -581,17 +448,13 @@ server <- function(input, output, session){
   })
   
   output$titulo_mapa    <- renderText("¿Qué territorios presentan mayor cantidad de hectáreas deforestadas?")
-  output$titulo_serie   <- renderText("¿Cómo viene la deforestación año a año?")
+  output$titulo_serie   <- renderText("¿Cómo viene la deforestación año a año? (anual y acumulado)")
   output$titulo_ranking <- renderText("Top 10 de los territorios con mayor pérdida de cobertura boscosa")
   
-  # Agregaciones usando COD_DANE_DPTO_D / COD_DANE_MPIO_D
   agg_depto <- reactive({
     datos_filtrados() |>
       dplyr::group_by(COD_DANE_DPTO_D) |>
-      dplyr::summarise(
-        valor = sum(valor, na.rm = TRUE),
-        .groups = "drop"
-      )
+      dplyr::summarise(valor = sum(valor, na.rm = TRUE), .groups = "drop")
   })
   
   agg_mpio <- reactive({
@@ -599,14 +462,8 @@ server <- function(input, output, session){
     if (!is.null(depto_sel()))
       df <- df |> dplyr::filter(COD_DANE_DPTO_D == depto_sel())
     df |>
-      dplyr::group_by(
-        COD_DANE_MPIO_D,
-        COD_DANE_DPTO_D
-      ) |>
-      dplyr::summarise(
-        valor = sum(valor, na.rm = TRUE),
-        .groups = "drop"
-      )
+      dplyr::group_by(COD_DANE_MPIO_D, COD_DANE_DPTO_D) |>
+      dplyr::summarise(valor = sum(valor, na.rm = TRUE), .groups = "drop")
   })
   
   badge_filtros <- reactive({
@@ -619,29 +476,18 @@ server <- function(input, output, session){
        </div>', yr))
   })
   
-  hover_label_opts       <- leaflet::labelOptions(
-    direction="auto", textsize="12px", sticky=TRUE,
-    opacity=0.95, className="lbl-clean"
-  )
-  hover_label_opts_small <- leaflet::labelOptions(
-    direction="auto", textsize="11px", sticky=TRUE,
-    opacity=0.95, className="lbl-clean"
-  )
+  hover_label_opts       <- leaflet::labelOptions(direction="auto", textsize="12px", sticky=TRUE, opacity=0.95, className="lbl-clean")
+  hover_label_opts_small <- leaflet::labelOptions(direction="auto", textsize="11px", sticky=TRUE, opacity=0.95, className="lbl-clean")
   
-  # ---- Mapa inicial: si hay depto -> municipios; si no, departamentos ----
   output$map_eva <- leaflet::renderLeaflet({
     req(input$f_anio, input$f_depto)
     
-    # SIN departamento filtrado -> vista departamental
     if (is.null(input$f_depto) || input$f_depto == "Todos") {
       nivel_mapa("depto")
       depto_sel(NULL)
       
       mdat <- depto_sf |>
-        dplyr::left_join(
-          agg_depto(),
-          by = "COD_DANE_DPTO_D"
-        ) |>
+        dplyr::left_join(agg_depto(), by = "COD_DANE_DPTO_D") |>
         dplyr::mutate(
           valor    = suppressWarnings(as.numeric(valor)),
           DEPTO_TC = title_case_es(DEPARTAMENTO_D)
@@ -654,11 +500,7 @@ server <- function(input, output, session){
           layerId   = ~COD_DANE_DPTO_D,
           fillColor = ~pal(valor),
           weight    = 0.7, color = "#666", fillOpacity = 0.9,
-          label = ~sprintf(
-            "%s — %s ha",
-            DEPTO_TC,
-            fmt_num(valor, accuracy = 0.1)
-          ),
+          label = ~sprintf("%s — %s ha", DEPTO_TC, fmt_num(valor, accuracy = 0.1)),
           labelOptions     = hover_label_opts,
           highlightOptions = leaflet::highlightOptions(color="black", weight=2, bringToFront=TRUE)
         ) |>
@@ -671,30 +513,19 @@ server <- function(input, output, session){
         ) |>
         leaflet::addControl(badge_filtros(), position="topright", layerId="badge_filtros")
       
-      # CON departamento filtrado -> vista municipal de ese departamento
     } else {
       dep <- input$f_depto
       nivel_mapa("mpio")
       depto_sel(dep)
       
-      # Agregación local por municipio en ese departamento y año
       df_agg <- eva_df |>
-        dplyr::filter(
-          COD_DANE_DPTO_D == dep,
-          anio == input$f_anio
-        ) |>
+        dplyr::filter(COD_DANE_DPTO_D == dep, anio == input$f_anio) |>
         dplyr::group_by(COD_DANE_MPIO_D, COD_DANE_DPTO_D) |>
-        dplyr::summarise(
-          valor = sum(as.numeric(valor), na.rm = TRUE),
-          .groups = "drop"
-        )
+        dplyr::summarise(valor = sum(as.numeric(valor), na.rm = TRUE), .groups = "drop")
       
       mdat <- mpios_sf |>
         dplyr::filter(COD_DANE_DPTO_D == dep) |>
-        dplyr::left_join(
-          df_agg,
-          by = c("COD_DANE_MPIO_D","COD_DANE_DPTO_D")
-        ) |>
+        dplyr::left_join(df_agg, by = c("COD_DANE_MPIO_D","COD_DANE_DPTO_D")) |>
         dplyr::mutate(
           valor    = suppressWarnings(as.numeric(valor)),
           MPIO_TC  = title_case_es(MUNICIPIO_D),
@@ -709,11 +540,7 @@ server <- function(input, output, session){
           layerId   = ~COD_DANE_MPIO_D,
           fillColor = ~pal(valor),
           weight    = 0.4, color="#666", fillOpacity=0.9,
-          label = ~sprintf(
-            "%s (%s) — %s ha",
-            MPIO_TC, DEPTO_TC,
-            fmt_num(valor, accuracy = 0.1)
-          ),
+          label = ~sprintf("%s (%s) — %s ha", MPIO_TC, DEPTO_TC, fmt_num(valor, accuracy = 0.1)),
           labelOptions = hover_label_opts_small,
           highlightOptions = leaflet::highlightOptions(color="black", weight=2, bringToFront=TRUE)
         ) |>
@@ -736,10 +563,9 @@ server <- function(input, output, session){
   
   dibujar_deptos <- function(){
     mdat <- depto_sf |>
-      dplyr::left_join(agg_depto(),
-                       by = "COD_DANE_DPTO_D") |>
+      dplyr::left_join(agg_depto(), by = "COD_DANE_DPTO_D") |>
       dplyr::mutate(
-        valor    = suppressWarnings(as.numeric(valor)),  # NA se queda NA
+        valor    = suppressWarnings(as.numeric(valor)),
         DEPTO_TC = title_case_es(DEPARTAMENTO_D)
       )
     pal  <- palBin4(mdat$valor)
@@ -753,11 +579,7 @@ server <- function(input, output, session){
         layerId   = ~COD_DANE_DPTO_D,
         fillColor = ~pal(valor),
         weight    = 0.7, color="#666", fillOpacity=0.9,
-        label = ~sprintf(
-          "%s — %s ha",
-          DEPTO_TC,
-          fmt_num(valor, accuracy = 0.1)
-        ),
+        label = ~sprintf("%s — %s ha", DEPTO_TC, fmt_num(valor, accuracy = 0.1)),
         labelOptions = hover_label_opts,
         highlightOptions = leaflet::highlightOptions(color="black", weight=2, bringToFront=TRUE)
       ) |>
@@ -774,10 +596,7 @@ server <- function(input, output, session){
   dibujar_mpios <- function(dep_code){
     mdat <- mpios_sf |>
       dplyr::filter(COD_DANE_DPTO_D == dep_code) |>
-      dplyr::left_join(
-        agg_mpio(),
-        by = c("COD_DANE_MPIO_D","COD_DANE_DPTO_D")
-      ) |>
+      dplyr::left_join(agg_mpio(), by = c("COD_DANE_MPIO_D","COD_DANE_DPTO_D")) |>
       dplyr::mutate(
         valor    = suppressWarnings(as.numeric(valor)),
         MPIO_TC  = title_case_es(MUNICIPIO_D),
@@ -795,11 +614,7 @@ server <- function(input, output, session){
         layerId   = ~COD_DANE_MPIO_D,
         fillColor = ~pal(valor),
         weight    = 0.4, color="#666", fillOpacity=0.9,
-        label = ~sprintf(
-          "%s (%s) — %s ha",
-          MPIO_TC, DEPTO_TC,
-          fmt_num(valor, accuracy = 0.1)
-        ),
+        label = ~sprintf("%s (%s) — %s ha", MPIO_TC, DEPTO_TC, fmt_num(valor, accuracy = 0.1)),
         labelOptions = hover_label_opts_small,
         highlightOptions = leaflet::highlightOptions(color="black", weight=2, bringToFront=TRUE)
       ) |>
@@ -813,7 +628,6 @@ server <- function(input, output, session){
       leaflet::addControl(badge_filtros(), position="topright", layerId="badge_filtros")
   }
   
-  # Cambios de departamento → cambiar nivel y redibujar
   observeEvent(input$f_depto, {
     dep <- if (is.null(input$f_depto) || input$f_depto == "Todos") NULL else input$f_depto
     if (is.null(dep)) {
@@ -823,14 +637,10 @@ server <- function(input, output, session){
     }
   }, ignoreInit = TRUE)
   
-  # Cambios de municipio → redibujar mapa de municipios (mostrando el resto en NA)
   observeEvent(input$f_mpio, {
-    if (nivel_mapa() == "mpio" && !is.null(depto_sel())) {
-      dibujar_mpios(depto_sel())
-    }
+    if (nivel_mapa() == "mpio" && !is.null(depto_sel())) dibujar_mpios(depto_sel())
   }, ignoreInit = TRUE)
   
-  # Click en mapa de departamentos → bajar a municipios
   observeEvent(input$map_eva_shape_click, {
     click <- input$map_eva_shape_click
     if (is.null(click$id)) return()
@@ -848,56 +658,89 @@ server <- function(input, output, session){
     nivel_mapa("depto"); depto_sel(NULL); dibujar_deptos()
   })
   
-  # -------- Serie temporal --------
+  # -------- Serie temporal (ANUAL + ACUMULADO) --------
   series_data <- reactive({
     base <- eva_df
     if (!is.null(input$f_depto) && input$f_depto!="Todos")
       base <- base |> dplyr::filter(DEPTO_KEY == input$f_depto)
     if (!is.null(input$f_mpio) && input$f_mpio!="Todos")
       base <- base |> dplyr::filter(MPIO_KEY == input$f_mpio)
+    
     base |>
       dplyr::group_by(anio) |>
       dplyr::summarise(
         valor_total = sum(as.numeric(valor), na.rm = TRUE),
         .groups = "drop"
       ) |>
-      dplyr::arrange(anio)
+      dplyr::arrange(anio) |>
+      dplyr::mutate(acumulado = cumsum(valor_total))
   })
   
   output$plot_arriba <- plotly::renderPlotly({
     df <- series_data()
     if (!nrow(df)) return(plotly::plot_ly())
     
-    max_val   <- max(df$valor_total, na.rm = TRUE)
-    breaks_y  <- pretty(c(0, max_val), n = 5)
-    breaks_y  <- breaks_y[breaks_y >= 0]
-    tick_text <- format_short(breaks_y)
+    max_val1  <- max(df$valor_total, na.rm = TRUE)
+    breaks_y1 <- pretty(c(0, max_val1), n = 5)
+    breaks_y1 <- breaks_y1[breaks_y1 >= 0]
+    tick_y1   <- format_short(breaks_y1)
     
-    plotly::plot_ly(
-      data=df,
-      x=~anio,
-      y=~valor_total,
-      type="scatter", mode="lines+markers",
-      line=list(width=2, color=SERIE_COLOR),
-      marker=list(size=6, color=SERIE_COLOR),
-      text = ~fmt_num(valor_total, accuracy = 0.1),
-      hovertemplate="<b>Año:</b> %{x}<br>Deforestación (ha): %{text}<extra></extra>"
-    ) |>
+    max_val2  <- max(df$acumulado, na.rm = TRUE)
+    breaks_y2 <- pretty(c(0, max_val2), n = 5)
+    breaks_y2 <- breaks_y2[breaks_y2 >= 0]
+    tick_y2   <- format_short(breaks_y2)
+    
+    p <- plotly::plot_ly(df, x = ~anio)
+    
+    p <- p |>
+      plotly::add_trace(
+        y=~valor_total,
+        name="Anual (ha)",
+        type="scatter", mode="lines+markers",
+        line=list(width=2, color=SERIE_COLOR),
+        marker=list(size=6, color=SERIE_COLOR),
+        text = ~fmt_num(valor_total, accuracy = 0.1),
+        hovertemplate="<b>Año:</b> %{x}<br><b>Deforestación anual (ha):</b> %{text}<extra></extra>",
+        yaxis="y"
+      )
+    
+    p <- p |>
+      plotly::add_trace(
+        y=~acumulado,
+        name="Acumulado (ha)",
+        type="scatter", mode="lines+markers",
+        line=list(width=2, dash="dot", color="rgba(107,79,44,0.55)"),
+        marker=list(size=5, color="rgba(107,79,44,0.55)"),
+        text = ~fmt_num(acumulado, accuracy = 0.1),
+        hovertemplate="<b>Año:</b> %{x}<br><b>Acumulado (ha):</b> %{text}<extra></extra>",
+        yaxis="y2"
+      )
+    
+    p |>
       plotly::layout(
         font = list(family = "Inter"),
         xaxis=list(
           title="",
-          tickmode="linear", dtick=1,
+          tickmode="linear",
+          dtick=2,           # <-- CADA 2 AÑOS
           showgrid = FALSE
         ),
         yaxis=list(
-          title="Hectáreas",
-          tickvals = breaks_y,
-          ticktext = tick_text,
+          title="Anual (ha)",
+          tickvals = breaks_y1,
+          ticktext = tick_y1,
           showgrid = FALSE
         ),
+        yaxis2=list(
+          title="Acumulado (ha)",
+          tickvals = breaks_y2,
+          ticktext = tick_y2,
+          overlaying="y",
+          side="right",
+          showgrid=FALSE
+        ),
         hovermode="x unified",
-        margin=list(l=60, r=20, t=30, b=50),
+        margin=list(l=60, r=70, t=30, b=50),
         legend=list(orientation="h")
       )
   })
@@ -995,32 +838,49 @@ server <- function(input, output, session){
     content  = function(file) readr::write_csv(tabla_export(), file, na = "")
   )
   
-  # -------- PNG Serie --------
+  # -------- PNG Serie (DOBLE EJE + X CADA 2 AÑOS) --------
   output$dl_png_series <- downloadHandler(
     filename = function() paste0("HANSEN_serie_", Sys.Date(), ".png"),
     content  = function(file){
       df <- series_data()
       if (!nrow(df)) { file.create(file); return() }
-      max_val   <- max(df$valor_total, na.rm = TRUE)
+      
+      max1 <- max(df$valor_total, na.rm = TRUE)
+      max2 <- max(df$acumulado, na.rm = TRUE)
+      sfac <- if (is.finite(max1) && is.finite(max2) && max2 > 0) (max1 / max2) else 1
+      df <- df |> dplyr::mutate(acum_scaled = acumulado * sfac)
+      
+      max_val   <- max(c(df$valor_total, df$acum_scaled), na.rm = TRUE)
       breaks_y  <- pretty(c(0, max_val), n = 5)
       breaks_y  <- breaks_y[breaks_y >= 0]
       
-      g <- ggplot(df, aes(x=anio, y=valor_total)) +
-        geom_line(linewidth=0.9, color=SERIE_COLOR) +
-        geom_point(size=2.2, color=SERIE_COLOR) +
-        scale_x_continuous(breaks=unique(df$anio)) +
+      # X cada 2 años
+      yrs_all <- sort(unique(df$anio))
+      x_breaks <- seq(min(yrs_all, na.rm = TRUE), max(yrs_all, na.rm = TRUE), by = 2)
+      
+      g <- ggplot(df, aes(x=anio)) +
+        geom_line(aes(y=valor_total), linewidth=0.9, color=SERIE_COLOR) +
+        geom_point(aes(y=valor_total), size=2.2, color=SERIE_COLOR) +
+        geom_line(aes(y=acum_scaled), linewidth=0.9, linetype="dotted", color=SERIE_COLOR) +
+        geom_point(aes(y=acum_scaled), size=2.0, shape=21, stroke=0.6, color=SERIE_COLOR, fill="white") +
+        scale_x_continuous(breaks = x_breaks) +
         scale_y_continuous(
           labels = format_short,
-          breaks = breaks_y
+          breaks = breaks_y,
+          name   = "Anual (ha)",
+          sec.axis = sec_axis(~ . / sfac, name = "Acumulado (ha)")
         ) +
-        labs(x="Año", y="Deforestación (ha)",
-             title="¿Cómo viene la deforestación año a año?") +
+        labs(
+          x="Año",
+          title="¿Cómo viene la deforestación año a año? (anual y acumulado)"
+        ) +
         theme_minimal(base_size=12) +
         theme(
           text = element_text(family="Inter"),
           panel.grid.minor = element_blank(),
           panel.grid.major = element_blank()
         )
+      
       ggsave(filename=file, plot=g, device=ragg::agg_png,
              width=10, height=5, dpi=200, units="in")
     }
@@ -1030,8 +890,7 @@ server <- function(input, output, session){
   map_widget_simple <- reactive({
     if (nivel_mapa()=="depto"){
       mdat <- depto_sf |>
-        dplyr::left_join(agg_depto(),
-                         by = "COD_DANE_DPTO_D") |>
+        dplyr::left_join(agg_depto(), by = "COD_DANE_DPTO_D") |>
         dplyr::mutate(
           valor    = suppressWarnings(as.numeric(valor)),
           DEPTO_TC = title_case_es(DEPARTAMENTO_D)
@@ -1041,11 +900,7 @@ server <- function(input, output, session){
         leaflet::addProviderTiles(leaflet::providers$CartoDB.Positron) |>
         leaflet::addPolygons(
           fillColor=~pal(valor), weight=0.5, color="#666", fillOpacity=0.9,
-          label = ~sprintf(
-            "%s — %s ha",
-            DEPTO_TC,
-            fmt_num(valor, accuracy = 0.1)
-          ),
+          label = ~sprintf("%s — %s ha", DEPTO_TC, fmt_num(valor, accuracy = 0.1)),
           labelOptions = hover_label_opts
         ) |>
         leaflet::addControl(html = htmltools::HTML(
@@ -1057,10 +912,7 @@ server <- function(input, output, session){
       dep <- depto_sel()
       mdat <- mpios_sf |>
         dplyr::filter(COD_DANE_DPTO_D == dep) |>
-        dplyr::left_join(
-          agg_mpio(),
-          by = c("COD_DANE_MPIO_D","COD_DANE_DPTO_D")
-        ) |>
+        dplyr::left_join(agg_mpio(), by = c("COD_DANE_MPIO_D","COD_DANE_DPTO_D")) |>
         dplyr::mutate(
           valor    = suppressWarnings(as.numeric(valor)),
           MPIO_TC  = title_case_es(MUNICIPIO_D)
@@ -1070,11 +922,7 @@ server <- function(input, output, session){
         leaflet::addProviderTiles(leaflet::providers$CartoDB.Positron) |>
         leaflet::addPolygons(
           fillColor=~pal(valor), weight=0.4, color="#666", fillOpacity=0.9,
-          label=~sprintf(
-            "%s — %s ha",
-            MPIO_TC,
-            fmt_num(valor, accuracy = 0.1)
-          ),
+          label=~sprintf("%s — %s ha", MPIO_TC, fmt_num(valor, accuracy = 0.1)),
           labelOptions=hover_label_opts_small
         ) |>
         leaflet::addControl(html = htmltools::HTML(

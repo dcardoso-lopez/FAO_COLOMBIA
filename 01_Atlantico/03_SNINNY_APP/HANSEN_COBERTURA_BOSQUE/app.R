@@ -1,5 +1,8 @@
 # =========================================================
 # Shiny App — COBERTURA NETA DE BOSQUE (Hansen)
+# (MODIFICADO)
+# - Serie temporal: eje X cada 2 años y etiquetas horizontales
+# - Ranking (plotly): etiquetas/texto ahora concuerdan con las barras
 # =========================================================
 
 # 1) Paquetes
@@ -15,8 +18,12 @@ sf::sf_use_s2(FALSE)
 # 2) Rutas (CORREGIDAS - usando el directorio actual del script)
 # Obtener el directorio donde está este script
 if (interactive()) {
-  # Cuando se ejecuta desde RStudio
-  APP_DIR <- dirname(rstudioapi::getActiveDocumentContext()$path)
+  # Cuando se ejecuta desde RStudio (si rstudioapi existe)
+  if (requireNamespace("rstudioapi", quietly = TRUE)) {
+    APP_DIR <- dirname(rstudioapi::getActiveDocumentContext()$path)
+  } else {
+    APP_DIR <- getwd()
+  }
 } else {
   # Cuando se ejecuta desde Shiny
   APP_DIR <- getwd()
@@ -449,10 +456,7 @@ ui <- fluidPage(
   div(
     class = "wrap",
     h2("", id = "app-title"),
-    div(
-      class = "data-note",
-      HTML("")
-    ),
+    div(class = "data-note", HTML("")),
     
     # ---------- Filtros ----------
     div(
@@ -478,10 +482,7 @@ ui <- fluidPage(
           div(class="filter-label","¿En que departamento?"),
           {
             dep_pairs <- distinct_pairs(eva_df, "DEPTO_KEY", "DEPTO_DISP")
-            ## Default: Santander seleccionado
-            idx_santander <- which(
-              toupper(norm_txt(dep_pairs$DEPTO_DISP)) == "SANTANDER"
-            )
+            idx_santander <- which(toupper(norm_txt(dep_pairs$DEPTO_DISP)) == "SANTANDER")
             default_dep <- if (length(idx_santander)) dep_pairs$DEPTO_KEY[idx_santander[1]] else "Todos"
             selectInput(
               "f_depto", NULL,
@@ -512,10 +513,8 @@ ui <- fluidPage(
       # --- Mapa (2 filas) ---
       div(
         class = "card viz-card viz-map",
-        div(
-          class="card-title d-flex align-items-center",
-          span(textOutput("titulo_mapa"))
-        ),
+        div(class="card-title d-flex align-items-center",
+            span(textOutput("titulo_mapa"))),
         div(
           style="display:flex; gap:10px; align-items:center; margin-bottom:8px;",
           actionButton("btn_volver", "◀ Volver al panorama nacional", class="btn btn-light"),
@@ -927,6 +926,7 @@ server <- function(input, output, session){
     }
   })
   
+  # >>> MOD: eje X cada 2 años y etiquetas horizontales (tickangle=0)
   output$plot_arriba <- plotly::renderPlotly({
     df <- series_data()
     if (!nrow(df)) return(plotly::plot_ly())
@@ -954,6 +954,9 @@ server <- function(input, output, session){
       hover_tmpl <- "<b>Año:</b> %{x}<br>Porcentaje %{customdata}<extra></extra>"
     }
     
+    x_min <- suppressWarnings(min(df$anio, na.rm = TRUE))
+    if (!is.finite(x_min)) x_min <- 0
+    
     plotly::plot_ly(
       data=df, x=~anio, y=~valor_total,
       type="scatter", mode="lines+markers",
@@ -966,7 +969,10 @@ server <- function(input, output, session){
         font = list(family = "Inter"),
         xaxis=list(
           title="",
-          tickmode="linear", dtick=1,
+          tickmode="linear",
+          tick0=x_min,
+          dtick=2,          # <<< cada 2 años
+          tickangle=0,      # <<< horizontal
           showgrid = FALSE
         ),
         yaxis=list(
@@ -1015,6 +1021,7 @@ server <- function(input, output, session){
     }
   })
   
+  # >>> MOD: plotly ranking corregido (texto/hover concuerdan con barras)
   output$ranking_abajo <- plotly::renderPlotly({
     plot_df <- ranking_data()
     if (!nrow(plot_df)) {
@@ -1026,30 +1033,36 @@ server <- function(input, output, session){
       )
     }
     
+    # Orden final CONSISTENTE con el gráfico (ASC) y luego invertimos categorías
     plot_df <- plot_df |>
       dplyr::mutate(muni_label = muni_tc) |>
-      dplyr::arrange(dplyr::desc(valor_total))
+      dplyr::arrange(valor_total)
     
     if (input$f_metric == "ha") {
-      txt_vals   <- format_short(plot_df$valor_total)
-      max_val    <- max(plot_df$valor_total, na.rm = TRUE)
-      breaks     <- pretty(c(0, max_val), n = 5)
-      breaks     <- breaks[breaks >= 0]
-      tick_text  <- format_short(breaks)
+      val_fmt <- format_short(plot_df$valor_total)
+      
+      max_val <- max(plot_df$valor_total, na.rm = TRUE)
+      breaks  <- pretty(c(0, max_val), n = 5)
+      breaks  <- breaks[breaks >= 0]
+      ticktxt <- format_short(breaks)
       
       xaxis_opts <- list(
         title    = "Hectáreas",
         tickvals = breaks,
-        ticktext = tick_text,
+        ticktext = ticktxt,
         showgrid = FALSE
       )
       
-      hover_tpl <- "<b>Municipio:</b> %{customdata[0]}<br><b>Departamento:</b> %{customdata[1]}<br><b>Cobertura neta (Ha):</b> %{customdata[2]}<extra></extra>"
-      val_fmt   <- txt_vals
-    } else {
-      txt_vals   <- format_pct_es(plot_df$valor_total, digits = 1)
-      breaks     <- seq(0, 100, 20)
+      hover_tpl <- paste0(
+        "<b>Municipio:</b> %{customdata[0]}<br>",
+        "<b>Departamento:</b> %{customdata[1]}<br>",
+        "<b>Cobertura neta (Ha):</b> %{customdata[2]}<extra></extra>"
+      )
       
+    } else {
+      val_fmt <- format_pct_es(plot_df$valor_total, digits = 1)
+      
+      breaks <- seq(0, 100, 20)
       xaxis_opts <- list(
         title    = "Porcentaje",
         tickvals = breaks,
@@ -1058,18 +1071,21 @@ server <- function(input, output, session){
         range    = c(0, 100)
       )
       
-      hover_tpl <- "<b>Municipio:</b> %{customdata[0]}<br><b>Departamento:</b> %{customdata[1]}<br><b>Cobertura neta (%):</b> %{customdata[2]}<extra></extra>"
-      val_fmt   <- txt_vals
+      hover_tpl <- paste0(
+        "<b>Municipio:</b> %{customdata[0]}<br>",
+        "<b>Departamento:</b> %{customdata[1]}<br>",
+        "<b>Cobertura neta (%):</b> %{customdata[2]}<extra></extra>"
+      )
     }
     
     plotly::plot_ly(
-      data  = plot_df %>% dplyr::arrange(valor_total),
+      data  = plot_df,
       x     = ~valor_total,
       y     = ~muni_label,
       type  = "bar",
       orientation = "h",
       marker = list(color = BAR_COLOR),
-      text  = val_fmt,
+      text  = val_fmt,  # ✅ mismo orden que data
       textposition = "inside",
       insidetextanchor = "middle",
       insidetextfont = list(
@@ -1078,7 +1094,7 @@ server <- function(input, output, session){
         color  = "white"
       ),
       hovertemplate = hover_tpl,
-      customdata = cbind(plot_df$muni_tc, plot_df$depto_tc, val_fmt),
+      customdata = cbind(plot_df$muni_tc, plot_df$depto_tc, val_fmt), # ✅ mismo orden
       cliponaxis = FALSE
     ) |>
       plotly::layout(
@@ -1087,7 +1103,7 @@ server <- function(input, output, session){
         yaxis = list(
           title = "",
           categoryorder = "array",
-          categoryarray = rev(plot_df$muni_label),
+          categoryarray = rev(plot_df$muni_label),  # ✅ mayor arriba
           showgrid = FALSE
         ),
         margin = list(l = 120, r = 40, t = 20, b = 40)
@@ -1130,17 +1146,22 @@ server <- function(input, output, session){
   )
   
   # -------- Descarga PNG Serie --------
+  # >>> MOD: eje X cada 2 años y etiquetas horizontales (angle=0)
   output$dl_png_series <- downloadHandler(
     filename = function() paste0("HANSEN_cobertura_serie_",
                                  safe_chr(input$f_metric), "_", Sys.Date(), ".png"),
     content  = function(file){
       df <- series_data()
       if (!nrow(df)) { file.create(file); return() }
+      
       ylab <- if (input$f_metric=="ha") "Cobertura neta (Ha)" else "Cobertura neta (%)"
+      
+      x_breaks <- seq(min(df$anio, na.rm = TRUE), max(df$anio, na.rm = TRUE), by = 2)
+      
       g <- ggplot(df, aes(x=anio, y=valor_total)) +
         geom_line(linewidth=0.9, color=SERIE_COLOR) +
         geom_point(size=2.2, color=SERIE_COLOR) +
-        scale_x_continuous(breaks=unique(df$anio)) +
+        scale_x_continuous(breaks = x_breaks) +  # <<< cada 2 años
         scale_y_continuous(
           labels = if (input$f_metric=="ha")
             format_short
@@ -1152,9 +1173,11 @@ server <- function(input, output, session){
         theme_minimal(base_size=12) +
         theme(
           text = element_text(family="Inter"),
+          axis.text.x = element_text(angle = 0, hjust = 0.5), # <<< horizontal
           panel.grid.minor = element_blank(),
           panel.grid.major = element_blank()
         )
+      
       ggsave(filename=file, plot=g, device=ragg::agg_png,
              width=10, height=5, dpi=200, units="in")
     }
@@ -1172,6 +1195,7 @@ server <- function(input, output, session){
         "Área de bosque que queda (Ha) por departamento"
       else
         "Porcentaje de bosque que queda (%) por departamento"
+      
       leaflet::leaflet(mdat, options=leaflet::leafletOptions(zoomControl=FALSE)) |>
         leaflet::addProviderTiles(leaflet::providers$CartoDB.Positron) |>
         leaflet::addPolygons(
@@ -1203,6 +1227,7 @@ server <- function(input, output, session){
         "Área de bosque que queda (Ha) por municipios"
       else
         "Porcentaje de bosque que queda (%) por municipios"
+      
       leaflet::leaflet(mdat, options=leaflet::leafletOptions(zoomControl=FALSE)) |>
         leaflet::addProviderTiles(leaflet::providers$CartoDB.Positron) |>
         leaflet::addPolygons(
@@ -1318,3 +1343,4 @@ server <- function(input, output, session){
 
 # Lanzar App
 shinyApp(ui = ui, server = server)
+

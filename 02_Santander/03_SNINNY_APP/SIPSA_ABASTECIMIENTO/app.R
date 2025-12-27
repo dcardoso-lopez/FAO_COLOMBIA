@@ -1,9 +1,7 @@
 # =========================================================
-# SIPSA ABASTECIMIENTO — Treemap -> Treemap (SIN TABLAS)
-# Layout solicitado:
-#   - Izquierda: BLANCO
-#   - Derecha superior: Treemap GRUPO
-#   - Derecha inferior: Treemap ALIMENTO (según grupo clic)
+# SIPSA ABASTECIMIENTO — Treemap Jerárquico (Grupo -> Alimento)
+# - Caja 1 (mapa) en blanco, Caja 2 (serie) en blanco
+# - Caja 3: UN solo treemap con GRUPOS conteniendo ALIMENTOS
 # - Carga relativa: ./data/041_DANE_SIPSA-Abast.rds
 # - ROBUSTO a nombres de columnas
 # =========================================================
@@ -78,11 +76,8 @@ req_col <- function(nms, cands, label){
   hit
 }
 
-fmt_int_co <- function(x){
-  scales::number(x, accuracy = 1, big.mark = ".", decimal.mark = ",")
-}
-fmt_dec_co <- function(x, digits = 1){
-  scales::number(x, accuracy = 10^(-digits), big.mark = ".", decimal.mark = ",")
+fmt_num <- function(x, accuracy = 1){
+  scales::number(x, accuracy = accuracy, big.mark = ".", decimal.mark = ",")
 }
 
 # =========================================================
@@ -164,22 +159,19 @@ ui <- fluidPage(
       .viz-grid{ display:grid; grid-template-columns: 1.05fr 1fr; gap:12px; align-items:stretch; }
       .viz-right{ display:grid; grid-template-rows: 1fr 1fr; gap:12px; }
       .card-mapa, .card-viz{ display:flex; flex-direction:column; }
-
-      .blank-box{ flex:1; min-height:720px; border-radius:12px; background:#ffffff; }
+      .blank-box{ flex:1; min-height:350px; border-radius:12px; background:#ffffff; }
       .card-viz .html-widget{ flex:1; min-height:350px; border-radius:12px; }
 
       @media (max-width: 768px){
         .viz-grid{ grid-template-columns: 1fr; }
-        .blank-box{ min-height:350px; }
+        .viz-right{ grid-template-rows: auto auto; }
       }
-
-      .header-row{ display:flex; gap:10px; align-items:center; justify-content:space-between; }
     "))
   ),
   
   div(
     class = "wrap",
-    h2("SIPSA Abastecimiento — Treemap → Treemap", id = "app-title"),
+    h2("SIPSA Abastecimiento — Treemap Grupo ⟶ Alimento", id = "app-title"),
     
     # ======== Filtros ========
     div(
@@ -195,37 +187,19 @@ ui <- fluidPage(
       )
     ),
     
-    # ======== Visualizaciones (IZQUIERDA BLANCA + DERECHA DOS TREEMAPS) ========
+    # ======== Visualizaciones ========
     div(
       class = "viz-grid",
-      
-      # Izquierda (blanco)
+      # Caja 1: MAPA (BLANCO)
+      div(class="card card-mapa", div(class="card-title",""), div(class="blank-box")),
+      # Caja 2: SERIE (BLANCO) + Caja 3: TREEMAP JERÁRQUICO (ACTIVO)
       div(
-        class="card card-mapa",
-        div(class="card-title",""),
-        div(class="blank-box")
-      ),
-      
-      # Derecha: superior grupo / inferior alimento
-      div(
-        class = "viz-right",
-        
-        # Derecha superior: GRUPO
+        class="viz-right",
+        div(class="card card-viz", div(class="card-title",""), div(class="blank-box")),
         div(
-          class = "card card-viz",
-          div(class = "card-title", strong("Treemap (1) — Grupo de alimentos (clic para filtrar)")),
-          highchartOutput("treemap_grupo", height = "100%")
-        ),
-        
-        # Derecha inferior: ALIMENTO
-        div(
-          class = "card card-viz",
-          div(
-            class="header-row",
-            div(class="card-title", uiOutput("titulo_alimentos")),
-            actionButton("limpiar_grupo", "◀ Limpiar selección", class = "btn btn-light")
-          ),
-          highchartOutput("treemap_alimentos", height = "100%")
+          class="card card-viz",
+          div(class="card-title", strong("Treemap jerárquico: Grupo contiene Alimentos")),
+          highchartOutput("treemap_nested", height = "100%")
         )
       )
     )
@@ -241,18 +215,16 @@ server <- function(input, output, session){
   months <- sort(unique(base_sipsa$mes[is.finite(base_sipsa$mes)]))
   
   output$anio_ui <- renderUI({
-    selectInput(
-      "anio", NULL,
-      choices  = c("Todos" = "Todos", years),
-      selected = if (length(years)) max(years) else "Todos"
+    selectInput("anio", NULL,
+                choices  = c("Todos" = "Todos", years),
+                selected = if (length(years)) max(years) else "Todos"
     )
   })
   
   output$mes_ui <- renderUI({
-    selectInput(
-      "mes", NULL,
-      choices  = c("Todos" = "Todos", months),
-      selected = "Todos"
+    selectInput("mes", NULL,
+                choices  = c("Todos" = "Todos", months),
+                selected = "Todos"
     )
   })
   
@@ -271,10 +243,8 @@ server <- function(input, output, session){
     )
   })
   
-  # --- datos filtrados ---
   datos_filtrados <- reactive({
     df <- base_sipsa
-    
     if (!is.null(input$anio) && input$anio != "Todos") df <- df %>% filter(anio == as.integer(input$anio))
     if (!is.null(input$mes)  && input$mes  != "Todos") df <- df %>% filter(mes  == as.integer(input$mes))
     
@@ -290,133 +260,109 @@ server <- function(input, output, session){
     df
   })
   
-  # --- estado: grupo seleccionado ---
-  grupo_sel <- reactiveVal(NULL)
-  
-  observeEvent(input$grupo_click, {
-    req(input$grupo_click)
-    grupo_sel(input$grupo_click)
-  }, ignoreInit = TRUE)
-  
-  observeEvent(input$limpiar_grupo, {
-    grupo_sel(NULL)
-  }, ignoreInit = TRUE)
-  
-  observeEvent(list(input$anio, input$mes, input$nivel_origen, input$origen), {
-    grupo_sel(NULL)
-  }, ignoreInit = TRUE)
-  
-  # --- Treemap 1: GRUPO ---
-  output$treemap_grupo <- renderHighchart({
+  output$treemap_nested <- renderHighchart({
     df <- datos_filtrados()
     
-    agg <- df %>%
-      group_by(grupo) %>%
+    # Totales por (grupo, alimento)
+    det <- df %>%
+      group_by(grupo, alimento) %>%
       summarise(kg = sum(kg, na.rm = TRUE), .groups = "drop") %>%
-      arrange(desc(kg))
+      filter(is.finite(kg), kg > 0)
     
-    validate(need(nrow(agg) > 0, "Sin datos para treemap por grupo"))
+    validate(need(nrow(det) > 0, "Sin datos para treemap"))
     
-    total <- sum(agg$kg, na.rm = TRUE)
-    agg <- agg %>%
+    # Totales por grupo
+    gtot <- det %>%
+      group_by(grupo) %>%
+      summarise(kg_grupo = sum(kg, na.rm = TRUE), .groups = "drop")
+    
+    total_all <- sum(gtot$kg_grupo, na.rm = TRUE)
+    
+    # ids seguros (sin espacios raros)
+    gtot <- gtot %>%
       mutate(
-        pct = ifelse(total > 0, kg/total, NA_real_),
+        gid = paste0("G_", str_replace_all(str_to_lower(grupo), "[^a-z0-9]+", "_")),
+        pct_grupo = ifelse(total_all > 0, kg_grupo / total_all, NA_real_),
         tooltip_text = paste0(
           "Grupo: ", grupo,
-          "<br>Participación: ", round(pct*100, 1), "%",
-          "<br>Kg: ", fmt_int_co(kg),
-          "<br>Ton: ", fmt_dec_co(kg/1000, 1)
+          "<br>Kg: ", formatC(kg_grupo, format = "f", digits = 0, big.mark = "."),
+          "<br>Participación total: ", round(pct_grupo * 100, 1), "%"
         )
       )
+    
+    det2 <- det %>%
+      left_join(gtot %>% select(grupo, gid, kg_grupo), by = "grupo") %>%
+      mutate(
+        fid = paste0("F_", str_replace_all(str_to_lower(paste0(grupo,"_",alimento)), "[^a-z0-9]+", "_")),
+        pct_in_group = ifelse(kg_grupo > 0, kg / kg_grupo, NA_real_),
+        tooltip_text = paste0(
+          "Grupo: ", grupo,
+          "<br>Alimento: ", alimento,
+          "<br>Kg: ", formatC(kg, format = "f", digits = 0, big.mark = "."),
+          "<br>% dentro del grupo: ", round(pct_in_group * 100, 1), "%"
+        )
+      )
+    
+    # Data para Highcharts treemap jerárquico (padres + hijos)
+    parents <- gtot %>%
+      transmute(
+        id = gid,
+        parent = NA_character_,
+        name = grupo,
+        value = as.numeric(kg_grupo),
+        colorValue = as.numeric(pct_grupo * 100),
+        tooltip_text = tooltip_text
+      )
+    
+    children <- det2 %>%
+      transmute(
+        id = fid,
+        parent = gid,
+        name = alimento,
+        value = as.numeric(kg),
+        colorValue = as.numeric(pct_in_group * 100),
+        tooltip_text = tooltip_text
+      )
+    
+    tm <- bind_rows(parents, children)
     
     low_color  <- "#2E7730"
     high_color <- "#007CC3"
     
     hchart(
-      agg, "treemap",
-      hcaes(x = grupo, value = round(pct*100, 2), color = round(pct*100, 2))
+      tm, "treemap",
+      hcaes(id = id, parent = parent, name = name, value = value, color = colorValue)
     ) %>%
       hc_title(text = "") %>%
       hc_colorAxis(minColor = low_color, maxColor = high_color) %>%
       hc_tooltip(pointFormat = "{point.tooltip_text}") %>%
       hc_plotOptions(
+        treemap = list(
+          layoutAlgorithm = "squarified",
+          allowTraversingTree = FALSE,   # <- se mantiene “contenido”, sin drill a pantalla completa
+          levelIsConstant = FALSE,
+          dataLabels = list(enabled = TRUE)
+        ),
         series = list(
-          point = list(
-            events = list(
-              click = JS("function(){ Shiny.setInputValue('grupo_click', this.name, {priority:'event'}); }")
-            )
-          )
+          animation = FALSE
         )
       ) %>%
-      hc_caption(text = "Participación (%)", align = "center", verticalAlign = "bottom", y = -10)
-  })
-  
-  # --- Título Treemap 2 ---
-  output$titulo_alimentos <- renderUI({
-    g <- grupo_sel()
-    if (is.null(g)) strong("Treemap (2) — Alimentos (selecciona un grupo arriba)")
-    else strong(paste0("Treemap (2) — Alimentos | Grupo: ", g))
-  })
-  
-  # --- Treemap 2: ALIMENTOS (según grupo seleccionado) ---
-  output$treemap_alimentos <- renderHighchart({
-    df <- datos_filtrados()
-    g  <- grupo_sel()
-    
-    if (is.null(g)) {
-      return(
-        highchart() %>%
-          hc_title(text = "") %>%
-          hc_subtitle(text = "Haz clic en un grupo (treemap superior) para ver el desglose por alimentos.") %>%
-          hc_add_series(
-            list(
-              type = "treemap",
-              layoutAlgorithm = "squarified",
-              data = list(list(
-                name = "Selecciona un grupo",
-                value = 100,
-                colorValue = 100,
-                tooltip_text = "Haz clic en un grupo arriba"
-              ))
-            ),
-            hcaes(x = name, value = value, color = colorValue)
-          ) %>%
-          hc_colorAxis(minColor = "#e5e7eb", maxColor = "#9ca3af") %>%
-          hc_tooltip(pointFormat = "{point.tooltip_text}")
-      )
-    }
-    
-    det <- df %>%
-      filter(grupo == g) %>%
-      group_by(alimento) %>%
-      summarise(kg = sum(kg, na.rm = TRUE), .groups = "drop") %>%
-      arrange(desc(kg))
-    
-    validate(need(nrow(det) > 0, "No hay alimentos para ese grupo con los filtros actuales"))
-    
-    total_g <- sum(det$kg, na.rm = TRUE)
-    det <- det %>%
-      mutate(
-        pct = ifelse(total_g > 0, kg/total_g, NA_real_),
-        tooltip_text = paste0(
-          "Alimento: ", alimento,
-          "<br>% dentro del grupo: ", round(pct*100, 1), "%",
-          "<br>Kg: ", fmt_int_co(kg),
-          "<br>Ton: ", fmt_dec_co(kg/1000, 1)
+      hc_levels(list(
+        list(
+          level = 1,
+          dataLabels = list(enabled = TRUE, style = list(fontWeight = "700")),
+          borderWidth = 3,
+          borderColor = "#ffffff"
+        ),
+        list(
+          level = 2,
+          dataLabels = list(enabled = TRUE, style = list(fontWeight = "500")),
+          borderWidth = 1,
+          borderColor = "#ffffff"
         )
-      )
-    
-    low_color  <- "#2E7730"
-    high_color <- "#007CC3"
-    
-    hchart(
-      det, "treemap",
-      hcaes(x = alimento, value = round(pct*100, 2), color = round(pct*100, 2))
-    ) %>%
-      hc_title(text = "") %>%
-      hc_colorAxis(minColor = low_color, maxColor = high_color) %>%
-      hc_tooltip(pointFormat = "{point.tooltip_text}") %>%
-      hc_caption(text = "% dentro del grupo", align = "center", verticalAlign = "bottom", y = -10)
+      )) %>%
+      hc_caption(text = "Color: % (Nivel 1 = participación total; Nivel 2 = % dentro del grupo)", align = "center",
+                 verticalAlign = "bottom", y = -10)
   })
 }
 
