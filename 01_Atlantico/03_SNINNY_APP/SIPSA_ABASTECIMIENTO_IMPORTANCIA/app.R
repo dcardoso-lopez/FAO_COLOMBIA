@@ -1,11 +1,12 @@
 # app.R
 # =========================================================
 # SIPSA_ABASTECIMIENTO_IMPORTANCIA — 2 pestañas (Storytelling)
+# ✅ Cada pestaña contiene: filtros + objetos visuales (sin IDs duplicados)
 # =========================================================
 
 DPTO_FOCO_NOMBRE <- "Atlántico"
 DPTO_FOCO_COD    <- "08"
-APP_TITLE <- paste0("")
+APP_TITLE <- ""
 
 # ------------------------------
 # Paquetes (NO instalar aquí)
@@ -40,7 +41,7 @@ validate <- shiny::validate
 need     <- shiny::need
 `%||%`   <- function(x, y) if (is.null(x) || length(x) == 0) y else x
 
-# ✅ Blindaje adicional contra funciones enmascaradas
+# ✅ Blindaje dplyr
 select    <- dplyr::select
 mutate    <- dplyr::mutate
 filter    <- dplyr::filter
@@ -449,6 +450,23 @@ normalize_caps <- function(caps){
 # =========================================================
 # UI
 # =========================================================
+filters_box <- function(tag){
+  # tag: "t1" o "t2" -> IDs únicos por pestaña
+  id_anio   <- paste0("anio_ui_", tag)
+  id_grupos <- paste0("grupos_ui_", tag)
+  id_dptos  <- paste0("dptos_ui_", tag)
+  
+  div(
+    class="filters",
+    div(
+      class="filters-grid",
+      div(class="filter", div(class="filter-label","¿Qué año analizamos?"), uiOutput(id_anio)),
+      div(class="filter", div(class="filter-label","¿Qué grupo alimenticio estás mirando?"), uiOutput(id_grupos)),
+      div(class="filter", div(class="filter-label","¿En qué departamento?"), uiOutput(id_dptos))
+    )
+  )
+}
+
 ui <- fluidPage(
   theme = bslib::bs_theme(
     version      = 5,
@@ -463,13 +481,6 @@ ui <- fluidPage(
       body{ background:#ffffff; }
       .wrap{ max-width:1360px; margin:0 auto; padding:16px 20px 32px; }
       h2#app-title{ text-align:center; margin-top:10px; margin-bottom:10px; font-weight:800; letter-spacing:.3px; }
-
-      /* contenedor donde viven filtros + tabs */
-      .tabs-box{
-        background:#fff; border:1px solid var(--accent-border) !important;
-        border-radius:16px; padding:12px;
-        box-shadow:0 2px 10px rgba(0,0,0,.05);
-      }
 
       .filters{
         background:#fff; border:1px solid var(--accent-border); border-radius:16px;
@@ -532,44 +543,34 @@ ui <- fluidPage(
     class="wrap",
     h2(APP_TITLE, id="app-title"),
     
-    # ✅ AHORA el "cuadro" contiene filtros + tabs
-    div(
-      class="tabs-box",
+    tabsetPanel(
+      type = "tabs",
+      id   = "tabs",
       
-      div(
-        class="filters",
+      tabPanel(
+        "¿Cuánto de lo que envía cada departamento llega a Atlántico?",
+        # ✅ filtros dentro de la pestaña
+        filters_box("t1"),
         div(
-          class="filters-grid",
-          div(class="filter", div(class="filter-label","¿Qué año analizamos?"), uiOutput("anio_ui")),
-          div(class="filter", div(class="filter-label","¿Qué grupo alimenticio estás mirando?"), uiOutput("grupos_ui")),
-          div(class="filter", div(class="filter-label","¿En qué departamento?"), uiOutput("dptos_ui"))
+          class="card",
+          div(class="card-title",
+              strong("¿Cuáles departamentos envían la mayor cantidad de alimentos al departamento priorizado?")),
+          leafletOutput("map_imp"),
+          div(class="dl-under", downloadButton("dl_png_map_imp", "PNG — Mapa (simple)"))
         )
       ),
       
-      tabsetPanel(
-        type = "tabs",
-        
-        tabPanel(
-          "¿Cuánto de lo que envía cada departamento llega a Atlántico?",
-          div(
-            class="card",
-            div(class="card-title",
-                strong(paste0("¿Cuáles departamentos envían la mayor cantidad de alimentos al departamento de priorizado?"))),
-            leafletOutput("map_imp"),
-            div(class="dl-under", downloadButton("dl_png_map_imp", "PNG — Mapa (simple)"))
-          )
-        ),
-        
-        tabPanel(
-          "¿Cuáles son corredores donde se mueve el abastecimiento hacia Atlántico?",
-          div(
-            class="card",
-            div(class="card-title",
-                strong("¿Cuáles son los corredores de volúmenes de envío de alimentos al departamento?")),
-            uiOutput("sel_routes_ui"),
-            leafletOutput("map_routes"),
-            div(class="dl-under", downloadButton("dl_png_map_routes", "PNG — Mapa (rutas)"))
-          )
+      tabPanel(
+        "¿Cuáles son corredores donde se mueve el abastecimiento hacia Atlántico?",
+        # ✅ filtros dentro de la pestaña
+        filters_box("t2"),
+        div(
+          class="card",
+          div(class="card-title",
+              strong("¿Cuáles son los corredores de volúmenes de envío de alimentos al departamento?")),
+          uiOutput("sel_routes_ui"),
+          leafletOutput("map_routes"),
+          div(class="dl-under", downloadButton("dl_png_map_routes", "PNG — Mapa (rutas)"))
         )
       )
     )
@@ -577,7 +578,7 @@ ui <- fluidPage(
 )
 
 # =========================================================
-# SERVER (sin cambios funcionales)
+# SERVER
 # =========================================================
 server <- function(input, output, session){
   
@@ -587,21 +588,26 @@ server <- function(input, output, session){
   
   years <- sort(unique(base_sipsa$anio[is.finite(base_sipsa$anio)]))
   
-  output$anio_ui <- renderUI({
-    selectInput("anio", NULL, choices = c("Todos"="Todos", years),
+  # ------------------------
+  # UI filtros TAB 1 (IDs únicos)
+  # ------------------------
+  output$anio_ui_t1 <- renderUI({
+    selectInput("anio_t1", NULL, choices = c("Todos"="Todos", years),
                 selected = if (length(years)) max(years) else "Todos")
   })
   
-  base_all <- reactive({
+  base_all_t1 <- reactive({
     df <- base_sipsa
-    if (!is.null(input$anio) && input$anio != "Todos") df <- df %>% dplyr::filter(anio == as.integer(input$anio))
+    if (!is.null(input$anio_t1) && input$anio_t1 != "Todos") {
+      df <- df %>% dplyr::filter(anio == as.integer(input$anio_t1))
+    }
     df
   })
   
-  output$grupos_ui <- renderUI({
-    grupos <- sort(unique(na.omit(base_all()$grupo)))
+  output$grupos_ui_t1 <- renderUI({
+    grupos <- sort(unique(na.omit(base_all_t1()$grupo)))
     pickerInput(
-      "grupos", NULL,
+      "grupos_t1", NULL,
       choices  = c("Todos", grupos),
       selected = "Todos",
       multiple = TRUE,
@@ -609,13 +615,13 @@ server <- function(input, output, session){
     )
   })
   
-  output$dptos_ui <- renderUI({
+  output$dptos_ui_t1 <- renderUI({
     dpts <- dept_sf %>% sf::st_drop_geometry() %>% dplyr::arrange(dpto_nm)
     choices <- c("Todos" = "Todos")
     choices <- c(choices, stats::setNames(dpts$cod_dpto, dpts$dpto_nm))
     
     pickerInput(
-      "dptos", NULL,
+      "dptos_t1", NULL,
       choices  = choices,
       selected = "Todos",
       multiple = TRUE,
@@ -623,12 +629,12 @@ server <- function(input, output, session){
     )
   })
   
-  datos_filtrados <- reactive({
-    df <- base_all()
-    df <- filter_multi(df, "grupo", input$grupos)
+  datos_filtrados_t1 <- reactive({
+    df <- base_all_t1()
+    df <- filter_multi(df, "grupo", input$grupos_t1)
     
-    if (!sel_is_all(input$dptos)) {
-      sel_codes <- unique(as.character(input$dptos))
+    if (!sel_is_all(input$dptos_t1)) {
+      sel_codes <- unique(as.character(input$dptos_t1))
       sel_codes <- sel_codes[sel_codes != "Todos"]
       df <- df %>% dplyr::filter(cod_dpto_o %in% sel_codes)
     }
@@ -637,8 +643,8 @@ server <- function(input, output, session){
     df
   })
   
-  badge <- reactive({
-    yr <- if (!is.null(input$anio) && input$anio != "Todos") as.character(input$anio) else "Todos"
+  badge_t1 <- reactive({
+    yr <- if (!is.null(input$anio_t1) && input$anio_t1 != "Todos") as.character(input$anio_t1) else "Todos"
     htmltools::HTML(sprintf(
       '<div style="background:#fff;padding:6px 10px;border-radius:8px;
                    box-shadow:0 1px 6px rgba(0,0,0,.15);font-size:12px;line-height:1.3;">
@@ -648,9 +654,9 @@ server <- function(input, output, session){
     ))
   })
   
-  # ---------------- TAB 1 ----------------
+  # ---------------- TAB 1: Mapa importancia ----------------
   mapa_imp_sf <- reactive({
-    agg <- datos_filtrados() %>%
+    agg <- datos_filtrados_t1() %>%
       dplyr::group_by(cod_dpto_o) %>%
       dplyr::summarise(
         ton_den = sum(ton_den, na.rm = TRUE),
@@ -725,17 +731,17 @@ server <- function(input, output, session){
         labFormat=legend_lab_range("%"),
         na.label="0% / NA"
       ) %>%
-      leaflet::addControl(badge(), position="topright") %>%
+      leaflet::addControl(badge_t1(), position="topright") %>%
       leaflet::fitBounds(bb[["xmin"]], bb[["ymin"]], bb[["xmax"]], bb[["ymax"]])
   }
   
-  observeEvent(list(input$anio, input$grupos, input$dptos), { draw_map_imp() }, ignoreInit = FALSE)
+  observeEvent(list(input$anio_t1, input$grupos_t1, input$dptos_t1), { draw_map_imp() }, ignoreInit = FALSE)
   
   output$dl_png_map_imp <- downloadHandler(
     filename = function() paste0("SIPSA_importancia_", DPTO_FOCO_NOMBRE, "_", Sys.Date(), ".png"),
     content  = function(file){
       shp <- isolate(mapa_imp_sf())
-      bdg <- isolate(badge())
+      bdg <- isolate(badge_t1())
       
       if (is.null(shp) || !inherits(shp,"sf") || nrow(shp) == 0) {
         widget <- leaflet::leaflet() %>%
@@ -770,7 +776,73 @@ server <- function(input, output, session){
     }
   )
   
-  # ---------------- TAB 2 ----------------
+  # ------------------------
+  # UI filtros TAB 2 (IDs únicos)
+  # ------------------------
+  output$anio_ui_t2 <- renderUI({
+    selectInput("anio_t2", NULL, choices = c("Todos"="Todos", years),
+                selected = if (length(years)) max(years) else "Todos")
+  })
+  
+  base_all_t2 <- reactive({
+    df <- base_sipsa
+    if (!is.null(input$anio_t2) && input$anio_t2 != "Todos") {
+      df <- df %>% dplyr::filter(anio == as.integer(input$anio_t2))
+    }
+    df
+  })
+  
+  output$grupos_ui_t2 <- renderUI({
+    grupos <- sort(unique(na.omit(base_all_t2()$grupo)))
+    pickerInput(
+      "grupos_t2", NULL,
+      choices  = c("Todos", grupos),
+      selected = "Todos",
+      multiple = TRUE,
+      options  = list(`live-search`=TRUE, `actions-box`=TRUE, size=8)
+    )
+  })
+  
+  output$dptos_ui_t2 <- renderUI({
+    dpts <- dept_sf %>% sf::st_drop_geometry() %>% dplyr::arrange(dpto_nm)
+    choices <- c("Todos" = "Todos")
+    choices <- c(choices, stats::setNames(dpts$cod_dpto, dpts$dpto_nm))
+    
+    pickerInput(
+      "dptos_t2", NULL,
+      choices  = choices,
+      selected = "Todos",
+      multiple = TRUE,
+      options  = list(`live-search`=TRUE, `actions-box`=TRUE, size=10)
+    )
+  })
+  
+  datos_filtrados_t2 <- reactive({
+    df <- base_all_t2()
+    df <- filter_multi(df, "grupo", input$grupos_t2)
+    
+    if (!sel_is_all(input$dptos_t2)) {
+      sel_codes <- unique(as.character(input$dptos_t2))
+      sel_codes <- sel_codes[sel_codes != "Todos"]
+      df <- df %>% dplyr::filter(cod_dpto_o %in% sel_codes)
+    }
+    
+    validate(need(nrow(df) > 0, "Sin datos con los filtros seleccionados."))
+    df
+  })
+  
+  badge_t2 <- reactive({
+    yr <- if (!is.null(input$anio_t2) && input$anio_t2 != "Todos") as.character(input$anio_t2) else "Todos"
+    htmltools::HTML(sprintf(
+      '<div style="background:#fff;padding:6px 10px;border-radius:8px;
+                   box-shadow:0 1px 6px rgba(0,0,0,.15);font-size:12px;line-height:1.3;">
+         <b>Destino:</b> %s<br>
+         <b>Año:</b> %s
+       </div>', htmltools::htmlEscape(DPTO_FOCO_NOMBRE), yr
+    ))
+  })
+  
+  # ---------------- TAB 2: rutas ----------------
   gpkg_path_reactive <- reactive({
     if (length(gpkg_files) == 0) return(NA_character_)
     if (!is.na(gpkg_default) && file.exists(gpkg_default)) return(gpkg_default)
@@ -787,8 +859,8 @@ server <- function(input, output, session){
   
   caps_sf <- reactive({ normalize_caps(gpkg_ctx()$caps) })
   
-  ton_by_dpto <- reactive({
-    df <- datos_filtrados() %>%
+  ton_by_dpto_t2 <- reactive({
+    df <- datos_filtrados_t2() %>%
       dplyr::group_by(cod_dpto_o) %>%
       dplyr::summarise(
         ton_to_atl = sum(ton_num, na.rm = TRUE),
@@ -815,8 +887,8 @@ server <- function(input, output, session){
     
     out <- rts %>%
       dplyr::mutate(.row_id = dplyr::row_number()) %>%
-      dplyr::left_join(ton_by_dpto(),     by = c("dpto_id" = "cod_dpto_o")) %>%
-      dplyr::left_join(dept_names_tbl(),  by = c("dpto_id" = "cod_dpto")) %>%
+      dplyr::left_join(ton_by_dpto_t2(),     by = c("dpto_id" = "cod_dpto_o")) %>%
+      dplyr::left_join(dept_names_tbl(),     by = c("dpto_id" = "cod_dpto")) %>%
       dplyr::mutate(
         ton_to_atl = as.numeric(ton_to_atl),
         ton_total  = as.numeric(ton_total),
@@ -828,8 +900,8 @@ server <- function(input, output, session){
       ) %>%
       dplyr::select(route_id, dpto_id, dpto_show, ton_route, ton_total, geometry)
     
-    if (!sel_is_all(input$dptos)) {
-      sel_codes <- unique(as.character(input$dptos))
+    if (!sel_is_all(input$dptos_t2)) {
+      sel_codes <- unique(as.character(input$dptos_t2))
       sel_codes <- sel_codes[sel_codes != "Todos"]
       out <- out %>% dplyr::filter(dpto_id %in% sel_codes)
     }
@@ -902,8 +974,8 @@ server <- function(input, output, session){
         dpto_nm_lbl = ifelse(is.na(dpto_nm_lbl) | dpto_nm_lbl == "", paste0("Dpto ", cod_dpto), dpto_nm_lbl)
       )
     
-    if (!sel_is_all(input$dptos)) {
-      sel_codes <- unique(as.character(input$dptos))
+    if (!sel_is_all(input$dptos_t2)) {
+      sel_codes <- unique(as.character(input$dptos_t2))
       sel_codes <- sel_codes[sel_codes != "Todos"]
       dpt2 <- dpt2 %>% dplyr::filter(cod_dpto %in% sel_codes | cod_dpto == DPTO_FOCO_COD)
       if (nrow(dpt2) == 0) dpt2 <- dpt
@@ -926,7 +998,7 @@ server <- function(input, output, session){
         label       = ~dpto_nm_lbl,
         labelOptions = hover_label_opts
       ) %>%
-      leaflet::addControl(badge(), position="topright")
+      leaflet::addControl(badge_t2(), position="topright")
     
     if (is.null(rts) || !inherits(rts,"sf") || nrow(rts) == 0) {
       proxy %>% leaflet::fitBounds(bb[["xmin"]], bb[["ymin"]], bb[["xmax"]], bb[["ymax"]])
@@ -1022,7 +1094,7 @@ server <- function(input, output, session){
     invisible(NULL)
   }
   
-  observeEvent(list(input$anio, input$grupos, input$dptos, selected_routes()), {
+  observeEvent(list(input$anio_t2, input$grupos_t2, input$dptos_t2, selected_routes()), {
     draw_map_routes()
   }, ignoreInit = FALSE)
   
@@ -1036,7 +1108,7 @@ server <- function(input, output, session){
       } else {
         dpt <- isolate(dptos_ctx_sf())
         rts <- isolate(rutas_con_ton())
-        bdg <- isolate(badge())
+        bdg <- isolate(badge_t2())
         sel <- isolate(selected_routes())
         if (length(sel) > 0) rts <- rts %>% dplyr::filter(route_id %in% sel)
         
@@ -1101,5 +1173,4 @@ server <- function(input, output, session){
 }
 
 shinyApp(ui, server)
-
 
