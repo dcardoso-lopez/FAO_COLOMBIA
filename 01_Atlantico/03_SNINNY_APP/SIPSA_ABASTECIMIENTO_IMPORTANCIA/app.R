@@ -1,14 +1,20 @@
+# app.R
 # =========================================================
 # SIPSA_ABASTECIMIENTO_IMPORTANCIA — SOLO MAPA (% IMPORTANCIA)
-# (MISMA BASE 041_DANE_SIPSA-Abast.rds)
 #
-# - ✅ Atlántico (foco)
-# - ✅ Flujos HACIA Atlántico (COD_DANE_DPTO_D == 08)
-# - ✅ Mapa por ORIGEN: % = Ton_origen / Total_ton_destino * 100
-#     (denominador = TOTAL hacia el DEPARTAMENTO_D, no solo mapeable)
-# - ✅ Filtros: Año, Mes (nombres), Grupo, Alimento
-# - ✅ Join mapa por código: base COD_DANE_DPTO_O vs shapefile DPTO_CCGEO (o DPTO_CCDGO)
-# - ✅ Mapa se dibuja (patrón observeEvent)
+# BASE (agregada como tu screenshot):
+#   ano, Grupo, (Alimento puede existir), COD_DANE_DPTO_O, DEPARTAMENTO_O,
+#   kg_total_origen, kg_a_atlantico, pct_importancia
+#
+# ENFOQUE:
+# - ✅ Atlántico (foco) destino implícito (ya viene en kg_a_atlantico)
+# - ✅ Mapa por ORIGEN:
+#     % = kg_a_atlantico / kg_total_origen * 100
+# - ✅ Filtros: Año, Grupo
+# - ✅ SIN filtro de ALIMENTO
+# - ✅ SIN filtro de MES
+# - ✅ Join mapa por código: COD_DANE_DPTO_O vs shapefile DPTO_CCGEO/DPTO_CCDGO
+# - ✅ FIX error .xts_chob: namespace explícito leaflet:: + values como vector
 # =========================================================
 
 DPTO_FOCO_NOMBRE <- "Atlántico"
@@ -60,8 +66,22 @@ app_root <- tryCatch({
 })
 
 data_dir <- file.path(app_root, "data")
-rds_path <- file.path(data_dir, "041_DANE_SIPSA-Abast.rds")
-stopifnot(file.exists(rds_path))
+
+# ✅ intenta varios nombres comunes (ajusta si tu .rds se llama distinto)
+rds_candidates <- c(
+  file.path(data_dir, "041_DANE_SIPSA-Abast.rds"),
+  file.path(data_dir, "datos_agregados.rds"),
+  file.path(data_dir, "041_DANE_SIPSA-Abast_volumen.rds"),
+  file.path(data_dir, "base_importancia_atlantico.rds")
+)
+rds_path <- rds_candidates[file.exists(rds_candidates)][1]
+if (is.na(rds_path)) {
+  stop(
+    "No encontré el archivo .rds en /data. Busqué:\n- ",
+    paste(basename(rds_candidates), collapse = "\n- "),
+    "\n\nColoca tu base (.rds) en: ", data_dir
+  )
+}
 
 # =========================================================
 # Helpers
@@ -179,46 +199,64 @@ legend_lab_pct <- function(){
 }
 
 # =========================================================
-# Cargar RDS y mapear columnas
+# Cargar RDS (BASE AGREGADA) y mapear columnas
 # =========================================================
-sipsa_raw <- readRDS(rds_path)
-sipsa <- janitor::clean_names(sipsa_raw)
-nms  <- names(sipsa)
+raw <- readRDS(rds_path)
+df0 <- janitor::clean_names(raw)
+nms <- names(df0)
 
 ycol <- req_col(nms, c("ano","anio","year"), "AÑO")
-mcol <- req_col(nms, c("mes","month"), "MES")
-gcol <- req_col(nms, c("grupo","grupo_alimento","grupo_alimentos","grupo_de_alimento"), "GRUPO")
-pcol <- req_col(nms, c("alimento","producto","item","articulo","artículo"), "ALIMENTO/PRODUCTO")
-qcol <- req_col(nms, c("cantkg_total","cant_kg_total","cantidad_kg","cantidadkg","cantkg","kg_total","cant_total_kg"), "CANTIDAD KG")
+gcol <- req_col(nms, c("grupo","grupo_alimento","grupo_alimentos"), "GRUPO")
+
+cod_o_col <- req_col(
+  nms,
+  c("cod_dane_dpto_o","dane_cod_dpto_o","cod_dpto_o","cod_depto_o"),
+  "COD_DANE_DPTO_O (ORIGEN)"
+)
 
 dep_o_col <- pick_first(nms, c("departamento_o","depto_o","departamento_origen","depto_origen"))
 
-dpto_code_d_col <- req_col(
+kg_tot_col <- req_col(
   nms,
-  c("cod_dane_dpto_d","dane_cod_dpto_d","dane_cod_dpto","cod_dane_dpto","cod_dpto_d","cod_dpto"),
-  "COD_DANE_DPTO_D"
-)
-dpto_code_o_col <- req_col(
-  nms,
-  c("cod_dane_dpto_o","dane_cod_dpto_o","cod_dpto_o","cod_dpto_origen","cod_dane_dpto_origen","dane_cod_dpto_origen"),
-  "COD_DANE_DPTO_O"
+  c("kg_total_origen","kg_total","kg_origen_total","kg_total_envia","kg_total_salida"),
+  "kg_total_origen"
 )
 
-base_sipsa <- sipsa %>%
+kg_atl_col <- req_col(
+  nms,
+  c("kg_a_atlantico","kg_atlantico","kg_hacia_atlantico","kg_to_atlantico"),
+  "kg_a_atlantico"
+)
+
+pct_col <- pick_first(nms, c("pct_importancia","porc_importancia","pct","porcentaje"))
+
+base_sipsa <- df0 %>%
   transmute(
     anio = suppressWarnings(as.integer(.data[[ycol]])),
-    mes  = suppressWarnings(as.integer(.data[[mcol]])),
-    cod_dpto_d = pad_dpto(.data[[dpto_code_d_col]]),
-    cod_dpto_o = pad_dpto(.data[[dpto_code_o_col]]),
+    grupo = title_case_es(.data[[gcol]]),
+    cod_dpto_o = pad_dpto(.data[[cod_o_col]]),
     departamento_o = if (!is.na(dep_o_col)) title_case_es(.data[[dep_o_col]]) else NA_character_,
-    grupo    = title_case_es(.data[[gcol]]),
-    alimento = title_case_es(.data[[pcol]]),
-    kg       = parse_num_co(.data[[qcol]])
+    kg_total_origen = parse_num_co(.data[[kg_tot_col]]),
+    kg_a_atlantico  = parse_num_co(.data[[kg_atl_col]]),
+    pct_importancia = if (!is.na(pct_col)) suppressWarnings(as.numeric(.data[[pct_col]])) else NA_real_
   ) %>%
   filter(is.finite(anio), anio >= 2018) %>%
-  filter(!is.na(departamento_o), str_trim(departamento_o) != "") %>%
-  filter(is.finite(kg), kg > 0) %>%
-  mutate(ton = kg/1000)
+  filter(!is.na(cod_dpto_o), cod_dpto_o != "") %>%
+  filter(is.finite(kg_total_origen), kg_total_origen > 0) %>%
+  mutate(
+    kg_a_atlantico = dplyr::coalesce(kg_a_atlantico, 0),
+    pct = ifelse(kg_total_origen > 0, (kg_a_atlantico / kg_total_origen) * 100, NA_real_),
+    ton_den = kg_total_origen / 1000,
+    ton_num = kg_a_atlantico  / 1000
+  ) %>%
+  group_by(anio, grupo, cod_dpto_o) %>%
+  summarise(
+    departamento_o = dplyr::first(na.omit(departamento_o)) %||% NA_character_,
+    ton_den = sum(ton_den, na.rm = TRUE),
+    ton_num = sum(ton_num, na.rm = TRUE),
+    pct = ifelse(ton_den > 0, (ton_num / ton_den) * 100, NA_real_),
+    .groups = "drop"
+  )
 
 # =========================================================
 # Shapefile Departamentos (DPTO_CCGEO / DPTO_CCDGO)
@@ -293,10 +331,9 @@ ui <- fluidPage(
       .filters-grid{
         width:100%;
         display:grid;
-        grid-template-columns: repeat(4, minmax(220px, 1fr));
+        grid-template-columns: repeat(2, minmax(260px, 1fr));
         column-gap:16px; row-gap:10px; align-items:end;
       }
-      @media (max-width: 1000px){ .filters-grid{ grid-template-columns: 1fr 1fr; } }
       @media (max-width: 650px){ .filters-grid{ grid-template-columns: 1fr; } }
 
       .filter-label{
@@ -344,18 +381,16 @@ ui <- fluidPage(
       div(
         class="filters-grid",
         div(class="filter", div(class="filter-label","¿Qué año analizamos?"), uiOutput("anio_ui")),
-        div(class="filter", div(class="filter-label","¿En qué mes?"), uiOutput("mes_ui")),
-        div(class="filter", div(class="filter-label","¿En qué grupo alimenticio?"), uiOutput("grupos_ui")),
-        div(class="filter", div(class="filter-label","¿En qué alimento?"), uiOutput("alimentos_ui"))
+        div(class="filter", div(class="filter-label","¿En qué grupo alimenticio?"), uiOutput("grupos_ui"))
       )
     ),
     
     div(
       class="card",
       div(class="card-title",
-          strong(paste0("¿Qué porcentaje del abastecimiento que llega a ", DPTO_FOCO_NOMBRE, " proviene de cada departamento?"))),
+          strong(paste0("¿Qué porcentaje de lo que envía cada departamento termina en ", DPTO_FOCO_NOMBRE, "?"))),
       leafletOutput("map_imp"),
-      div(class="map-note","Nota: cuartiles (4 clases) con valores > 0. Dptos sin información en gris."),
+      div(class="map-note","Nota: cuartiles (4 clases) con valores > 0. Dptos sin información o con 0% en gris. Atlántico (origen) se marca como NA (no aplica)."),
       div(class="dl-under", downloadButton("dl_png_map_imp", "PNG — Mapa (simple)"))
     )
   )
@@ -366,14 +401,15 @@ ui <- fluidPage(
 # =========================================================
 server <- function(input, output, session){
   
-  years  <- sort(unique(base_sipsa$anio[is.finite(base_sipsa$anio)]))
-  months <- sort(unique(base_sipsa$mes[is.finite(base_sipsa$mes)]))
+  # (Opcional “blindaje” adicional contra funciones enmascaradas)
+  addLegend   <- leaflet::addLegend
+  addControl  <- leaflet::addControl
+  addPolygons <- leaflet::addPolygons
+  fitBounds   <- leaflet::fitBounds
+  clearGroup  <- leaflet::clearGroup
+  clearControls <- leaflet::clearControls
   
-  mes_nombre <- c(
-    "Enero","Febrero","Marzo","Abril","Mayo","Junio",
-    "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"
-  )
-  month_choices <- c("Todos" = "Todos", stats::setNames(as.character(months), mes_nombre[months]))
+  years <- sort(unique(base_sipsa$anio[is.finite(base_sipsa$anio)]))
   
   hover_label_opts <- leaflet::labelOptions(
     direction="auto", textsize="12px", sticky=TRUE, opacity=0.95, className="lbl-clean"
@@ -383,19 +419,15 @@ server <- function(input, output, session){
     selectInput("anio", NULL, choices = c("Todos"="Todos", years),
                 selected = if (length(years)) max(years) else "Todos")
   })
-  output$mes_ui <- renderUI({
-    selectInput("mes", NULL, choices = month_choices, selected = "Todos")
-  })
   
-  base_foco <- reactive({
-    df <- base_sipsa %>% filter(cod_dpto_d == DPTO_FOCO_COD)
+  base_all <- reactive({
+    df <- base_sipsa
     if (!is.null(input$anio) && input$anio != "Todos") df <- df %>% filter(anio == as.integer(input$anio))
-    if (!is.null(input$mes)  && input$mes  != "Todos") df <- df %>% filter(mes  == as.integer(input$mes))
     df
   })
   
   output$grupos_ui <- renderUI({
-    grupos <- sort(unique(na.omit(base_foco()$grupo)))
+    grupos <- sort(unique(na.omit(base_all()$grupo)))
     pickerInput(
       "grupos", NULL,
       choices  = c("Todos", grupos),
@@ -405,74 +437,60 @@ server <- function(input, output, session){
     )
   })
   
-  output$alimentos_ui <- renderUI({
-    df <- base_foco()
+  datos_filtrados <- reactive({
+    df <- base_all()
     df <- filter_multi(df, "grupo", input$grupos)
-    alimentos <- sort(unique(na.omit(df$alimento)))
-    pickerInput(
-      "alimentos", NULL,
-      choices  = c("Todos", alimentos),
-      selected = "Todos",
-      multiple = TRUE,
-      options  = list(`live-search`=TRUE, `actions-box`=TRUE, size=8)
-    )
-  })
-  
-  datos_imp <- reactive({
-    df <- base_foco()
-    df <- filter_multi(df, "grupo",    input$grupos)
-    df <- filter_multi(df, "alimento", input$alimentos)
     validate(need(nrow(df) > 0, "Sin datos con los filtros seleccionados."))
     df
   })
   
   badge <- reactive({
     yr <- if (!is.null(input$anio) && input$anio != "Todos") as.character(input$anio) else "Todos"
-    ms <- if (!is.null(input$mes)  && input$mes  != "Todos") mes_nombre[as.integer(input$mes)] else "Todos"
     htmltools::HTML(sprintf(
       '<div style="background:#fff;padding:6px 10px;border-radius:8px;
                    box-shadow:0 1px 6px rgba(0,0,0,.15);font-size:12px;line-height:1.3;">
          <b>Destino:</b> %s<br>
-         <b>Año:</b> %s &nbsp; <b>Mes:</b> %s
-       </div>', htmltools::htmlEscape(DPTO_FOCO_NOMBRE), yr, ms
+         <b>Año:</b> %s
+       </div>', htmltools::htmlEscape(DPTO_FOCO_NOMBRE), yr
     ))
   })
   
-  # =========================================================
-  # ✅ FIX: % con base en el TOTAL hacia el DEPARTAMENTO_D (destino)
-  #     (denominador NO se restringe a "mapeable"; solo el numerador se mapea)
-  # =========================================================
   mapa_imp_sf <- reactive({
-    df <- datos_imp()
+    # Agrega por ORIGEN (si hay múltiples grupos seleccionados)
+    agg <- datos_filtrados() %>%
+      group_by(cod_dpto_o) %>%
+      summarise(
+        ton_den = sum(ton_den, na.rm = TRUE),
+        ton_num = sum(ton_num, na.rm = TRUE),
+        pct = ifelse(ton_den > 0, (ton_num / ton_den) * 100, NA_real_),
+        .groups = "drop"
+      ) %>%
+      filter(cod_dpto_o %in% dept_sf$cod_dpto)
     
-    # Normaliza código de origen y elimina NA (sin código no se puede asignar a dpto)
-    df2 <- df %>%
-      mutate(cod_dpto = pad_dpto(cod_dpto_o)) %>%
-      filter(!is.na(cod_dpto))
+    out <- dept_sf %>%
+      left_join(agg, by = c("cod_dpto" = "cod_dpto_o")) %>%
+      mutate(
+        ton_num = as.numeric(ton_num),
+        ton_den = as.numeric(ton_den),
+        pct     = as.numeric(pct)
+      )
     
-    # ✅ Denominador: TOTAL que llega al destino (Atlántico) con los filtros activos
-    #    (NO solo mapeable)
-    total_destino <- sum(df2$ton, na.rm = TRUE)
+    # Atlántico como ORIGEN -> NA (no aplica)
+    out$pct[out$cod_dpto == DPTO_FOCO_COD] <- NA_real_
+    out$ton_num[out$cod_dpto == DPTO_FOCO_COD] <- NA_real_
+    out$ton_den[out$cod_dpto == DPTO_FOCO_COD] <- NA_real_
     
-    # Numerador (solo lo mapeable para poder dibujarlo)
-    agg_map <- df2 %>%
-      filter(cod_dpto %in% dept_sf$cod_dpto) %>%
-      group_by(cod_dpto) %>%
-      summarise(ton = sum(ton, na.rm = TRUE), .groups = "drop") %>%
-      mutate(pct = ifelse(total_destino > 0, ton / total_destino * 100, NA_real_))
-    
-    dept_sf %>%
-      left_join(agg_map, by = "cod_dpto") %>%
-      mutate(ton = as.numeric(ton), pct = as.numeric(pct))
+    out
   })
   
   output$map_imp <- renderLeaflet({
-    leaflet(options = leafletOptions(zoomControl = TRUE)) %>%
-      addProviderTiles(providers$CartoDB.Positron) %>%
-      setView(lng = -74.0, lat = 4.6, zoom = 5)
+    leaflet::leaflet(options = leaflet::leafletOptions(zoomControl = TRUE)) %>%
+      leaflet::addProviderTiles(leaflet::providers$CartoDB.Positron) %>%
+      leaflet::setView(lng = -74.0, lat = 4.6, zoom = 5)
   })
   outputOptions(output, "map_imp", suspendWhenHidden = FALSE)
   
+  # ✅ FIX: leaflet:: + values como vector (no fórmula) para evitar .xts_chob
   draw_map_imp <- function(){
     mdat <- tryCatch(mapa_imp_sf(), error = function(e) NULL)
     if (is.null(mdat) || !inherits(mdat,"sf") || nrow(mdat) == 0) return(invisible(NULL))
@@ -482,43 +500,48 @@ server <- function(input, output, session){
     mdat <- mdat[!sf::st_is_empty(mdat$geometry), , drop=FALSE]
     if (nrow(mdat) == 0) return(invisible(NULL))
     
-    pal <- palBin4(mdat$pct)
+    # vector para leyenda (NA para 0 o NA)
+    mdat$pct_plot <- ifelse(is.na(mdat$pct) | mdat$pct <= 0, NA_real_, as.numeric(mdat$pct))
+    
+    pal <- palBin4(mdat$pct_plot)
     bb  <- sf::st_bbox(mdat)
     
-    leafletProxy("map_imp", data = mdat) %>%
-      clearGroup("poly") %>% clearControls() %>%
-      addPolygons(
+    leaflet::leafletProxy("map_imp", data = mdat) %>%
+      leaflet::clearGroup("poly") %>%
+      leaflet::clearControls() %>%
+      leaflet::addPolygons(
         group="poly",
-        fillColor = ~ifelse(is.na(pct) | pct <= 0, "#bdbdbd", pal(pct)),
+        fillColor = ~ifelse(is.na(pct_plot), "#bdbdbd", pal(pct_plot)),
         fillOpacity = 0.90,
         color = "#666",
         weight = 0.7,
         label = ~ifelse(
-          is.na(pct) | pct <= 0,
-          sprintf("%s — Sin información", dpto_nm),
-          sprintf("%s — %s", dpto_nm, fmt_pct_co(pct, 1))
+          is.na(pct_plot),
+          sprintf("%s — 0%% / NA", dpto_nm),
+          sprintf("%s — %s", dpto_nm, fmt_pct_co(pct_plot, 1))
         ),
         popup = ~paste0(
           "<strong>Departamento (origen): </strong>", dpto_nm,
-          ifelse(is.na(pct), "", paste0("<br><strong>% hacia ", DPTO_FOCO_NOMBRE, ":</strong> ", fmt_pct_co(pct, 1))),
-          ifelse(is.na(ton), "", paste0("<br><strong>Toneladas: </strong>", fmt_ton_co(ton, 1)))
+          ifelse(is.na(pct_plot), "", paste0("<br><strong>% de sus envíos hacia ", DPTO_FOCO_NOMBRE, ":</strong> ", fmt_pct_co(pct_plot, 1))),
+          ifelse(is.na(ton_num), "", paste0("<br><strong>Ton hacia ", DPTO_FOCO_NOMBRE, " (numerador): </strong>", fmt_ton_co(ton_num, 1))),
+          ifelse(is.na(ton_den), "", paste0("<br><strong>Total enviado por el origen (denominador): </strong>", fmt_ton_co(ton_den, 1)))
         ),
-        highlightOptions = highlightOptions(color = "black", weight = 2, bringToFront = TRUE),
+        highlightOptions = leaflet::highlightOptions(color = "black", weight = 2, bringToFront = TRUE),
         labelOptions = hover_label_opts
       ) %>%
-      addLegend(
+      leaflet::addLegend(
         position="bottomright",
         pal=pal,
-        values=~ifelse(is.na(pct)|pct<=0, NA, pct),
-        title="% de abastecimiento",
+        values=mdat$pct_plot,  # <- vector, NO fórmula
+        title=paste0("% de envíos a ", DPTO_FOCO_NOMBRE),
         labFormat=legend_lab_pct(),
-        na.label="Sin información"
+        na.label="0% / NA"
       ) %>%
-      addControl(badge(), position="topright") %>%
-      fitBounds(bb[["xmin"]], bb[["ymin"]], bb[["xmax"]], bb[["ymax"]])
+      leaflet::addControl(badge(), position="topright") %>%
+      leaflet::fitBounds(bb[["xmin"]], bb[["ymin"]], bb[["xmax"]], bb[["ymax"]])
   }
   
-  observeEvent(list(input$anio, input$mes, input$grupos, input$alimentos), {
+  observeEvent(list(input$anio, input$grupos), {
     draw_map_imp()
   }, ignoreInit = FALSE)
   
@@ -529,28 +552,30 @@ server <- function(input, output, session){
       bdg <- isolate(badge())
       
       if (is.null(shp) || !inherits(shp,"sf") || nrow(shp) == 0) {
-        widget <- leaflet() %>%
-          addProviderTiles(providers$CartoDB.Positron) %>%
-          setView(-74.0, 4.6, 5)
+        widget <- leaflet::leaflet() %>%
+          leaflet::addProviderTiles(leaflet::providers$CartoDB.Positron) %>%
+          leaflet::setView(-74.0, 4.6, 5)
       } else {
-        pal <- palBin4(shp$pct)
-        widget <- leaflet(shp, options = leafletOptions(zoomControl=FALSE)) %>%
-          addProviderTiles(providers$CartoDB.Positron) %>%
-          addPolygons(
-            fillColor = ~ifelse(is.na(pct) | pct <= 0, "#bdbdbd", pal(pct)),
+        shp$pct_plot <- ifelse(is.na(shp$pct) | shp$pct <= 0, NA_real_, as.numeric(shp$pct))
+        pal <- palBin4(shp$pct_plot)
+        
+        widget <- leaflet::leaflet(shp, options = leaflet::leafletOptions(zoomControl=FALSE)) %>%
+          leaflet::addProviderTiles(leaflet::providers$CartoDB.Positron) %>%
+          leaflet::addPolygons(
+            fillColor = ~ifelse(is.na(pct_plot), "#bdbdbd", pal(pct_plot)),
             fillOpacity = 0.90,
             color = "#666",
             weight = 0.7
           ) %>%
-          addLegend(
+          leaflet::addLegend(
             position="bottomright",
             pal=pal,
-            values=~ifelse(is.na(pct)|pct<=0, NA, pct),
-            title="% de abastecimiento",
+            values=shp$pct_plot,  # <- vector, NO fórmula
+            title=paste0("% de envíos a ", DPTO_FOCO_NOMBRE),
             labFormat=legend_lab_pct(),
-            na.label="Sin información"
+            na.label="0% / NA"
           ) %>%
-          addControl(bdg, position="topright")
+          leaflet::addControl(bdg, position="topright")
       }
       
       tmp_html <- tempfile(fileext = ".html")
