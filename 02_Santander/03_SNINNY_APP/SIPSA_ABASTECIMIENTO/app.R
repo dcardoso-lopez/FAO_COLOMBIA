@@ -490,7 +490,7 @@ ui <- fluidPage(
   
   div(
     class = "wrap",
-    h2(paste0("SIPSA Abastecimiento — Flujos desde y hacia ", DPTO_FOCO_NOMBRE), id = "app-title"),
+    h2(paste0("", DPTO_FOCO_NOMBRE), id = "app-title"),
     
     tabsetPanel(
       id   = "tabs_sipsa",
