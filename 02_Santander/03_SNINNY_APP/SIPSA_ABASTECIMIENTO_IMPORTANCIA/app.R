@@ -548,7 +548,7 @@ ui <- fluidPage(
   ),
   tags$head(
     tags$style(HTML("
-      :root{ --accent-border:#99d5ec; --map-h: 600px; }
+      :root{ --accent-border:#a1d99b; --map-h: 600px; }
       body{ background:#ffffff; }
       .wrap{ max-width:1360px; margin:0 auto; padding:16px 20px 32px; }
       h2#app-title{ text-align:center; margin-top:10px; margin-bottom:10px; font-weight:800; letter-spacing:.3px; }
