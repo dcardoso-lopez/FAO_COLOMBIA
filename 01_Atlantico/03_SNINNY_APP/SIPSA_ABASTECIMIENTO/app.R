@@ -1,6 +1,9 @@
+# app.R
 # =========================================================
 # SIPSA ABASTECIMIENTO — MAPA + (BARRAS GRUPOS) + (SERIE TOTAL) + TABLA (2 pestañas)
 # (MOD: dropdowns salen de la caja verde + meses con nombres + ✅ SIN filtro de NIVEL)
+# (MOD NUEVO: Tab 2 (Recepción) barras + serie se calculan SOLO con recepción en Atlántico)
+# (MOD NUEVO: ✅ En mapas SOLO etiqueta al pasar el cursor (hover) y mostrando NOMBRE del dpto)
 # =========================================================
 
 # ------------------------------
@@ -42,6 +45,13 @@ sf::sf_use_s2(FALSE)
 validate <- shiny::validate
 need     <- shiny::need
 `%||%`   <- function(x, y) if (is.null(x) || length(x) == 0) y else x
+
+# =========================================================
+# FOCO
+# =========================================================
+DPTO_FOCO_COD    <- "08"
+DPTO_FOCO_NOMBRE <- "Atlántico"
+APP_TITLE <- paste0("")
 
 # =========================================================
 # 0) Rutas robustas
@@ -106,7 +116,6 @@ fmt_ton_co <- function(x, digits = 1){
 fmt_pct_co <- function(x, digits = 1){
   paste0(scales::number(100*x, big.mark=".", decimal.mark=",", accuracy = 10^(-digits)), "%")
 }
-
 fmt_num <- function(x, accuracy = 1){
   scales::number(x, accuracy = accuracy, big.mark=".", decimal.mark=",")
 }
@@ -260,8 +269,8 @@ base_sipsa <- sipsa %>%
     alimento = title_case_es(.data[[pcol]]),
     kg       = parse_num_co(.data[[qcol]])
   ) %>%
-  filter(is.finite(anio), anio >= 2018) %>%                          # ✅ 2018+
-  filter(!is.na(departamento_o), str_trim(departamento_o) != "") %>% # ✅ ORIGEN no vacío
+  filter(is.finite(anio), anio >= 2018) %>%
+  filter(!is.na(departamento_o), str_trim(departamento_o) != "") %>%
   filter(is.finite(kg), kg > 0) %>%
   mutate(
     fecha = suppressWarnings(as.Date(sprintf("%04d-%02d-01", anio, mes))),
@@ -269,7 +278,28 @@ base_sipsa <- sipsa %>%
   )
 
 # =========================================================
-# 3.1) Shapefile Departamentos — SOLO desde ./data/shp
+# 3.2) Separar bases por pestaña (FOCO Atlántico)
+# =========================================================
+# TAB 1: Remisión desde Atlántico (ORIGEN = Atlántico)
+base_t1 <- base_sipsa %>% filter(cod_dpto_o == DPTO_FOCO_COD)
+
+# TAB 2: Recepción en Atlántico (DESTINO = Atlántico)
+base_t2 <- base_sipsa %>% filter(cod_dpto_d == DPTO_FOCO_COD)
+
+# =========================================================
+# 3.4) (NUEVO) Diccionario COD_DPTO -> NOMBRE (desde la base)
+#   para asegurar que el hover muestre NOMBRE y no código
+# =========================================================
+dept_names_lut <- dplyr::bind_rows(
+  base_sipsa %>% dplyr::distinct(cod_dpto = cod_dpto_d, dept_name = departamento_d),
+  base_sipsa %>% dplyr::distinct(cod_dpto = cod_dpto_o, dept_name = departamento_o)
+) %>%
+  dplyr::filter(!is.na(cod_dpto), !is.na(dept_name), stringr::str_trim(dept_name) != "") %>%
+  dplyr::group_by(cod_dpto) %>%
+  dplyr::summarise(dept_name = dplyr::first(dept_name), .groups = "drop")
+
+# =========================================================
+# 3.3) Shapefile Departamentos — SOLO desde ./data/shp
 # =========================================================
 load_dept_sf_only <- function(data_dir){
   shp_dir <- file.path(data_dir, "shp")
@@ -291,7 +321,7 @@ load_dept_sf_only <- function(data_dir){
     "DPTO_CCDGO (código dpto en shapefile)"
   )
   
-  ncol <- pick_first(
+  ncol_name <- pick_first(
     names(obj),
     c("departamento_d","departamento","dpto_cnmb","nom_dpto","name_1","name","dpto")
   )
@@ -315,7 +345,7 @@ load_dept_sf_only <- function(data_dir){
   out <- obj %>%
     transmute(
       cod_dpto = pad_dpto(.data[[ccol]]),
-      departamento_d = if (!is.na(ncol)) title_case_es(.data[[ncol]]) else pad_dpto(.data[[ccol]]),
+      departamento_d = if (!is.na(ncol_name)) title_case_es(.data[[ncol_name]]) else pad_dpto(.data[[ccol]]),
       geometry = geometry
     ) %>%
     sf::st_transform(4326) %>%
@@ -335,8 +365,16 @@ load_dept_sf_only <- function(data_dir){
 
 dept_sf <- tryCatch(load_dept_sf_only(data_dir), error = function(e){ message("[MAPA] ", e$message); NULL })
 
+# ✅ Forzar NOMBRE del departamento usando el diccionario de la base
+if (!is.null(dept_sf) && inherits(dept_sf, "sf") && nrow(dept_sf) > 0) {
+  dept_sf <- dept_sf %>%
+    dplyr::left_join(dept_names_lut, by = "cod_dpto") %>%
+    dplyr::mutate(departamento_d = dplyr::coalesce(dept_name, departamento_d)) %>%
+    dplyr::select(-dept_name)
+}
+
 # =========================================================
-# 4) UI
+# 4) UI  ✅ (CORREGIDO: h2 + tabsetPanel bien cerrados)
 # =========================================================
 ui <- fluidPage(
   theme = bslib::bs_theme(
@@ -481,7 +519,7 @@ ui <- fluidPage(
   
   div(
     class = "wrap",
-    h2("", id = "app-title"),
+    h2(id = "app-title", APP_TITLE),
     
     tabsetPanel(
       id   = "tabs_sipsa",
@@ -638,7 +676,7 @@ server <- function(input, output, session){
     selectInput("mes_t1", NULL, choices = month_choices, selected = "Todos")
   })
   output$territorio_ui_t1 <- renderUI({
-    opts <- sort(unique(na.omit(base_sipsa$departamento_d)))
+    opts <- sort(unique(na.omit(base_t1$departamento_d)))  # ✅ destinos desde Atlántico
     pickerInput(
       "territorio_t1", NULL,
       choices  = c("Todos", opts),
@@ -658,7 +696,7 @@ server <- function(input, output, session){
     selectInput("mes_t2", NULL, choices = month_choices, selected = "Todos")
   })
   output$territorio_ui_t2 <- renderUI({
-    opts <- sort(unique(na.omit(base_sipsa$departamento_o)))
+    opts <- sort(unique(na.omit(base_t2$departamento_o)))  # ✅ orígenes hacia Atlántico
     pickerInput(
       "territorio_t2", NULL,
       choices  = c("Todos", opts),
@@ -668,14 +706,13 @@ server <- function(input, output, session){
   })
   
   # =========================================================
-  # TAB 1 — Contexto (para choices de grupo/alimento)
+  # TAB 1 — Contexto (choices grupo/alimento) ✅ Remisión desde Atlántico
   # =========================================================
   ctx_t1 <- reactive({
-    df <- base_sipsa
+    df <- base_t1
     if (!is.null(input$anio_t1) && input$anio_t1 != "Todos") df <- df %>% filter(anio == as.integer(input$anio_t1))
     if (!is.null(input$mes_t1)  && input$mes_t1  != "Todos") df <- df %>% filter(mes  == as.integer(input$mes_t1))
     
-    # ✅ SIN NIVEL: siempre departamento
     df <- df %>% mutate(territorio_lbl = departamento_d)
     
     if (!is.null(input$territorio_t1) && input$territorio_t1 != "Todos") {
@@ -710,14 +747,13 @@ server <- function(input, output, session){
   })
   
   # =========================================================
-  # TAB 2 — Contexto (para choices de grupo/alimento)
+  # TAB 2 — Contexto (choices grupo/alimento) ✅ Recepción en Atlántico
   # =========================================================
   ctx_t2 <- reactive({
-    df <- base_sipsa
+    df <- base_t2
     if (!is.null(input$anio_t2) && input$anio_t2 != "Todos") df <- df %>% filter(anio == as.integer(input$anio_t2))
     if (!is.null(input$mes_t2)  && input$mes_t2  != "Todos") df <- df %>% filter(mes  == as.integer(input$mes_t2))
     
-    # ✅ SIN NIVEL: siempre departamento
     df <- df %>% mutate(territorio_lbl = departamento_o)
     
     if (!is.null(input$territorio_t2) && input$territorio_t2 != "Todos") {
@@ -774,7 +810,7 @@ server <- function(input, output, session){
   })
   
   # =========================================================
-  # TAB 1 — MAPA
+  # TAB 1 — MAPA (Destinos) — ✅ SOLO HOVER (sin etiquetas fijas)
   # =========================================================
   output$map_t1 <- renderLeaflet({
     leaflet(options = leafletOptions(zoomControl = TRUE)) %>%
@@ -804,9 +840,9 @@ server <- function(input, output, session){
     htmltools::HTML(sprintf(
       '<div style="background:#fff;padding:6px 10px;border-radius:8px;
                    box-shadow:0 1px 6px rgba(0,0,0,.15);font-size:12px;line-height:1.3;">
-         <b>Remisión:</b> desde Atlántico<br>
+         <b>Remisión:</b> desde %s<br>
          <b>Año:</b> %s &nbsp; <b>Mes:</b> %s<br><b>Destino:</b> %s
-       </div>', yr, ms, htmltools::htmlEscape(tr)
+       </div>', DPTO_FOCO_NOMBRE, yr, ms, htmltools::htmlEscape(tr)
     ))
   })
   
@@ -823,7 +859,8 @@ server <- function(input, output, session){
     bb  <- sf::st_bbox(mdat)
     
     leafletProxy("map_t1", data=mdat) %>%
-      clearGroup("poly") %>% clearControls() %>%
+      clearGroup("poly") %>%
+      clearControls() %>%
       addPolygons(
         group="poly",
         layerId = ~departamento_d,
@@ -850,19 +887,20 @@ server <- function(input, output, session){
   }
   
   session$onFlushed(function(){ draw_map_t1() }, once=TRUE)
+  
   observeEvent(list(input$anio_t1, input$mes_t1, input$territorio_t1, input$grupos_t1, input$alimentos_t1), {
     draw_map_t1()
   }, ignoreInit=FALSE)
   
   observeEvent(input$tabs_sipsa, {
-    if (!is.null(input$tabs_sipsa) && input$tabs_sipsa == "Remisión desde Atlántico") {
+    if (!is.null(input$tabs_sipsa) && input$tabs_sipsa == "Remisión de alimentos desde Atlántico") {
       session$sendCustomMessage("leaflet-resize", "map_t1")
       draw_map_t1()
     }
   }, ignoreInit=TRUE)
   
   # =========================================================
-  # TAB 2 — MAPA
+  # TAB 2 — MAPA (Orígenes hacia Atlántico) — ✅ SOLO HOVER
   # =========================================================
   output$map_t2 <- renderLeaflet({
     leaflet(options = leafletOptions(zoomControl = TRUE)) %>%
@@ -892,9 +930,9 @@ server <- function(input, output, session){
     htmltools::HTML(sprintf(
       '<div style="background:#fff;padding:6px 10px;border-radius:8px;
                    box-shadow:0 1px 6px rgba(0,0,0,.15);font-size:12px;line-height:1.3;">
-         <b>Recepción:</b> en Atlántico<br>
+         <b>Recepción:</b> en %s<br>
          <b>Año:</b> %s &nbsp; <b>Mes:</b> %s<br><b>Origen:</b> %s
-       </div>', yr, ms, htmltools::htmlEscape(tr)
+       </div>', DPTO_FOCO_NOMBRE, yr, ms, htmltools::htmlEscape(tr)
     ))
   })
   
@@ -911,7 +949,8 @@ server <- function(input, output, session){
     bb  <- sf::st_bbox(mdat)
     
     leafletProxy("map_t2", data=mdat) %>%
-      clearGroup("poly") %>% clearControls() %>%
+      clearGroup("poly") %>%
+      clearControls() %>%
       addPolygons(
         group="poly",
         layerId = ~departamento_d,
@@ -942,14 +981,14 @@ server <- function(input, output, session){
   }, ignoreInit=FALSE)
   
   observeEvent(input$tabs_sipsa, {
-    if (!is.null(input$tabs_sipsa) && input$tabs_sipsa == "Recepción en Atlántico") {
+    if (!is.null(input$tabs_sipsa) && input$tabs_sipsa == "Recepción de alimentos en Atlántico") {
       session$sendCustomMessage("leaflet-resize", "map_t2")
       draw_map_t2()
     }
   }, ignoreInit=TRUE)
   
   # =========================================================
-  # TAB 1 — Barras (Grupos)
+  # TAB 1 — Barras (Grupos) (remisión desde Atlántico)
   # =========================================================
   output$bar_grupos_t1 <- renderPlotly({
     dd <- datos_t1() %>%
@@ -973,7 +1012,7 @@ server <- function(input, output, session){
   })
   
   # =========================================================
-  # TAB 2 — Barras (Grupos)
+  # TAB 2 — Barras (Grupos) (✅ recepción en Atlántico)
   # =========================================================
   output$bar_grupos_t2 <- renderPlotly({
     dd <- datos_t2() %>%
@@ -997,20 +1036,23 @@ server <- function(input, output, session){
   })
   
   # =========================================================
-  # TAB 1 — Serie Total (ignora mes)
+  # TAB 1 — Serie Total (ignora filtro de mes) (remisión desde Atlántico)
   # =========================================================
   serie_total_t1_df <- reactive({
-    df <- base_sipsa
+    df <- base_t1
     if (!is.null(input$anio_t1) && input$anio_t1 != "Todos") df <- df %>% filter(anio == as.integer(input$anio_t1))
     
-    # ✅ SIN NIVEL: siempre departamento
     df <- df %>% mutate(territorio_lbl = departamento_d)
     if (!is.null(input$territorio_t1) && input$territorio_t1 != "Todos") df <- df %>% filter(territorio_lbl == input$territorio_t1)
     
     df <- filter_multi(df, "grupo",    input$grupos_t1)
     df <- filter_multi(df, "alimento", input$alimentos_t1)
     
-    out <- df %>% group_by(fecha) %>% summarise(ton=sum(ton, na.rm=TRUE), .groups="drop") %>% arrange(fecha)
+    out <- df %>%
+      group_by(fecha) %>%
+      summarise(ton=sum(ton, na.rm=TRUE), .groups="drop") %>%
+      arrange(fecha)
+    
     validate(need(nrow(out) > 0, "Sin datos para serie total (Tab 1)"))
     out
   })
@@ -1030,20 +1072,23 @@ server <- function(input, output, session){
   })
   
   # =========================================================
-  # TAB 2 — Serie Total (ignora mes)
+  # TAB 2 — Serie Total (ignora filtro de mes) (✅ recepción en Atlántico)
   # =========================================================
   serie_total_t2_df <- reactive({
-    df <- base_sipsa
+    df <- base_t2
     if (!is.null(input$anio_t2) && input$anio_t2 != "Todos") df <- df %>% filter(anio == as.integer(input$anio_t2))
     
-    # ✅ SIN NIVEL: siempre departamento
     df <- df %>% mutate(territorio_lbl = departamento_o)
     if (!is.null(input$territorio_t2) && input$territorio_t2 != "Todos") df <- df %>% filter(territorio_lbl == input$territorio_t2)
     
     df <- filter_multi(df, "grupo",    input$grupos_t2)
     df <- filter_multi(df, "alimento", input$alimentos_t2)
     
-    out <- df %>% group_by(fecha) %>% summarise(ton=sum(ton, na.rm=TRUE), .groups="drop") %>% arrange(fecha)
+    out <- df %>%
+      group_by(fecha) %>%
+      summarise(ton=sum(ton, na.rm=TRUE), .groups="drop") %>%
+      arrange(fecha)
+    
     validate(need(nrow(out) > 0, "Sin datos para serie total (Tab 2)"))
     out
   })
@@ -1177,7 +1222,7 @@ server <- function(input, output, session){
   })
   
   # =========================================================
-  # PNG — Mapas simples
+  # PNG — Mapas simples (sin etiquetas fijas; solo polígonos)
   # =========================================================
   output$dl_png_map_t1 <- downloadHandler(
     filename = function() paste0("SIPSA_mapa_tab1_destino_", Sys.Date(), ".png"),
@@ -1241,6 +1286,3 @@ server <- function(input, output, session){
 }
 
 shinyApp(ui, server)
-
-
-

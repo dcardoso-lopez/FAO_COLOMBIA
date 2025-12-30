@@ -2,6 +2,7 @@
 # SIPSA ABASTECIMIENTO — MAPA + (BARRAS GRUPOS) + (SERIE TOTAL) + TABLA (2 pestañas)
 # (MOD: dropdowns salen de la caja verde + meses con nombres + ✅ SIN filtro de NIVEL)
 # (MOD: ✅ TODO SANTANDER en vez de ATLÁNTICO + ✅ filtra flujos desde/hacia SANTANDER)
+# (MOD: ✅ Etiquetas de mapas muestran NOMBRE de departamento (no código))
 # =========================================================
 
 # ------------------------------
@@ -270,8 +271,8 @@ base_sipsa <- sipsa %>%
     alimento = title_case_es(.data[[pcol]]),
     kg       = parse_num_co(.data[[qcol]])
   ) %>%
-  filter(is.finite(anio), anio >= 2018) %>%                          # ✅ 2018+
-  filter(!is.na(departamento_o), str_trim(departamento_o) != "") %>% # ✅ ORIGEN no vacío
+  filter(is.finite(anio), anio >= 2018) %>%
+  filter(!is.na(departamento_o), str_trim(departamento_o) != "") %>%
   filter(is.finite(kg), kg > 0) %>%
   mutate(
     fecha = suppressWarnings(as.Date(sprintf("%04d-%02d-01", anio, mes))),
@@ -279,9 +280,23 @@ base_sipsa <- sipsa %>%
   )
 
 # =========================================================
-# 3.1) Shapefile Departamentos — SOLO desde ./data/shp
+# ✅ 3.05) Lookup cod_dpto -> nombre dpto (desde SIPSA)
+#     (esto evita que en el mapa aparezca "68" en vez de "Santander")
 # =========================================================
-load_dept_sf_only <- function(data_dir){
+dept_name_lut <- bind_rows(
+  base_sipsa %>% transmute(cod_dpto = pad_dpto(cod_dpto_d), depto_nm = departamento_d),
+  base_sipsa %>% transmute(cod_dpto = pad_dpto(cod_dpto_o), depto_nm = departamento_o)
+) %>%
+  filter(!is.na(cod_dpto), cod_dpto != "", !is.na(depto_nm), str_trim(depto_nm) != "") %>%
+  distinct(cod_dpto, depto_nm) %>%
+  group_by(cod_dpto) %>%
+  summarise(depto_nm = dplyr::first(depto_nm), .groups = "drop")
+
+# =========================================================
+# 3.1) Shapefile Departamentos — SOLO desde ./data/shp
+#   ✅ fuerza nombre desde LUT si existe
+# =========================================================
+load_dept_sf_only <- function(data_dir, dept_name_lut){
   shp_dir <- file.path(data_dir, "shp")
   if (!dir.exists(shp_dir)) stop("No existe el directorio: ", shp_dir)
   shp_files <- list.files(shp_dir, pattern="\\.shp$", full.names=TRUE, recursive=TRUE)
@@ -324,10 +339,16 @@ load_dept_sf_only <- function(data_dir){
   
   out <- obj %>%
     transmute(
-      cod_dpto = pad_dpto(.data[[ccol]]),
-      departamento_d = if (!is.na(ncol)) title_case_es(.data[[ncol]]) else pad_dpto(.data[[ccol]]),
-      geometry = geometry
+      cod_dpto  = pad_dpto(.data[[ccol]]),
+      depto_shp = if (!is.na(ncol)) title_case_es(.data[[ncol]]) else NA_character_,
+      geometry  = geometry
     ) %>%
+    left_join(dept_name_lut, by = "cod_dpto") %>%
+    mutate(
+      # ✅ prioridad: nombre desde SIPSA -> nombre shapefile -> código
+      departamento_d = coalesce(depto_nm, depto_shp, cod_dpto)
+    ) %>%
+    select(cod_dpto, departamento_d, geometry) %>%
     sf::st_transform(4326) %>%
     sf::st_make_valid() %>%
     sf::st_zm(drop = TRUE, what = "ZM")
@@ -343,7 +364,8 @@ load_dept_sf_only <- function(data_dir){
   out
 }
 
-dept_sf <- tryCatch(load_dept_sf_only(data_dir), error = function(e){ message("[MAPA] ", e$message); NULL })
+dept_sf <- tryCatch(load_dept_sf_only(data_dir, dept_name_lut),
+                    error = function(e){ message("[MAPA] ", e$message); NULL })
 
 # =========================================================
 # 4) UI
@@ -490,7 +512,7 @@ ui <- fluidPage(
   
   div(
     class = "wrap",
-    h2(paste0("", DPTO_FOCO_NOMBRE), id = "app-title"),
+    h2(paste0(""), id = "app-title"),
     
     tabsetPanel(
       id   = "tabs_sipsa",
@@ -698,7 +720,7 @@ server <- function(input, output, session){
     if (!is.null(input$anio_t1) && input$anio_t1 != "Todos") df <- df %>% filter(anio == as.integer(input$anio_t1))
     if (!is.null(input$mes_t1)  && input$mes_t1  != "Todos") df <- df %>% filter(mes  == as.integer(input$mes_t1))
     
-    df <- df %>% mutate(territorio_lbl = departamento_d)      # ✅ destino = departamento_d
+    df <- df %>% mutate(territorio_lbl = departamento_d)      # ✅ destino
     if (!is.null(input$territorio_t1) && input$territorio_t1 != "Todos") {
       df <- df %>% filter(territorio_lbl == input$territorio_t1)
     }
@@ -738,7 +760,7 @@ server <- function(input, output, session){
     if (!is.null(input$anio_t2) && input$anio_t2 != "Todos") df <- df %>% filter(anio == as.integer(input$anio_t2))
     if (!is.null(input$mes_t2)  && input$mes_t2  != "Todos") df <- df %>% filter(mes  == as.integer(input$mes_t2))
     
-    df <- df %>% mutate(territorio_lbl = departamento_o)      # ✅ origen = departamento_o
+    df <- df %>% mutate(territorio_lbl = departamento_o)      # ✅ origen
     if (!is.null(input$territorio_t2) && input$territorio_t2 != "Todos") {
       df <- df %>% filter(territorio_lbl == input$territorio_t2)
     }
@@ -795,8 +817,8 @@ server <- function(input, output, session){
   # =========================================================
   # MAPA — vista inicial más cerca de Santander
   # =========================================================
-  MAP_LNG <- -73.12
-  MAP_LAT <-  7.12
+  MAP_LNG  <- -73.12
+  MAP_LAT  <-  7.12
   MAP_ZOOM <- 6
   
   # =========================================================
@@ -852,7 +874,7 @@ server <- function(input, output, session){
       clearGroup("poly") %>% clearControls() %>%
       addPolygons(
         group="poly",
-        layerId = ~departamento_d,
+        layerId = ~cod_dpto,  # ✅ estable
         fillColor = ~ifelse(is.na(ton) | ton <= 0, "#bdbdbd", pal(ton)),
         weight=0.7, color="#666", fillOpacity=0.9,
         label = ~ifelse(
@@ -940,7 +962,7 @@ server <- function(input, output, session){
       clearGroup("poly") %>% clearControls() %>%
       addPolygons(
         group="poly",
-        layerId = ~departamento_d,
+        layerId = ~cod_dpto,  # ✅ estable
         fillColor = ~ifelse(is.na(ton) | ton <= 0, "#bdbdbd", pal(ton)),
         weight=0.7, color="#666", fillOpacity=0.9,
         label = ~ifelse(
@@ -1023,7 +1045,7 @@ server <- function(input, output, session){
   })
   
   # =========================================================
-  # TAB 1 — Serie Total (ignora mes)
+  # TAB 1 — Serie Total
   # =========================================================
   serie_total_t1_df <- reactive({
     df <- base_sipsa %>% filter(cod_dpto_o == DPTO_FOCO_COD)  # ✅ DESDE Santander
@@ -1055,7 +1077,7 @@ server <- function(input, output, session){
   })
   
   # =========================================================
-  # TAB 2 — Serie Total (ignora mes)
+  # TAB 2 — Serie Total
   # =========================================================
   serie_total_t2_df <- reactive({
     df <- base_sipsa %>% filter(cod_dpto_d == DPTO_FOCO_COD)  # ✅ HACIA Santander
@@ -1087,7 +1109,7 @@ server <- function(input, output, session){
   })
   
   # =========================================================
-  # TAB 1 — Tabla detalle (DESTINO) — solo dpto destino
+  # TAB 1 — Tabla detalle (DESTINO)
   # =========================================================
   detalle_t1 <- reactive({
     df <- datos_t1()
@@ -1144,7 +1166,7 @@ server <- function(input, output, session){
   })
   
   # =========================================================
-  # TAB 2 — Tabla detalle (ORIGEN) — solo dpto origen
+  # TAB 2 — Tabla detalle (ORIGEN)
   # =========================================================
   detalle_t2 <- reactive({
     df <- datos_t2()
@@ -1265,3 +1287,4 @@ server <- function(input, output, session){
 }
 
 shinyApp(ui, server)
+
