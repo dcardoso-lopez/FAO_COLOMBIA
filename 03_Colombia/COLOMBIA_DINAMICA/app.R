@@ -387,7 +387,7 @@ ui <- fluidPage(
         # TAB 1 — SERIE
         # =========================================================
         tabPanel(
-          title = "Serie nacional",
+          title = "Indicadores a nivel nacional",
           
           div(
             class = "filters-box",
@@ -421,7 +421,7 @@ ui <- fluidPage(
         # TAB 2 — COMPARATIVOS DEPARTAMENTALES (2 mapas)
         # =========================================================
         tabPanel(
-          title = "Mapa departamental",
+          title = "Comparativos departamentales",
           
           # Bloque superior (lock año + indicador global)
           div(
