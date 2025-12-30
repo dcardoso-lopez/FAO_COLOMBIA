@@ -5,6 +5,7 @@
 # - SIPSA ABASTECIMIENTO (041_DANE_SIPSA-Abast_o / _d):
 #     * Pestaña 1: serie temporal nacional (con filtros de grupo/alimento)
 #     * Pestaña 2: mapas departamentales (2 mapas) con opción Origen/Destino
+# - ✅ FIX TONELADAS: columna exacta "CantKg_total_toneladas" (anual)
 # - Rutas robustas (funciona con runApp() y source())
 
 suppressWarnings({
@@ -111,13 +112,11 @@ parse_quinquenio_bounds <- function(q){
   q <- gsub("\\s+", "", q)
   q <- gsub("años|anos", "", q)
   
-  # Ej: "80ymas", "80ymás", "80+", "80mas"
   if (grepl("\\+", q) || grepl("ymas|ymás|mas|más", q)) {
     lo <- suppressWarnings(as.numeric(stringr::str_extract(q, "[0-9]+")))
     return(list(lower = lo, upper = Inf))
   }
   
-  # Ej: "15-19"
   if (grepl("-", q)) {
     parts <- strsplit(q, "-", fixed = TRUE)[[1]]
     lo <- suppressWarnings(as.numeric(parts[1]))
@@ -125,7 +124,6 @@ parse_quinquenio_bounds <- function(q){
     return(list(lower = lo, upper = up))
   }
   
-  # Fallback: un solo número
   lo <- suppressWarnings(as.numeric(stringr::str_extract(q, "[0-9]+")))
   list(lower = lo, upper = lo)
 }
@@ -142,35 +140,67 @@ quinquenio_to_group <- function(q){
 }
 
 # =========================================================
-# SIPSA-ABAST helpers (O/D)
+# SIPSA-ABAST helpers (O/D) — ROBUSTOS + TON FIJA
 # =========================================================
 pick_dep_o_col <- function(nms){
   pick_col_simple(nms, c(
-    "cod_dane_dpto_o","cod_dane_dep_o","cod_dpto_o","dpto_o","dpto_origen","origen",
-    "COD_DANE_DPTO_O","COD_DANE_DPTO_O_","cod_dane_dpto_o"
+    "cod_dane_dpto_o","cod_dane_dep_o","cod_dane_depto_o",
+    "cod_dpto_o","cod_depto_o","dpto_o","depto_o",
+    "dpto_origen","depto_origen","origen",
+    "COD_DANE_DPTO_O","COD_DANE_DEP_O","COD_DANE_DEPTO_O"
   ))
 }
+
 pick_dep_d_col <- function(nms){
   pick_col_simple(nms, c(
-    "cod_dane_dpto_d","cod_dane_dep_d","cod_dpto_d","dpto_d","dpto_destino","destino",
-    "COD_DANE_DPTO_D","COD_DANE_DPTO_D_","cod_dane_dpto_d"
+    "cod_dane_dpto_d","cod_dane_dep_d","cod_dane_depto_d",
+    "cod_dpto_d","cod_depto_d","dpto_d","depto_d",
+    "dpto_destino","depto_destino","destino",
+    "COD_DANE_DPTO_D","COD_DANE_DEP_D","COD_DANE_DEPTO_D"
   ))
 }
+
+# ✅ tu columna EXACTA de toneladas
+TON_COL_EXACT <- "CantKg_total_toneladas"
+
 pick_ton_col <- function(nms){
-  pick_col_simple(nms, c(
-    "ton","toneladas","ton_total","total_ton","t","cantidad_t","cantidad_ton","volumen_ton"
+  # 0) exacta (ignora mayúsculas/minúsculas)
+  idx0 <- which(tolower(nms) == tolower(TON_COL_EXACT))[1]
+  if (length(idx0) && !is.na(idx0)) return(nms[idx0])
+  
+  # 1) candidatos directos
+  cand <- pick_col_simple(nms, c(
+    "CantKg_total_toneladas",
+    "ton","tons","toneladas","tonelada",
+    "ton_total","total_ton","total_toneladas","toneladas_total",
+    "cantidad_t","cantidad_ton","cantidad_toneladas",
+    "volumen_t","volumen_ton","volumen_toneladas",
+    "peso_t","peso_ton","peso_toneladas",
+    "t","tm","tn",
+    "TON","TONELADAS","TONELADAS_TOTAL","TOTAL_TONELADAS"
   ))
+  if (!is.na(cand)) return(cand)
+  
+  # 2) patrón (evita %)
+  nms_l <- tolower(nms)
+  idx <- which(grepl("ton|tonel", nms_l) & !grepl("pct|porc|%|particip", nms_l))
+  if (length(idx) >= 1) return(nms[idx][1])
+  
+  NA_character_
 }
+
 pick_alimento_col <- function(nms){
   pick_col_simple(nms, c(
     "alimento","producto","nombre_producto","producto_nombre","articulo","item"
   ))
 }
+
 pick_grupo_col <- function(nms){
   pick_col_simple(nms, c(
     "grupo","grupo_alimento","grupo_alimentos","grupo_de_alimentos","grupo_producto"
   ))
 }
+
 resolve_rds_path <- function(stem){
   p1 <- file.path(data_dir, stem)
   p2 <- file.path(data_dir, paste0(stem, ".rds"))
@@ -414,6 +444,63 @@ normalize_cod_dep <- function(x){
   x[x == ""] <- NA_character_
   stringi::stri_pad_left(x, 2, pad = "0")
 }
+normalize_cod_dep <- normalize_cod_dep  # alias explícito
+normalize_cod_dep <- function(x){
+  x <- as.character(x)
+  x <- stringi::stri_trim_both(x)
+  x <- gsub("[^0-9]", "", x)
+  x[x == ""] <- NA_character_
+  stringi::stri_pad_left(x, 2, pad = "0")
+}
+# mantengo también el nombre usado en tu código
+normalize_cod_dep <- normalize_cod_dep
+normalize_cod_dep <- function(x){
+  x <- as.character(x)
+  x <- stringi::stri_trim_both(x)
+  x <- gsub("[^0-9]", "", x)
+  x[x == ""] <- NA_character_
+  stringi::stri_pad_left(x, 2, pad = "0")
+}
+# y el alias original que ya usabas:
+normalize_cod_dep <- normalize_cod_dep
+
+normalize_cod_dep <- function(x){
+  x <- as.character(x)
+  x <- stringi::stri_trim_both(x)
+  x <- gsub("[^0-9]", "", x)
+  x[x == ""] <- NA_character_
+  stringi::stri_pad_left(x, 2, pad = "0")
+}
+# alias usado arriba en otras partes:
+normalize_cod_dep <- normalize_cod_dep
+normalize_cod_dep <- function(x){
+  x <- as.character(x)
+  x <- stringi::stri_trim_both(x)
+  x <- gsub("[^0-9]", "", x)
+  x[x == ""] <- NA_character_
+  stringi::stri_pad_left(x, 2, pad = "0")
+}
+
+normalize_cod_dep <- function(x){
+  x <- as.character(x)
+  x <- stringi::stri_trim_both(x)
+  x <- gsub("[^0-9]", "", x)
+  x[x == ""] <- NA_character_
+  stringi::stri_pad_left(x, 2, pad = "0")
+}
+
+# Mantengo el nombre original del helper que tú llamas:
+normalize_cod_dep <- normalize_cod_dep
+normalize_cod_dep <- function(x){
+  x <- as.character(x)
+  x <- stringi::stri_trim_both(x)
+  x <- gsub("[^0-9]", "", x)
+  x[x == ""] <- NA_character_
+  stringi::stri_pad_left(x, 2, pad = "0")
+}
+
+# Nombre que usas en el resto:
+normalize_cod_dep <- normalize_cod_dep
 
 # =========================================================
 # ICA (CORREGIDO): siempre existe ica_long (aunque no haya archivos)
@@ -1102,7 +1189,7 @@ make_eva_ts_plot_dual <- function(cultivo_sel = "__ALL__"){
 }
 
 # =========================================================
-# SIPSA-ABAST (041_..._d / _o) — lectura + filtros
+# SIPSA-ABAST (041_..._d / _o) — lectura + filtros (FIX TON)
 # =========================================================
 sipsa_abast_raw_d <- NULL
 sipsa_abast_raw_o <- NULL
@@ -1113,6 +1200,7 @@ read_sipsa_abast <- function(stem){
     message("SIPSA-ABAST: no existe -> ", p)
     return(NULL)
   }
+  
   df <- tryCatch(readRDS(p), error = function(e){
     message("SIPSA-ABAST: error leyendo ", p, " -> ", e$message)
     NULL
@@ -1123,29 +1211,60 @@ read_sipsa_abast <- function(stem){
   col_ano <- pick_year_col(nms)
   col_o   <- pick_dep_o_col(nms)
   col_d   <- pick_dep_d_col(nms)
+  
+  # ✅ TON: fuerza a tu columna exacta si existe
   col_ton <- pick_ton_col(nms)
-  col_al  <- pick_alimento_col(nms)
-  col_gr  <- pick_grupo_col(nms)
   
   if (is.na(col_ano)) {
-    message("SIPSA-ABAST: falta columna de año en ", p)
+    message("SIPSA-ABAST: falta columna de año en ", basename(p))
+    return(NULL)
+  }
+  if (is.na(col_ton)) {
+    message("SIPSA-ABAST: NO se pudo detectar columna de toneladas en ", basename(p))
+    message("Columnas disponibles: ", paste(nms, collapse = " | "))
     return(NULL)
   }
   
-  tibble::tibble(
+  col_al  <- pick_alimento_col(nms)
+  col_gr  <- pick_grupo_col(nms)
+  
+  out <- tibble::tibble(
     ano   = suppressWarnings(as.integer(df[[col_ano]])),
     dep_o = if (!is.na(col_o)) normalize_cod_dep(df[[col_o]]) else NA_character_,
     dep_d = if (!is.na(col_d)) normalize_cod_dep(df[[col_d]]) else NA_character_,
-    ton   = if (!is.na(col_ton)) parse_num_co(df[[col_ton]]) else NA_real_,
+    ton   = parse_num_co(df[[col_ton]]),
     alimento = if (!is.na(col_al)) stringi::stri_trim_both(as.character(df[[col_al]])) else NA_character_,
     grupo    = if (!is.na(col_gr)) stringi::stri_trim_both(as.character(df[[col_gr]])) else NA_character_
   ) %>%
-    dplyr::filter(!is.na(ano))
+    dplyr::filter(!is.na(ano)) %>%
+    dplyr::filter(is.finite(ton))
+  
+  if (!nrow(out)) {
+    message("SIPSA-ABAST: base quedó vacía tras limpieza (", basename(p), ")")
+    return(NULL)
+  }
+  
+  out
 }
 
 # Leer ambas bases (Destino y Origen)
 sipsa_abast_raw_d <- read_sipsa_abast("041_DANE_SIPSA-Abast_d.rds")
 sipsa_abast_raw_o <- read_sipsa_abast("041_DANE_SIPSA-Abast_o.rds")
+
+# filtro unificado (serie + mapas)
+sipsa_filter <- function(df, grupo_sel="__ALL__", alimento_sel="__ALL__"){
+  if (is.null(df) || !nrow(df)) return(df)
+  grupo_sel    <- grupo_sel %||% "__ALL__"
+  alimento_sel <- alimento_sel %||% "__ALL__"
+  
+  if (!is.null(grupo_sel) && grupo_sel != "__ALL__") {
+    df <- df %>% dplyr::filter(grupo == grupo_sel)
+  }
+  if (!is.null(alimento_sel) && alimento_sel != "__ALL__") {
+    df <- df %>% dplyr::filter(alimento == alimento_sel)
+  }
+  df
+}
 
 # Función para obtener datos de grupo/alimento de una base
 get_sipsa_filtros <- function(df){
@@ -1166,51 +1285,30 @@ get_sipsa_filtros <- function(df){
   list(grupos = grupos, alimentos = alimentos)
 }
 
-# Obtener filtros de Destino (para inicializar)
 filtros_d <- get_sipsa_filtros(sipsa_abast_raw_d)
 filtros_o <- get_sipsa_filtros(sipsa_abast_raw_o)
 
-# Actualizar opciones de filtros (inicialmente con Destino)
 sipsa_grupo_choices_d <- c("Todos los grupos" = "__ALL__", stats::setNames(filtros_d$grupos, filtros_d$grupos))
 sipsa_alimento_choices_d <- c("Todos los alimentos" = "__ALL__", stats::setNames(filtros_d$alimentos, filtros_d$alimentos))
 
 sipsa_grupo_choices_o <- c("Todos los grupos" = "__ALL__", stats::setNames(filtros_o$grupos, filtros_o$grupos))
 sipsa_alimento_choices_o <- c("Todos los alimentos" = "__ALL__", stats::setNames(filtros_o$alimentos, filtros_o$alimentos))
 
-# Función para gráfica de series temporales de toneladas por año
+# Serie temporal nacional (anual)
 make_sipsa_ts_plot <- function(enfoque = "D", grupo_sel = "__ALL__", alimento_sel = "__ALL__"){
   if (is.null(sipsa_abast_raw_d) && is.null(sipsa_abast_raw_o)) {
     return(empty_ts_plot("Sin datos SIPSA-Abastecimiento disponibles."))
   }
   
-  # Seleccionar base según enfoque
   df <- if (enfoque == "D") sipsa_abast_raw_d else sipsa_abast_raw_o
+  if (is.null(df) || !nrow(df)) return(empty_ts_plot("Sin datos para el enfoque seleccionado."))
   
-  if (is.null(df) || !nrow(df)) {
-    return(empty_ts_plot("Sin datos para el enfoque seleccionado."))
-  }
-  
-  grupo_sel <- grupo_sel %||% "__ALL__"
-  alimento_sel <- alimento_sel %||% "__ALL__"
-  
-  # Aplicar filtros
-  if (!is.null(grupo_sel) && grupo_sel != "__ALL__") {
-    df <- df %>% dplyr::filter(grupo == grupo_sel)
-  }
-  
-  if (!is.null(alimento_sel) && alimento_sel != "__ALL__") {
-    df <- df %>% dplyr::filter(alimento == alimento_sel)
-  }
-  
+  df <- sipsa_filter(df, grupo_sel, alimento_sel)
   if (!nrow(df)) return(empty_ts_plot("Sin datos para los filtros seleccionados."))
   
-  # Agrupar por año
   ts <- df %>%
     dplyr::group_by(ano) %>%
-    dplyr::summarise(
-      toneladas = sum(ton, na.rm = TRUE),
-      .groups = "drop"
-    ) %>%
+    dplyr::summarise(toneladas = sum(ton, na.rm = TRUE), .groups = "drop") %>%
     dplyr::arrange(ano)
   
   if (!nrow(ts) || all(is.na(ts$toneladas))) {
@@ -1219,10 +1317,9 @@ make_sipsa_ts_plot <- function(enfoque = "D", grupo_sel = "__ALL__", alimento_se
   
   ticks_x <- year_ticks_2(ts$ano)
   
-  # Crear gráfico de líneas
   plotly::plot_ly(
-    data = ts, 
-    x = ~ano, 
+    data = ts,
+    x = ~ano,
     y = ~toneladas,
     type = "scatter",
     mode = "lines+markers",
@@ -1235,16 +1332,16 @@ make_sipsa_ts_plot <- function(enfoque = "D", grupo_sel = "__ALL__", alimento_se
       title = NULL,
       xaxis = list(
         title = "",
-        tickmode = "array", 
-        tickvals = ticks_x, 
+        tickmode = "array",
+        tickvals = ticks_x,
         ticktext = ticks_x,
-        tickangle = 0, 
-        showgrid = FALSE, 
+        tickangle = 0,
+        showgrid = FALSE,
         automargin = TRUE
       ),
       yaxis = list(
-        title = "Toneladas movilizadas",
-        showgrid = FALSE, 
+        title = "Toneladas movilizadas (anual)",
+        showgrid = FALSE,
         automargin = TRUE
       ),
       margin = list(l = 70, r = 20, t = 10, b = 60),
@@ -1256,10 +1353,9 @@ make_sipsa_ts_plot <- function(enfoque = "D", grupo_sel = "__ALL__", alimento_se
 }
 
 # =========================================================
-# Departamental (mapas) para SIPSA (ambos enfoques)
+# Departamental (mapas) para SIPSA (ambos enfoques) — anual
 # =========================================================
 sipsa_abast_dep_all <- tryCatch({
-  # Datos de Destino
   dep_d <- if (!is.null(sipsa_abast_raw_d)) {
     sipsa_abast_raw_d %>%
       dplyr::filter(!is.na(dep_d)) %>%
@@ -1269,11 +1365,8 @@ sipsa_abast_dep_all <- tryCatch({
         .groups = "drop"
       ) %>%
       dplyr::mutate(enfoque = "D")
-  } else {
-    NULL
-  }
+  } else NULL
   
-  # Datos de Origen
   dep_o <- if (!is.null(sipsa_abast_raw_o)) {
     sipsa_abast_raw_o %>%
       dplyr::filter(!is.na(dep_o)) %>%
@@ -1283,11 +1376,8 @@ sipsa_abast_dep_all <- tryCatch({
         .groups = "drop"
       ) %>%
       dplyr::mutate(enfoque = "O")
-  } else {
-    NULL
-  }
+  } else NULL
   
-  # Combinar
   dplyr::bind_rows(dep_d, dep_o)
 }, error = function(e) {
   message("Error creando sipsa_abast_dep_all: ", e$message)
@@ -1714,7 +1804,6 @@ server <- function(input, output, session){
             selectInput("estr_eva_cultivo", label = NULL, choices = eva_cultivo_choices, selected = "__ALL__"))
       )
     } else if (base_sel == "DANE_SIPSA_ABAST") {
-      # Actualizar opciones de filtros dinámicamente según enfoque
       enfoque_actual <- input$estr_sipsa_enfoque %||% "D"
       grupo_choices <- if (enfoque_actual == "D") sipsa_grupo_choices_d else sipsa_grupo_choices_o
       alimento_choices <- if (enfoque_actual == "D") sipsa_alimento_choices_d else sipsa_alimento_choices_o
@@ -1741,7 +1830,7 @@ server <- function(input, output, session){
     }
   })
   
-  # ----- Observador para actualizar filtros de grupo/alimento cuando cambia el enfoque -----
+  # ----- Observador: actualizar filtros SIPSA cuando cambia enfoque (Tab 1) -----
   observeEvent(input$estr_sipsa_enfoque, {
     enfoque_actual <- input$estr_sipsa_enfoque %||% "D"
     grupo_choices <- if (enfoque_actual == "D") sipsa_grupo_choices_d else sipsa_grupo_choices_o
@@ -1749,7 +1838,7 @@ server <- function(input, output, session){
     
     updateSelectInput(session, "estr_sipsa_grupo", choices = grupo_choices, selected = "__ALL__")
     updateSelectInput(session, "estr_sipsa_alimento", choices = alimento_choices, selected = "__ALL__")
-  })
+  }, ignoreInit = TRUE)
   
   # ----- UI del panel izquierdo (Pestaña 1) -----
   output$estr_left_ui <- renderUI({
@@ -1913,18 +2002,12 @@ server <- function(input, output, session){
       grupo_sel <- input$estr_sipsa_grupo %||% "__ALL__"
       alimento_sel <- input$estr_sipsa_alimento %||% "__ALL__"
       
-      # Seleccionar base según enfoque
       df <- if (enfoque_sel == "D") sipsa_abast_raw_d else sipsa_abast_raw_o
-      
       if (is.null(df) || !nrow(df)) return(out)
       
-      # Filtrar datos
-      if (grupo_sel != "__ALL__") df <- df %>% dplyr::filter(grupo == grupo_sel)
-      if (alimento_sel != "__ALL__") df <- df %>% dplyr::filter(alimento == alimento_sel)
-      
+      df <- sipsa_filter(df, grupo_sel, alimento_sel)
       if (!nrow(df)) return(out)
       
-      # Agrupar por año
       ts <- df %>%
         dplyr::group_by(ano) %>%
         dplyr::summarise(toneladas = sum(ton, na.rm = TRUE), .groups = "drop") %>%
@@ -1940,13 +2023,12 @@ server <- function(input, output, session){
       val_prev <- if (nrow(prev)) prev$toneladas else NA_real_
       gr <- safe_growth(val_last, val_prev)
       
-      # Texto descriptivo
       enfoque_txt <- if (enfoque_sel == "D") "Destino (D)" else "Origen (O)"
       grupo_txt <- if (grupo_sel == "__ALL__") "todos los grupos" else grupo_sel
       alimento_txt <- if (alimento_sel == "__ALL__") "todos los alimentos" else alimento_sel
       
       out$story <- sprintf(
-        "La serie presenta el total de toneladas movilizadas con enfoque %s. Filtrado por %s y %s. En %d, el volumen total es %s. La variación interanual es %s.",
+        "La serie presenta el total anual de toneladas movilizadas con enfoque %s. Filtrado por %s y %s. En %d, el volumen total es %s. La variación interanual es %s.",
         enfoque_txt, grupo_txt, alimento_txt, last_year, fmt_short(val_last),
         ifelse(is.na(gr), "NA", fmt_pct(100*gr, 1))
       )
@@ -1963,7 +2045,7 @@ server <- function(input, output, session){
       return(out)
     }
     
-    # ---- ICA (unificado) ----
+    # ---- ICA ----
     if (base_sel == "ICA_CENSO_PECUARIO") {
       if (is.null(ica_long) || !nrow(ica_long)) return(out)
       animal_sel <- input$estr_ica_animal %||% names(ica_animal_choices)[1] %||% "Bovinos"
@@ -2306,7 +2388,6 @@ server <- function(input, output, session){
   render_extra_map("estr_base2_map1", "map1_extra")
   render_extra_map("estr_base2_map2", "map2_extra")
   
-  # Observadores para actualizar filtros de grupo/alimento en mapas cuando cambia el enfoque
   observeEvent(input$map1_extra_sipsa_enfoque, {
     enfoque_actual <- input$map1_extra_sipsa_enfoque %||% "D"
     grupo_choices <- if (enfoque_actual == "D") sipsa_grupo_choices_d else sipsa_grupo_choices_o
@@ -2314,7 +2395,7 @@ server <- function(input, output, session){
     
     updateSelectInput(session, "map1_extra_sipsa_grupo", choices = grupo_choices, selected = "__ALL__")
     updateSelectInput(session, "map1_extra_sipsa_alimento", choices = alimento_choices, selected = "__ALL__")
-  })
+  }, ignoreInit = TRUE)
   
   observeEvent(input$map2_extra_sipsa_enfoque, {
     enfoque_actual <- input$map2_extra_sipsa_enfoque %||% "D"
@@ -2323,7 +2404,7 @@ server <- function(input, output, session){
     
     updateSelectInput(session, "map2_extra_sipsa_grupo", choices = grupo_choices, selected = "__ALL__")
     updateSelectInput(session, "map2_extra_sipsa_alimento", choices = alimento_choices, selected = "__ALL__")
-  })
+  }, ignoreInit = TRUE)
   
   output$map1_year_ui <- renderUI({
     lock <- input$lock_years %||% FALSE
@@ -2380,34 +2461,27 @@ server <- function(input, output, session){
       if (!nrow(df)) return(NULL)
       df <- df %>% dplyr::mutate(valor = .data[[met]])
     } else if (ind_sel == "SIPSA_ABAST") {
-      enfoque_sel <- input$map1_extra_sipsa_enfoque %||% "D"
-      grupo_sel <- input$map1_extra_sipsa_grupo %||% "__ALL__"
+      enfoque_sel  <- input$map1_extra_sipsa_enfoque %||% "D"
+      grupo_sel    <- input$map1_extra_sipsa_grupo %||% "__ALL__"
       alimento_sel <- input$map1_extra_sipsa_alimento %||% "__ALL__"
       
-      # Seleccionar base según enfoque
       df_base <- if (enfoque_sel == "D") sipsa_abast_raw_d else sipsa_abast_raw_o
-      if (is.null(df_base)) return(NULL)
+      if (is.null(df_base) || !nrow(df_base)) return(NULL)
       
       df_filtered <- df_base %>%
-        dplyr::filter(ano == as.integer(yr))
-      
-      if (grupo_sel != "__ALL__") {
-        df_filtered <- df_filtered %>% dplyr::filter(grupo == grupo_sel)
-      }
-      
-      if (alimento_sel != "__ALL__") {
-        df_filtered <- df_filtered %>% dplyr::filter(alimento == alimento_sel)
-      }
+        dplyr::filter(ano == as.integer(yr)) %>%
+        sipsa_filter(grupo_sel = grupo_sel, alimento_sel = alimento_sel)
       
       if (!nrow(df_filtered)) return(NULL)
       
-      # Agrupar según enfoque
       if (enfoque_sel == "D") {
         df <- df_filtered %>%
+          dplyr::filter(!is.na(dep_d)) %>%
           dplyr::group_by(ano, cod_dep = dep_d) %>%
           dplyr::summarise(valor = sum(ton, na.rm = TRUE), .groups = "drop")
       } else {
         df <- df_filtered %>%
+          dplyr::filter(!is.na(dep_o)) %>%
           dplyr::group_by(ano, cod_dep = dep_o) %>%
           dplyr::summarise(valor = sum(ton, na.rm = TRUE), .groups = "drop")
       }
@@ -2416,7 +2490,6 @@ server <- function(input, output, session){
       df <- df %>% dplyr::filter(animal == ani)
       if (!nrow(df)) return(NULL)
     }
-    # IDM / UPRA_FA / UPRA_APADT ya vienen como df$valor
     
     if (!nrow(df) || is.null(shp_dep) || is.na(dep_code_col_shp)) return(NULL)
     shp <- shp_dep
@@ -2455,34 +2528,27 @@ server <- function(input, output, session){
       if (!nrow(df)) return(NULL)
       df <- df %>% dplyr::mutate(valor = .data[[met]])
     } else if (ind_sel == "SIPSA_ABAST") {
-      enfoque_sel <- input$map2_extra_sipsa_enfoque %||% "D"
-      grupo_sel <- input$map2_extra_sipsa_grupo %||% "__ALL__"
+      enfoque_sel  <- input$map2_extra_sipsa_enfoque %||% "D"
+      grupo_sel    <- input$map2_extra_sipsa_grupo %||% "__ALL__"
       alimento_sel <- input$map2_extra_sipsa_alimento %||% "__ALL__"
       
-      # Seleccionar base según enfoque
       df_base <- if (enfoque_sel == "D") sipsa_abast_raw_d else sipsa_abast_raw_o
-      if (is.null(df_base)) return(NULL)
+      if (is.null(df_base) || !nrow(df_base)) return(NULL)
       
       df_filtered <- df_base %>%
-        dplyr::filter(ano == as.integer(yr))
-      
-      if (grupo_sel != "__ALL__") {
-        df_filtered <- df_filtered %>% dplyr::filter(grupo == grupo_sel)
-      }
-      
-      if (alimento_sel != "__ALL__") {
-        df_filtered <- df_filtered %>% dplyr::filter(alimento == alimento_sel)
-      }
+        dplyr::filter(ano == as.integer(yr)) %>%
+        sipsa_filter(grupo_sel = grupo_sel, alimento_sel = alimento_sel)
       
       if (!nrow(df_filtered)) return(NULL)
       
-      # Agrupar según enfoque
       if (enfoque_sel == "D") {
         df <- df_filtered %>%
+          dplyr::filter(!is.na(dep_d)) %>%
           dplyr::group_by(ano, cod_dep = dep_d) %>%
           dplyr::summarise(valor = sum(ton, na.rm = TRUE), .groups = "drop")
       } else {
         df <- df_filtered %>%
+          dplyr::filter(!is.na(dep_o)) %>%
           dplyr::group_by(ano, cod_dep = dep_o) %>%
           dplyr::summarise(valor = sum(ton, na.rm = TRUE), .groups = "drop")
       }
@@ -2491,7 +2557,6 @@ server <- function(input, output, session){
       df <- df %>% dplyr::filter(animal == ani)
       if (!nrow(df)) return(NULL)
     }
-    # IDM / UPRA_FA / UPRA_APADT ya vienen como df$valor
     
     if (!nrow(df) || is.null(shp_dep) || is.na(dep_code_col_shp)) return(NULL)
     shp <- shp_dep

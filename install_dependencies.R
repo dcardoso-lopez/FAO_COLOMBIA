@@ -37,6 +37,7 @@ paquetes_requeridos <- c(
   "scales",
   "networkD3",
   "ragg",
+  "kableExtra",
   
   # Datos geoespaciales
   "sf",
