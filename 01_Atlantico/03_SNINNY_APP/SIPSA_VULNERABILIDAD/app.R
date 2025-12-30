@@ -6,7 +6,7 @@
 
 DPTO_FOCO_NOMBRE <- "Atlántico"
 DPTO_FOCO_COD    <- "08"
-APP_TITLE <- paste0("SIPSA — Concentración (HHI) hacia ", DPTO_FOCO_NOMBRE)
+APP_TITLE <- paste0("")
 
 # ------------------------------
 # Paquetes (NO instalar aquí)
