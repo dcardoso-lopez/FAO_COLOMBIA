@@ -1,6 +1,6 @@
 # app.R
 # =========================================================
-# SIPSA_ABASTECIMIENTO_HHI — 3 pestañas (Storytelling)
+# SIPSA_ABASTECIMIENTO_HHI — 4 pestañas (Storytelling)
 # (FOCO = ATLÁNTICO)
 # =========================================================
 
@@ -12,12 +12,13 @@ APP_TITLE <- paste0("SIPSA — Concentración (HHI) hacia ", DPTO_FOCO_NOMBRE)
 # Paquetes (NO instalar aquí)
 # ------------------------------
 pkgs <- c(
-  "shiny","bslib",
+  "shiny","bslib","shinyWidgets",
   "dplyr","stringr","janitor","scales",
   "readr","stringi","htmltools",
   "lubridate",
   "plotly","ggplot2",
-  "DT"
+  "DT",
+  "sf","leaflet","webshot2","htmlwidgets"
 )
 
 missing <- pkgs[!vapply(pkgs, requireNamespace, logical(1), quietly = TRUE)]
@@ -30,15 +31,17 @@ if (length(missing)) {
 }
 
 suppressWarnings({
-  library(shiny); library(bslib)
+  library(shiny); library(bslib); library(shinyWidgets)
   library(dplyr); library(stringr); library(janitor); library(scales)
   library(readr); library(stringi); library(htmltools)
   library(lubridate)
   library(plotly); library(ggplot2)
   library(DT)
+  library(sf); library(leaflet); library(webshot2); library(htmlwidgets)
 })
 
 options(stringsAsFactors = FALSE, scipen = 999)
+sf::sf_use_s2(FALSE)
 
 # ✅ Blindaje contra funciones enmascaradas
 select    <- dplyr::select
@@ -115,15 +118,54 @@ fmt_pct_co <- function(x, digits = 1){
          paste0(scales::number(x, big.mark=".", decimal.mark=",", accuracy = 10^(-digits)), "%"),
          "NA")
 }
+fmt_ton_co <- function(x, digits = 1){
+  scales::number(x, big.mark=".", decimal.mark=",", accuracy = 10^(-digits))
+}
 
 is_all <- function(x){
   is.null(x) || length(x) == 0 || identical(x, "Todos")
 }
-
 kg_to_ton <- function(x) x/1000
 
+parse_num_co <- function(x){
+  readr::parse_number(
+    as.character(x),
+    locale = readr::locale(grouping_mark = ".", decimal_mark = ",")
+  )
+}
+
 # =========================================================
-# DT (DataTable) — idioma + opciones ✅ FIX REAL (language dentro de options)
+# ✅ Clasificación territorial (Región natural) por dpto origen
+# =========================================================
+dpto_region_map <- data.frame(
+  cod_dpto = c(
+    "05","08","11","13","15","17","18","19","20","23","25","27","41","44","47","50",
+    "52","54","63","66","68","70","73","76","81","85","86","88","91","94","95","97","99"
+  ),
+  region = c(
+    "Andina","Caribe","Andina","Caribe","Andina","Andina","Amazonía","Pacífica","Caribe","Caribe","Andina","Pacífica","Andina","Caribe","Caribe","Orinoquía",
+    "Pacífica","Andina","Andina","Andina","Andina","Caribe","Andina","Pacífica","Orinoquía","Orinoquía","Amazonía","Insular","Amazonía","Amazonía","Amazonía","Amazonía","Orinoquía"
+  ),
+  stringsAsFactors = FALSE
+)
+
+region_label <- function(region){
+  ifelse(is.na(region) | region == "", "Sin clasificar", region)
+}
+
+# ✅ Paleta fija por región (corredor)
+region_palette_map <- c(
+  "Andina"         = "#1F77B4",
+  "Caribe"         = "#FF7F0E",
+  "Pacífica"       = "#2CA02C",
+  "Orinoquía"      = "#9467BD",
+  "Amazonía"       = "#8C564B",
+  "Insular"        = "#E377C2",
+  "Sin clasificar" = "#6B7280"
+)
+
+# =========================================================
+# DT (DataTable) — idioma + opciones
 # =========================================================
 dt_lang_es <- list(
   processing = "Procesando...",
@@ -180,7 +222,7 @@ find_rds <- function(paths){
 }
 
 # =========================================================
-# 1) TAB 1 — Cargar RDS 041_DANE_SIPSA-Abast.rds
+# 1) BASE PRINCIPAL (para TAB 1)
 # =========================================================
 rds_path <- find_rds(rds_candidates("041_DANE_SIPSA-Abast"))
 if (is.na(rds_path)) {
@@ -202,14 +244,16 @@ acol  <- req_col(nms, c("alimento","producto","articulo"), "ALIMENTO")
 qcol  <- req_col(nms, c("cantkg_total","cant_kg_total","cantidad_kg","cantidad","kg","cantkg","cantkg_total_kg"), "CANTIDAD (Kg)")
 
 dpto_d_c <- pick_first(nms, c("cod_dane_dpto_d","dane_cod_dpto_d","cod_dpto_d","cod_depto_d","cod_dane_depto_d"))
+dpto_o_c <- pick_first(nms, c("cod_dane_dpto_o","dane_cod_dpto_o","cod_dpto_o","cod_depto_o","cod_dane_depto_o"))
 
-abast <- df %>%
+abast_all <- df %>%
   dplyr::transmute(
     anio = suppressWarnings(as.integer(.data[[ycol]])),
     grupo    = title_case_es(.data[[gcol]]),
     alimento = title_case_es(.data[[acol]]),
     cant_kg  = suppressWarnings(as.numeric(.data[[qcol]])),
-    cod_dpto_d = if (!is.na(dpto_d_c)) pad_dpto(.data[[dpto_d_c]]) else NA_character_
+    cod_dpto_d = if (!is.na(dpto_d_c)) pad_dpto(.data[[dpto_d_c]]) else NA_character_,
+    cod_dpto_o = if (!is.na(dpto_o_c)) pad_dpto(.data[[dpto_o_c]]) else NA_character_
   ) %>%
   dplyr::filter(
     is.finite(anio), anio >= 2018,
@@ -218,9 +262,10 @@ abast <- df %>%
     is.finite(cant_kg), cant_kg > 0
   )
 
-# Filtrar destino Atlántico si existe cod destino
-if (!all(is.na(abast$cod_dpto_d))) {
-  abast <- abast %>% dplyr::filter(cod_dpto_d == DPTO_FOCO_COD)
+# Base TAB 1: hacia Atlántico si existe cod destino
+abast_t1 <- abast_all
+if (!all(is.na(abast_t1$cod_dpto_d))) {
+  abast_t1 <- abast_t1 %>% dplyr::filter(cod_dpto_d == DPTO_FOCO_COD)
 }
 
 # =========================================================
@@ -301,6 +346,64 @@ if (!is.na(rds_path3)) {
 }
 
 # =========================================================
+# 4) TAB 4 — Cargar RDS 041_DANE_SIPSA-Abast_4.rds  ✅ (base pre-calculada)
+# =========================================================
+rds_path4 <- find_rds(rds_candidates("041_DANE_SIPSA-Abast_4"))
+abast4 <- NULL
+
+if (!is.na(rds_path4)) {
+  raw4 <- readRDS(rds_path4)
+  df4  <- janitor::clean_names(raw4)
+  nms4 <- names(df4)
+  
+  y4  <- req_col(nms4, c("ano","anio","year"), "AÑO (base 4)")
+  g4  <- req_col(nms4, c("grupo","grupo_alimento","grupo_alimentos"), "GRUPO (base 4)")
+  a4  <- req_col(nms4, c("alimento","producto","articulo"), "ALIMENTO (base 4)")
+  
+  cod_o4 <- req_col(nms4, c("cod_dane_dpto_o","cod_dpto_o","cod_depto_o","dane_cod_dpto_o"), "COD_ORIGEN (base 4)")
+  nom_o4 <- pick_first(nms4, c("departamento_o","depto_o","departamento_origen","depto_origen"))
+  
+  kg_den4 <- req_col(nms4, c("kg_total_origen","kg_total","kg_origen_total","kg_total_envia","kg_total_origen_dpto"), "KG_TOTAL_ORIGEN (base 4)")
+  kg_num4 <- req_col(nms4, c("kg_a_atlantico","kg_atlantico","kg_hacia_atlantico","kg_a_foco","kg_hacia_foco"), "KG_A_ATLANTICO (base 4)")
+  pct4    <- pick_first(nms4, c("pct_importancia","porc_importancia","pct","participacion","participacion_pct"))
+  
+  abast4 <- df4 %>%
+    dplyr::transmute(
+      anio = suppressWarnings(as.integer(.data[[y4]])),
+      grupo    = title_case_es(.data[[g4]]),
+      alimento = title_case_es(.data[[a4]]),
+      cod_dpto_o = pad_dpto(.data[[cod_o4]]),
+      dpto_o = if (!is.na(nom_o4)) title_case_es(.data[[nom_o4]]) else NA_character_,
+      kg_total_origen = suppressWarnings(as.numeric(.data[[kg_den4]])),
+      kg_a_atlantico  = suppressWarnings(as.numeric(.data[[kg_num4]])),
+      pct_importancia = if (!is.na(pct4)) suppressWarnings(as.numeric(.data[[pct4]])) else NA_real_
+    ) %>%
+    dplyr::filter(
+      is.finite(anio), anio >= 2018,
+      !is.na(grupo), grupo != "",
+      !is.na(alimento), alimento != "",
+      !is.na(cod_dpto_o), cod_dpto_o != "",
+      is.finite(kg_total_origen), kg_total_origen > 0
+    ) %>%
+    dplyr::mutate(
+      ton_total_origen = kg_to_ton(kg_total_origen),
+      ton_a_atlantico  = kg_to_ton(pmax(kg_a_atlantico, 0)),
+      pct_importancia  = dplyr::if_else(
+        is.finite(pct_importancia),
+        pct_importancia,
+        dplyr::if_else(ton_total_origen > 0, (ton_a_atlantico/ton_total_origen)*100, NA_real_)
+      )
+    ) %>%
+    dplyr::left_join(dpto_region_map, by = c("cod_dpto_o" = "cod_dpto")) %>%
+    dplyr::mutate(
+      region   = region_label(region),
+      corredor = paste0("Corredor ", region),
+      # 👇 nombre SOLO por región (lo que pediste)
+      via_nombre = paste0("Corredor ", region)
+    )
+}
+
+# =========================================================
 # ✅ Colores fijos por grupo (TAB 1)
 # =========================================================
 col_palette <- c(
@@ -309,7 +412,7 @@ col_palette <- c(
   "#00909C", "#0088BB", "#007CC3", "#456ABB"
 )
 
-group_levels_all <- sort(unique(na.omit(abast$grupo)))
+group_levels_all <- sort(unique(na.omit(abast_t1$grupo)))
 group_colors_map <- setNames(rep(col_palette, length.out = length(group_levels_all)), group_levels_all)
 
 # =========================================================
@@ -356,8 +459,218 @@ filters_box_blank <- function(tag){
 }
 
 # =========================================================
-# UI
+# TAB 4 — Helpers Leaflet / SF (rutas)
 # =========================================================
+format_short <- function(x){
+  scales::number(x, accuracy = 0.1, big.mark=".", decimal.mark=",")
+}
+
+get_geom_col <- function(x){
+  g <- attr(x, "sf_column")
+  if (!is.null(g) && g %in% names(x) && inherits(x[[g]], "sfc")) return(g)
+  g2 <- names(x)[vapply(x, inherits, logical(1), "sfc")]
+  if (length(g2)) return(g2[1])
+  NA_character_
+}
+
+rename_geom_to_geometry <- function(x){
+  if (!inherits(x, "sf")) stop("rename_geom_to_geometry: objeto no es sf.")
+  geom_nm <- get_geom_col(x)
+  if (is.na(geom_nm)) stop("No encontré columna sfc (geometría) en el objeto sf.")
+  if (geom_nm == "geometry") {
+    sf::st_geometry(x) <- "geometry"
+    return(x)
+  }
+  y <- x
+  names(y)[names(y) == geom_nm] <- "geometry"
+  sf::st_geometry(y) <- "geometry"
+  y
+}
+
+load_dept_sf_only_safe <- function(data_dir){
+  tryCatch({
+    shp_dir <- file.path(data_dir, "shp")
+    if (!dir.exists(shp_dir)) stop("No existe el directorio: ", shp_dir)
+    shp_files <- list.files(shp_dir, pattern="\\.shp$", full.names=TRUE, recursive=TRUE)
+    if (!length(shp_files)) stop("No encontré archivos .shp dentro de: ", shp_dir)
+    
+    ruta_dptos <- shp_files[grep("DPTOS|DEPTO|DEPART", basename(shp_files), ignore.case = TRUE)][1]
+    if (is.na(ruta_dptos)) ruta_dptos <- shp_files[1]
+    
+    obj <- sf::st_read(ruta_dptos, quiet=TRUE)
+    if (!inherits(obj, "sf") || nrow(obj) == 0) stop("No pude leer el shapefile: ", ruta_dptos)
+    
+    obj <- janitor::clean_names(obj)
+    obj <- rename_geom_to_geometry(obj)
+    
+    ccol <- req_col(
+      names(obj),
+      c("dpto_ccgeo","dpto_ccdgo","cod_depto","cod_dpto","codigo_depto","dpto_cod"),
+      "DPTO_CCGEO (o DPTO_CCDGO)"
+    )
+    ncol <- pick_first(names(obj), c("dpto_cnmbr","departamento","nom_dpto","name_1","name","dpto"))
+    
+    if (is.na(sf::st_crs(obj))) sf::st_crs(obj) <- 4326
+    
+    out <- obj %>%
+      dplyr::transmute(
+        cod_dpto = pad_dpto(.data[[ccol]]),
+        dpto_nm  = if (!is.na(ncol)) title_case_es(.data[[ncol]]) else pad_dpto(.data[[ccol]]),
+        geometry = geometry
+      ) %>%
+      sf::st_make_valid() %>%
+      sf::st_zm(drop = TRUE, what = "ZM") %>%
+      sf::st_transform(3116) %>%
+      dplyr::group_by(cod_dpto) %>%
+      dplyr::summarise(dpto_nm = dplyr::first(dpto_nm), geometry = sf::st_union(geometry), .groups="drop") %>%
+      sf::st_transform(4326)
+    
+    out
+  }, error = function(e){
+    NULL
+  })
+}
+
+list_gpkgs <- function(data_dir){
+  cand_dirs <- unique(c(file.path(data_dir, "shp"), data_dir))
+  gp <- unlist(lapply(cand_dirs, function(dd){
+    if (!dir.exists(dd)) return(character(0))
+    list.files(dd, pattern="\\.gpkg$", full.names=TRUE, ignore.case=TRUE)
+  }))
+  gp <- gp[file.exists(gp)]
+  gp
+}
+
+read_gpkg_layers <- function(gpkg_path){
+  if (is.null(gpkg_path) || is.na(gpkg_path) || !file.exists(gpkg_path)) return(list(
+    rutas=NULL, dptos=NULL, caps=NULL, layers=character(0), path=gpkg_path
+  ))
+  
+  lyr <- sf::st_layers(gpkg_path)$name
+  
+  get_layer <- function(name){
+    if (!(name %in% lyr)) return(NULL)
+    x <- sf::st_read(gpkg_path, layer = name, quiet = TRUE)
+    janitor::clean_names(x)
+  }
+  
+  rutas <- get_layer("rutas_baq_a_capitales")
+  dptos <- get_layer("departamentos")
+  caps  <- get_layer("capitales")
+  
+  list(rutas=rutas, dptos=dptos, caps=caps, layers=lyr, path=gpkg_path)
+}
+
+normalize_routes <- function(rutas){
+  if (is.null(rutas) || !inherits(rutas,"sf") || nrow(rutas) == 0) return(NULL)
+  
+  rutas <- janitor::clean_names(rutas)
+  rutas <- rename_geom_to_geometry(rutas)
+  
+  rid <- pick_first(names(rutas), c("dpto_id","depto_id","cod_dpto","dpto","dpto_ccdgo","dpto_ccgeo"))
+  
+  if (is.na(sf::st_crs(rutas))) sf::st_crs(rutas) <- 4326
+  crs0 <- sf::st_crs(rutas)
+  
+  out <- rutas %>%
+    dplyr::mutate(dpto_id = if (!is.na(rid)) pad_dpto(.data[[rid]]) else NA_character_) %>%
+    dplyr::select(dpto_id, geometry)
+  
+  sf::st_geometry(out) <- "geometry"
+  sf::st_crs(out) <- crs0
+  
+  out %>%
+    sf::st_make_valid() %>%
+    sf::st_zm(drop=TRUE, what="ZM") %>%
+    { suppressWarnings(sf::st_cast(., "MULTILINESTRING", warn = FALSE)) } %>%
+    sf::st_transform(4326)
+}
+
+normalize_dptos <- function(dptos){
+  if (is.null(dptos) || !inherits(dptos,"sf") || nrow(dptos) == 0) return(NULL)
+  
+  dptos <- janitor::clean_names(dptos)
+  dptos <- rename_geom_to_geometry(dptos)
+  
+  ccol <- pick_first(names(dptos), c("depto_id","cod_dpto","dpto_id","dpto_ccdgo","dpto_ccgeo"))
+  ncol <- pick_first(names(dptos), c("depto","dpto_nm","departamento","dpto_cnmbr","nombre"))
+  if (is.na(ccol)) return(NULL)
+  
+  if (is.na(sf::st_crs(dptos))) sf::st_crs(dptos) <- 4326
+  crs0 <- sf::st_crs(dptos)
+  
+  out <- dptos %>%
+    dplyr::transmute(
+      cod_dpto = pad_dpto(.data[[ccol]]),
+      dpto_nm  = if (!is.na(ncol)) title_case_es(.data[[ncol]]) else NA_character_,
+      geometry = geometry
+    )
+  
+  sf::st_geometry(out) <- "geometry"
+  sf::st_crs(out) <- crs0
+  
+  out %>%
+    sf::st_make_valid() %>%
+    sf::st_zm(drop = TRUE, what = "ZM") %>%
+    sf::st_transform(3116) %>%
+    dplyr::group_by(cod_dpto) %>%
+    dplyr::summarise(dpto_nm = dplyr::first(dpto_nm), geometry = sf::st_union(geometry), .groups="drop") %>%
+    sf::st_transform(4326)
+}
+
+normalize_caps <- function(caps){
+  if (is.null(caps) || !inherits(caps,"sf") || nrow(caps) == 0) return(NULL)
+  
+  caps <- janitor::clean_names(caps)
+  caps <- rename_geom_to_geometry(caps)
+  
+  ccol <- pick_first(names(caps), c("depto_id","cod_dpto","dpto_id","dpto_ccdgo","dpto_ccgeo"))
+  ncol <- pick_first(names(caps), c("depto","departamento","dpto_nm","dpto_cnmbr","name"))
+  mcol <- pick_first(names(caps), c("mpio","municipio","mpio_cnmbr","nombre"))
+  
+  if (is.na(sf::st_crs(caps))) sf::st_crs(caps) <- 4326
+  crs0 <- sf::st_crs(caps)
+  
+  out <- caps %>%
+    dplyr::transmute(
+      cod_dpto = if (!is.na(ccol)) pad_dpto(.data[[ccol]]) else NA_character_,
+      dpto_nm  = if (!is.na(ncol)) title_case_es(.data[[ncol]]) else NA_character_,
+      mpio_nm  = if (!is.na(mcol)) title_case_es(.data[[mcol]]) else NA_character_,
+      geometry = geometry
+    )
+  
+  sf::st_geometry(out) <- "geometry"
+  sf::st_crs(out) <- crs0
+  
+  out %>%
+    sf::st_make_valid() %>%
+    sf::st_zm(drop=TRUE, what="ZM") %>%
+    sf::st_transform(4326)
+}
+
+dept_sf <- load_dept_sf_only_safe(data_dir)
+gpkg_files <- list_gpkgs(data_dir)
+prefer_name <- "rutas_ORS_barranquilla_capitales_con_contexto.gpkg"
+gpkg_default <- gpkg_files[basename(gpkg_files) == prefer_name][1]
+if (is.na(gpkg_default) && length(gpkg_files)) gpkg_default <- gpkg_files[1]
+
+# =========================================================
+# UI (incluye TAB 4)
+# =========================================================
+# ✅ TAB 4: 4 filtros en la MISMA FILA
+filters_box_t4 <- function(){
+  div(
+    class="filters",
+    div(
+      class="filters-grid-4",
+      div(class="filter", div(class="filter-label","¿Qué año analizamos?"), uiOutput("anio_ui_t4")),
+      div(class="filter", div(class="filter-label","¿Qué grupo alimenticio?"), uiOutput("grupo_ui_t4")),
+      div(class="filter", div(class="filter-label","¿Qué alimento?"), uiOutput("alim_ui_t4")),
+      div(class="filter", div(class="filter-label","¿Qué corredor (región)?"), uiOutput("cor_ui_t4"))
+    )
+  )
+}
+
 ui <- fluidPage(
   theme = bslib::bs_theme(
     version      = 5,
@@ -368,7 +681,7 @@ ui <- fluidPage(
   ),
   tags$head(
     tags$style(HTML("
-      :root{ --accent-border:#ffe082; }
+      :root{ --accent-border:#ffb366; }
       body{ background:#ffffff; }
       .wrap{ max-width:1360px; margin:0 auto; padding:16px 20px 32px; }
       h2#app-title{ text-align:center; margin-top:10px; margin-bottom:10px; font-weight:800; letter-spacing:.3px; }
@@ -394,12 +707,22 @@ ui <- fluidPage(
       @media (max-width: 1100px){ .filters-grid-3{ grid-template-columns: repeat(2, minmax(240px, 1fr)); } }
       @media (max-width: 650px){ .filters-grid-3{ grid-template-columns: 1fr; } }
 
+      /* ✅ TAB 4: 4 filtros en una sola fila */
+      .filters-grid-4{
+        width:100%;
+        display:grid;
+        grid-template-columns: repeat(4, minmax(220px, 1fr));
+        column-gap:16px; row-gap:10px; align-items:end;
+      }
+      @media (max-width: 1200px){ .filters-grid-4{ grid-template-columns: repeat(2, minmax(240px, 1fr)); } }
+      @media (max-width: 650px){ .filters-grid-4{ grid-template-columns: 1fr; } }
+
       .filter-label{
         font-weight:800; font-size:13px; margin-bottom:6px; color:#111827;
         white-space: normal; line-height: 1.15; min-height: 28px;
       }
 
-      .form-select, .selectize-input{
+      .form-select, .selectize-input, .bootstrap-select > .dropdown-toggle{
         border:1px solid var(--accent-border) !important;
         border-radius:10px !important;
         box-shadow:none !important;
@@ -408,7 +731,9 @@ ui <- fluidPage(
         min-height:42px;
         width:100% !important;
       }
+      .bootstrap-select .dropdown-menu{ z-index: 99999 !important; }
       .selectize-dropdown{ z-index: 99999 !important; }
+      .leaflet-container{ z-index: 1 !important; }
 
       .card{
         background:#fff; border:1px solid var(--accent-border) !important;
@@ -417,7 +742,7 @@ ui <- fluidPage(
       }
       .card-title{ font-weight:900; font-size:16px; margin-bottom:8px; color:#111827; }
 
-      /* TAB grids */
+      /* TAB 1 grid */
       .blocks-grid{
         display:grid;
         grid-template-columns: repeat(2, minmax(420px, 1fr));
@@ -433,6 +758,7 @@ ui <- fluidPage(
       #blk_plot_1, #blk_plot_3 { height: 380px !important; }
       #blk_plot_2 { height: 772px !important; }
 
+      /* TAB 2 & TAB 3 grid */
       .blocks-grid-2{
         display:grid;
         grid-template-columns: repeat(2, minmax(420px, 1fr));
@@ -441,21 +767,56 @@ ui <- fluidPage(
       }
       @media (max-width: 980px){ .blocks-grid-2{ grid-template-columns: 1fr; } }
 
-      #t2_plot_a, #t2_plot_b, #t3_plot_a, #t3_plot_b, #t3_plot_c, #t3_plot_d2 { height: 420px !important; }
+      #t2_plot_a, #t2_plot_b, #t3_plot_b, #t3_plot_e { height: 420px !important; }
+
+      /* TAB 4 map */
+      #t4_map_routes{ height: 600px !important; }
+
+      .leaflet-tooltip.lbl-clean{
+        background: rgba(255,255,255,.92); border: 1px solid #e6e6e6; border-radius: 6px;
+        padding: 4px 6px; color: #222; font-weight: 800; box-shadow: 0 1px 4px rgba(0,0,0,.08);
+      }
+
+      .sel-row{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; justify-content:space-between; margin:6px 0 2px; }
+      .sel-chip{
+        display:inline-block; padding:6px 10px; border-radius:999px;
+        border:1px solid #e5e7eb; background:#fff; font-size:12px; color:#111827; font-weight:800;
+      }
+      .btn-clear{ border-radius:10px; }
 
       .dataTables_wrapper{ width:100% !important; }
 
-      details.summary-box{
-        margin-top:12px;
-        border:1px dashed var(--accent-border);
-        border-radius:12px;
-        padding:10px 12px;
+      /* =======================================================
+         ✅ TAB 4: MAPA + KPIs AL LADO (nuevo)
+         ======================================================= */
+      .t4-grid{
+        display:grid;
+        grid-template-columns: 1.45fr 0.55fr;
+        gap:12px;
+        align-items:start;
       }
-      details.summary-box > summary{
-        cursor:pointer;
-        font-weight:800;
-        color:#111827;
+      @media (max-width: 1100px){
+        .t4-grid{ grid-template-columns: 1fr; }
       }
+      .kpi-box{
+        border:1px solid var(--accent-border);
+        border-radius:16px;
+        padding:14px 14px;
+        background:#fff;
+        box-shadow:0 2px 10px rgba(0,0,0,.05);
+      }
+      .kpi-title{
+        font-weight:900; font-size:13px; color:#111827;
+        margin-bottom:6px; line-height:1.2;
+      }
+      .kpi-value{
+        font-weight:950; font-size:28px; color:#0f172a;
+        margin-bottom:2px;
+      }
+      .kpi-sub{
+        font-weight:700; font-size:12px; color:#6b7280;
+      }
+      .kpi-divider{ height:10px; }
     "))
   ),
   
@@ -470,90 +831,104 @@ ui <- fluidPage(
         
         # TAB 1
         tabPanel(
-          "¿Qué tan concentrada está la canasta por grupo? (HHI)",
+          "Concentración de la canasta por grupo de alimentos (IHH)",
           filters_box_t1(),
           
           div(
             class="blocks-grid",
+            
             div(class="card",
-                div(class="card-title", strong("Bloque 1 — HHI por grupo (más concentrado → menos)")),
+                div(class="card-title", strong("Concentración del abastecimiento por grupo de alimentos (IHH)")),
                 plotlyOutput("blk_plot_1")
             ),
+            
             div(class="card span-2rows",
-                div(class="card-title", strong("Bloque 2 — Top 15 alimentos (TON) según grupo enfocado")),
+                div(class="card-title", strong("Top 15 alimentos por volumen abastecido (toneladas)")),
                 plotlyOutput("blk_plot_2")
             ),
+            
             div(class="card",
-                div(class="card-title", strong("Bloque 3 — Serie temporal del HHI por grupo")),
+                div(class="card-title", strong("Evolución temporal de la concentración por grupo de alimentos (IHH)")),
                 plotlyOutput("blk_plot_3")
             )
           ),
           
           div(class="card", style="margin-top:12px;",
-              div(class="card-title", strong("Tabla de respaldo — ranking de concentración por grupo")),
+              div(class="card-title", strong("Ranking y métricas de concentración por grupo de alimentos (IHH)")),
               DTOutput("hhi_group_table")
           )
         ),
         
         # TAB 2
         tabPanel(
-          "¿Qué tan concentrados están los abastecedores de Atlántico? (HHI por origen)",
+          "Concentración de abastecedores hacia Atlántico por origen (IHH)",
           filters_box_t2(),
           
           div(
             class="blocks-grid-2",
+            
             div(class="card",
-                div(class="card-title", strong("Bloque A — Departamentos abastecedores a Atlántico (Top 15)")),
+                div(class="card-title", strong("Top 15 de departamentos abastecedores hacia Atlántico")),
                 plotlyOutput("t2_plot_a")
             ),
+            
             div(class="card",
-                div(class="card-title", strong("Bloque B — Evolución del HHI (origen → Atlántico)")),
+                div(class="card-title", strong("Evolución temporal de la concentración de abastecedores")),
                 plotlyOutput("t2_plot_b")
             )
           ),
           
           div(class="card", style="margin-top:12px;",
-              div(class="card-title", strong("Tabla de respaldo — participación por departamento de origen")),
+              div(class="card-title", strong("Participación y volumen por departamento de origen")),
               DTOutput("t2_table")
           )
         ),
         
         # TAB 3
         tabPanel(
-          "¿Qué tan diversificados están los destinos desde Atlántico? (HHI por destino)",
+          "Diversificación de destinos desde Atlántico (IHH por destino)",
           filters_box_blank("t3"),
           
           div(
             class="blocks-grid-2",
+            
             div(class="card",
-                div(class="card-title", strong("Bloque C — Top 15 alimentos (HHI) + destino principal")),
-                plotlyOutput("t3_plot_a")
+                div(class="card-title", strong("Destino dominante por alimento (conteo de alimentos)")),
+                plotlyOutput("t3_plot_e")
             ),
+            
             div(class="card",
-                div(class="card-title", strong("Bloque D — Evolución del HHI de destinos (Atlántico → otros)")),
+                div(class="card-title", strong("Evolución temporal de la concentración de destinos (IHH, Atlántico → destinos)")),
                 plotlyOutput("t3_plot_b")
             )
           ),
           
-          # ✅ AQUÍ: lo que era “tabla” ahora se muestra como BLOQUES GRÁFICOS
-          div(
-            class="blocks-grid-2", style="margin-top:12px;",
-            div(class="card",
-                div(class="card-title", strong("Bloque E — Destino principal más frecuente (conteo de alimentos)")),
-                plotlyOutput("t3_plot_c")
-            ),
-            div(class="card",
-                div(class="card-title", strong("Bloque F — Relación: HHI vs Toneladas (alimentos)")),
-                plotlyOutput("t3_plot_d2")
-            )
-          ),
+          div(class="card", style="margin-top:12px;",
+              div(class="card-title", strong("IHH por alimento y destino dominante (origen: Atlántico)")),
+              DTOutput("t3_table")
+          )
+        ),
+        
+        # TAB 4
+        tabPanel(
+          "Corredores del abastecimiento hacia Atlántico",
+          filters_box_t4(),
           
-          # ✅ tabla solo como detalle plegable
-          tags$details(
-            class = "summary-box",
-            tags$summary("Ver tabla detallada (HHI por alimento y destino principal)"),
-            div(class="card", style="margin-top:10px;",
-                DTOutput("t3_table")
+          div(
+            class="t4-grid",
+            
+            # IZQUIERDA: mapa (igual, solo envuelto)
+            div(
+              class="card",
+              div(class="card-title", strong("Corredores (rutas) de volúmenes de envío hacia Atlántico")),
+              uiOutput("sel_routes_ui_t4"),
+              leafletOutput("t4_map_routes")
+            ),
+            
+            # DERECHA: KPIs (nuevo)
+            div(
+              class="kpi-box",
+              uiOutput("t4_kpis_ui")
             )
           )
         )
@@ -567,7 +942,7 @@ ui <- fluidPage(
 # =========================================================
 server <- function(input, output, session){
   
-  # ✅ FIX: outputOptions() solo después de que Shiny registre outputs
+  # ✅ FIX outputOptions robusto
   safe_outputOptions <- function(name, ...) {
     tryCatch(shiny::outputOptions(output, name, ...), error = function(e) NULL)
   }
@@ -575,19 +950,20 @@ server <- function(input, output, session){
     safe_outputOptions("hhi_group_table", suspendWhenHidden = FALSE)
     safe_outputOptions("t2_table",        suspendWhenHidden = FALSE)
     safe_outputOptions("t3_table",        suspendWhenHidden = FALSE)
+    safe_outputOptions("t4_map_routes",   suspendWhenHidden = FALSE)
   }, once = TRUE)
   
   # =========================================================
   # TAB 1 — filtros
   # =========================================================
-  years1 <- sort(unique(abast$anio[is.finite(abast$anio)]), decreasing = TRUE)
+  years1 <- sort(unique(abast_t1$anio[is.finite(abast_t1$anio)]), decreasing = TRUE)
   
   output$anio_ui_t1 <- renderUI({
     selectInput("anio_t1", NULL, choices = c("Todos"="Todos", years1), selected = "Todos")
   })
   
   base_all_t1 <- reactive({
-    df <- abast
+    df <- abast_t1
     if (!is_all(input$anio_t1)) df <- df %>% dplyr::filter(anio == as.integer(input$anio_t1))
     validate(need(nrow(df) > 0, "Sin datos con los filtros seleccionados."))
     df
@@ -732,6 +1108,7 @@ server <- function(input, output, session){
       orientation = "h",
       text = ~hhi01_lbl,
       textposition = "auto",
+      textangle = 0,
       hovertext = ~tooltip_hhi,
       hovertemplate = "%{hovertext}"
     ) %>%
@@ -774,6 +1151,7 @@ server <- function(input, output, session){
       orientation = "h",
       text = ~ton_lbl,
       textposition = "auto",
+      textangle = 0,
       hovertext = ~tooltip,
       hovertemplate = "%{hovertext}"
     ) %>%
@@ -831,7 +1209,7 @@ server <- function(input, output, session){
   }, server = FALSE)
   
   # =========================================================
-  # TAB 2 — filtros (base 2)
+  # TAB 2 — filtros
   # =========================================================
   output$anio_ui_t2 <- renderUI({
     validate(need(!is.null(abast2), "No se encontró ./data/041_DANE_SIPSA-Abast_2.rds"))
@@ -868,7 +1246,6 @@ server <- function(input, output, session){
     
     has_cod_dest <- !all(is.na(df$cod_dpto_d))
     has_nom_dest <- !all(is.na(df$dpto_d))
-    
     if (has_cod_dest) df <- df %>% dplyr::filter(cod_dpto_d == DPTO_FOCO_COD)
     else if (has_nom_dest) df <- df %>% dplyr::filter(dpto_d == DPTO_FOCO_NOMBRE)
     
@@ -957,12 +1334,7 @@ server <- function(input, output, session){
       dplyr::mutate(
         origen_ord = factor(origen, levels = rev(origen)),
         txt = paste0(ton_lbl, " Ton (", share_lbl, ")"),
-        tooltip = paste0(
-          "<b>", origen, "</b>",
-          "<br>Ton: ", ton_lbl,
-          "<br>Participación: ", share_lbl,
-          "<extra></extra>"
-        )
+        tooltip = paste0("<b>", origen, "</b><br>Ton: ", ton_lbl, "<br>Participación: ", share_lbl, "<extra></extra>")
       )
     
     plotly::plot_ly(
@@ -973,6 +1345,7 @@ server <- function(input, output, session){
       orientation = "h",
       text = ~txt,
       textposition = "auto",
+      textangle = 0,
       hovertext = ~tooltip,
       hovertemplate = "%{hovertext}"
     ) %>%
@@ -992,15 +1365,11 @@ server <- function(input, output, session){
   
   output$t2_plot_b <- renderPlotly({
     ts <- hhi_year_t2()
-    
     plotly::plot_ly(
       data = ts,
-      x = ~anio,
-      y = ~hhi01,
-      type = "scatter",
-      mode = "lines+markers",
-      hovertext = ~tooltip,
-      hovertemplate = "%{hovertext}"
+      x = ~anio, y = ~hhi01,
+      type = "scatter", mode = "lines+markers",
+      hovertext = ~tooltip, hovertemplate = "%{hovertext}"
     ) %>%
       plotly::layout(
         xaxis = list(title = "Año", tickmode = "linear", dtick = 1),
@@ -1135,18 +1504,7 @@ server <- function(input, output, session){
         total_lbl = fmt_num_co(total_ton, 1),
         nequiv = ifelse(hhi01 > 0, 1/hhi01, NA_real_),
         nequiv_lbl = ifelse(is.finite(nequiv), fmt_num_co(nequiv, 1), "NA"),
-        destino_top = as.character(destino_top),
-        top_share_lbl = fmt_pct_co(top_p_pct, 1),
-        tooltip = paste0(
-          "<b>", alimento, "</b>",
-          "<br>Grupo: ", grupo,
-          "<br>Destino principal: <b>", destino_top, "</b>",
-          "<br>HHI destinos (0–1): ", hhi01_lbl,
-          "<br>N destinos: ", ndest,
-          "<br>N efectivo: ", nequiv_lbl,
-          "<br>Total: ", total_lbl, " Ton",
-          "<extra></extra>"
-        )
+        destino_top = as.character(destino_top)
       ) %>%
       dplyr::arrange(dplyr::desc(hhi01), dplyr::desc(total_ton))
     
@@ -1175,7 +1533,11 @@ server <- function(input, output, session){
       dplyr::left_join(tot, by="anio") %>%
       dplyr::mutate(p = ton / total_ton) %>%
       dplyr::group_by(anio) %>%
-      dplyr::summarise(hhi01 = sum(p^2, na.rm = TRUE), total_ton = dplyr::first(total_ton), .groups="drop") %>%
+      dplyr::summarise(
+        hhi01 = sum(p^2, na.rm = TRUE),
+        total_ton = dplyr::first(total_ton),
+        .groups="drop"
+      ) %>%
       dplyr::filter(is.finite(hhi01)) %>%
       dplyr::mutate(
         hhi01_lbl = fmt_num_co(hhi01, 3),
@@ -1195,28 +1557,6 @@ server <- function(input, output, session){
     hhi
   })
   
-  output$t3_plot_a <- renderPlotly({
-    df <- hhi_food_t3()
-    top <- df %>% dplyr::slice_head(n = 15) %>% dplyr::mutate(alimento_ord = factor(alimento, levels = rev(alimento)))
-    
-    plotly::plot_ly(
-      data = top,
-      x = ~hhi01,
-      y = ~alimento_ord,
-      type = "bar",
-      orientation = "h",
-      text = ~hhi01_lbl,
-      textposition = "auto",
-      hovertext = ~tooltip,
-      hovertemplate = "%{hovertext}"
-    ) %>%
-      plotly::layout(
-        xaxis = list(title = "HHI destinos (0–1)", rangemode = "tozero"),
-        yaxis = list(title = ""),
-        margin = list(l=210, r=20, t=10, b=55)
-      )
-  })
-  
   output$t3_plot_b <- renderPlotly({
     ts <- hhi_year_t3()
     plotly::plot_ly(
@@ -1232,26 +1572,17 @@ server <- function(input, output, session){
       )
   })
   
-  # ✅ BLOQUE E (resumen gráfico de la tabla)
-  output$t3_plot_c <- renderPlotly({
+  output$t3_plot_e <- renderPlotly({
     df <- hhi_food_t3()
     
     top_dest <- df %>%
       dplyr::group_by(destino_top) %>%
-      dplyr::summarise(
-        n_alimentos = dplyr::n(),
-        total_ton = sum(as.numeric(gsub("\\.","", gsub(",",".", gsub("[^0-9,\\.]", "", total_lbl)))), na.rm = TRUE),
-        .groups = "drop"
-      ) %>%
+      dplyr::summarise(n_alimentos = dplyr::n(), .groups = "drop") %>%
       dplyr::arrange(dplyr::desc(n_alimentos)) %>%
-      dplyr::slice_head(n = 12) %>%
+      dplyr::slice_head(n = 15) %>%
       dplyr::mutate(
         destino_ord = factor(destino_top, levels = rev(destino_top)),
-        tooltip = paste0(
-          "<b>", destino_top, "</b>",
-          "<br># alimentos donde es principal: ", n_alimentos,
-          "<extra></extra>"
-        )
+        tooltip = paste0("<b>", destino_top, "</b><br># alimentos: ", n_alimentos, "<extra></extra>")
       )
     
     validate(need(nrow(top_dest) > 0, "Sin datos para Bloque E."))
@@ -1264,48 +1595,14 @@ server <- function(input, output, session){
       orientation = "h",
       text = ~n_alimentos,
       textposition = "auto",
+      textangle = 0,
       hovertext = ~tooltip,
       hovertemplate = "%{hovertext}"
     ) %>%
       plotly::layout(
-        xaxis = list(title = "# alimentos", rangemode = "tozero"),
+        xaxis = list(title = "# alimentos (destino principal)", rangemode = "tozero"),
         yaxis = list(title = ""),
         margin = list(l=210, r=20, t=10, b=55)
-      )
-  })
-  
-  # ✅ BLOQUE F (resumen gráfico de la tabla)
-  output$t3_plot_d2 <- renderPlotly({
-    df <- hhi_food_t3() %>%
-      dplyr::mutate(
-        total_ton_num = suppressWarnings(as.numeric(
-          gsub("\\.","", gsub(",",".", gsub("[^0-9,\\.]", "", total_lbl)))
-        )),
-        total_ton_lbl2 = total_lbl
-      ) %>%
-      dplyr::filter(is.finite(total_ton_num))
-    
-    validate(need(nrow(df) > 0, "Sin datos para Bloque F."))
-    
-    plotly::plot_ly(
-      data = df,
-      x = ~total_ton_num,
-      y = ~hhi01,
-      type = "scatter",
-      mode = "markers",
-      hovertext = ~paste0(
-        "<b>", alimento, "</b>",
-        "<br>Destino principal: ", destino_top,
-        "<br>HHI: ", hhi01_lbl,
-        "<br>Total (Ton): ", total_ton_lbl2,
-        "<extra></extra>"
-      ),
-      hovertemplate = "%{hovertext}"
-    ) %>%
-      plotly::layout(
-        xaxis = list(title = "Total (Ton)", rangemode = "tozero"),
-        yaxis = list(title = "HHI (0–1)", rangemode = "tozero"),
-        margin = list(l=60, r=20, t=10, b=60)
       )
   })
   
@@ -1329,10 +1626,381 @@ server <- function(input, output, session){
       class = "stripe hover order-column compact"
     )
   }, server = FALSE)
+  
+  # =========================================================
+  # TAB 4 — Mapa de rutas (usa abast4) + filtros ÚNICOS
+  # =========================================================
+  hover_label_opts <- leaflet::labelOptions(
+    direction="auto", textsize="12px", sticky=TRUE, opacity=0.95, className="lbl-clean"
+  )
+  
+  years4 <- reactive({
+    if (is.null(abast4)) return(integer(0))
+    sort(unique(abast4$anio[is.finite(abast4$anio)]), decreasing = FALSE)
+  })
+  
+  output$anio_ui_t4 <- renderUI({
+    validate(need(!is.null(abast4), "No se encontró ./data/041_DANE_SIPSA-Abast_4.rds"))
+    ys <- years4()
+    selectInput("anio_t4", NULL, choices = c("Todos"="Todos", ys),
+                selected = if (length(ys)) max(ys) else "Todos")
+  })
+  
+  output$grupo_ui_t4 <- renderUI({
+    validate(need(!is.null(abast4), "No se encontró ./data/041_DANE_SIPSA-Abast_4.rds"))
+    df <- abast4
+    if (!is_all(input$anio_t4)) df <- df %>% dplyr::filter(anio == as.integer(input$anio_t4))
+    grupos <- sort(unique(na.omit(df$grupo)))
+    selectInput("grupo_t4", NULL, choices = c("Todos"="Todos", grupos), selected = "Todos")
+  })
+  
+  output$alim_ui_t4 <- renderUI({
+    validate(need(!is.null(abast4), "No se encontró ./data/041_DANE_SIPSA-Abast_4.rds"))
+    df <- abast4
+    if (!is_all(input$anio_t4)) df <- df %>% dplyr::filter(anio == as.integer(input$anio_t4))
+    if (!is_all(input$grupo_t4)) df <- df %>% dplyr::filter(grupo == input$grupo_t4)
+    alims <- sort(unique(na.omit(df$alimento)))
+    selectInput("alim_t4", NULL, choices = c("Todos"="Todos", alims), selected = "Todos")
+  })
+  
+  # ✅ filtro de corredor (región)
+  output$cor_ui_t4 <- renderUI({
+    validate(need(!is.null(abast4), "No se encontró ./data/041_DANE_SIPSA-Abast_4.rds"))
+    df <- abast4
+    if (!is_all(input$anio_t4))  df <- df %>% dplyr::filter(anio == as.integer(input$anio_t4))
+    if (!is_all(input$grupo_t4)) df <- df %>% dplyr::filter(grupo == input$grupo_t4)
+    if (!is_all(input$alim_t4))  df <- df %>% dplyr::filter(alimento == input$alim_t4)
+    
+    regs <- sort(unique(na.omit(df$region)))
+    if (!length(regs)) regs <- "Sin clasificar"
+    
+    choices <- c("Todos"="Todos", stats::setNames(regs, paste0("Corredor ", regs)))
+    selectInput("cor_t4", NULL, choices = choices, selected = "Todos")
+  })
+  
+  datos_filtrados_t4 <- reactive({
+    validate(need(!is.null(abast4), "No se cargó 041_DANE_SIPSA-Abast_4.rds"))
+    df <- abast4
+    if (!is_all(input$anio_t4))  df <- df %>% dplyr::filter(anio == as.integer(input$anio_t4))
+    if (!is_all(input$grupo_t4)) df <- df %>% dplyr::filter(grupo == input$grupo_t4)
+    if (!is_all(input$alim_t4))  df <- df %>% dplyr::filter(alimento == input$alim_t4)
+    if (!is_all(input$cor_t4))   df <- df %>% dplyr::filter(region == input$cor_t4)
+    
+    df <- df %>% dplyr::filter(!is.na(cod_dpto_o), cod_dpto_o != "", cod_dpto_o != DPTO_FOCO_COD)
+    validate(need(nrow(df) > 0, "Sin datos con los filtros seleccionados (TAB 4)."))
+    df
+  })
+  
+  ton_by_dpto_t4 <- reactive({
+    df <- datos_filtrados_t4() %>%
+      dplyr::group_by(cod_dpto_o, region, corredor) %>%
+      dplyr::summarise(
+        ton_to_atl = sum(ton_a_atlantico, na.rm = TRUE),
+        ton_total  = sum(ton_total_origen, na.rm = TRUE),
+        pct        = ifelse(ton_total > 0, (ton_to_atl / ton_total) * 100, NA_real_),
+        via_nombre = dplyr::first(via_nombre),
+        .groups = "drop"
+      ) %>%
+      dplyr::mutate(cod_dpto_o = pad_dpto(cod_dpto_o))
+    
+    df
+  })
+  
+  dept_names_tbl <- reactive({
+    validate(need(!is.null(dept_sf) && inherits(dept_sf,"sf") && nrow(dept_sf) > 0,
+                  "No hay shapefile de departamentos en /data/shp para TAB 4."))
+    dept_sf %>% sf::st_drop_geometry() %>%
+      dplyr::select(cod_dpto, dpto_nm) %>%
+      dplyr::distinct()
+  })
+  
+  gpkg_path_t4 <- reactive({
+    if (length(gpkg_files) == 0) return(NA_character_)
+    if (!is.na(gpkg_default) && file.exists(gpkg_default)) return(gpkg_default)
+    gpkg_files[1]
+  })
+  
+  gpkg_ctx_t4  <- reactive({ read_gpkg_layers(gpkg_path_t4()) })
+  rutas_sf_t4  <- reactive({ normalize_routes(gpkg_ctx_t4()$rutas) })
+  dptos_ctx_sf_t4 <- reactive({
+    dpt <- normalize_dptos(gpkg_ctx_t4()$dptos)
+    if (is.null(dpt) || !inherits(dpt,"sf") || nrow(dpt) == 0) dept_sf else dpt
+  })
+  caps_sf_t4   <- reactive({ normalize_caps(gpkg_ctx_t4()$caps) })
+  
+  rutas_con_ton_t4 <- reactive({
+    rts <- rutas_sf_t4()
+    validate(need(!is.null(rts) && inherits(rts,"sf") && nrow(rts) > 0,
+                  "No hay capa 'rutas_baq_a_capitales' en el .gpkg o está vacía (TAB 4)."))
+    
+    out <- rts %>%
+      dplyr::mutate(.row_id = dplyr::row_number()) %>%
+      dplyr::left_join(ton_by_dpto_t4(), by = c("dpto_id" = "cod_dpto_o")) %>%
+      dplyr::left_join(dept_names_tbl(), by = c("dpto_id" = "cod_dpto")) %>%
+      dplyr::mutate(
+        ton_to_atl = as.numeric(ton_to_atl),
+        ton_total  = as.numeric(ton_total),
+        pct        = as.numeric(pct),
+        ton_route  = ifelse(is.na(ton_to_atl) | ton_to_atl < 0, 0, ton_to_atl),
+        dpto_show  = dplyr::if_else(is.na(dpto_nm) | dpto_nm == "",
+                                    paste0("Dpto ", dpto_id),
+                                    dpto_nm),
+        region   = region_label(region),
+        corredor = paste0("Corredor ", region_label(region)),
+        # ✅ nombre SOLO por región
+        via_nombre = paste0("Corredor ", region_label(region)),
+        region_col = dplyr::coalesce(unname(region_palette_map[region_label(region)]), region_palette_map[["Sin clasificar"]]),
+        route_id = paste0(dpto_id, "_", .row_id)
+      ) %>%
+      dplyr::select(route_id, dpto_id, dpto_show, region, corredor, via_nombre, region_col, ton_route, ton_total, pct, geometry)
+    
+    out
+  })
+  
+  # selección manual por clic (esto NO es filtro, es selección visual)
+  selected_routes_t4 <- reactiveVal(character(0))
+  
+  observe({
+    rts <- tryCatch(rutas_con_ton_t4(), error = function(e) NULL)
+    if (is.null(rts) || nrow(rts) == 0) {
+      selected_routes_t4(character(0))
+    } else {
+      cur <- selected_routes_t4()
+      keep <- intersect(cur, rts$route_id)
+      if (!identical(cur, keep)) selected_routes_t4(keep)
+    }
+  })
+  
+  observeEvent(input$t4_map_routes_shape_click, {
+    click <- input$t4_map_routes_shape_click
+    req(click$id)
+    cur <- selected_routes_t4()
+    id  <- as.character(click$id)
+    if (id %in% cur) selected_routes_t4(setdiff(cur, id)) else selected_routes_t4(c(cur, id))
+  })
+  
+  observeEvent(input$clear_routes_t4, { selected_routes_t4(character(0)) })
+  
+  output$sel_routes_ui_t4 <- renderUI({
+    if (length(gpkg_files) == 0) return(NULL)
+    n <- length(selected_routes_t4())
+    div(
+      class="sel-row",
+      div(class="sel-chip",
+          if (n == 0) "Selección de rutas: ninguna (mostrando todas)"
+          else paste0("Rutas seleccionadas: ", n, " (clic para quitar/agregar)")),
+      actionButton("clear_routes_t4", "Limpiar selección", class="btn btn-outline-secondary btn-clear")
+    )
+  })
+  
+  # =========================================================
+  # ✅ TAB 4 — KPIs (nuevo) — NO toca lógica del mapa
+  # =========================================================
+  datos_base_t4_sin_cor <- reactive({
+    validate(need(!is.null(abast4), "No se cargó 041_DANE_SIPSA-Abast_4.rds"))
+    df <- abast4
+    if (!is_all(input$anio_t4))  df <- df %>% dplyr::filter(anio == as.integer(input$anio_t4))
+    if (!is_all(input$grupo_t4)) df <- df %>% dplyr::filter(grupo == input$grupo_t4)
+    if (!is_all(input$alim_t4))  df <- df %>% dplyr::filter(alimento == input$alim_t4)
+    
+    df <- df %>% dplyr::filter(!is.na(cod_dpto_o), cod_dpto_o != "", cod_dpto_o != DPTO_FOCO_COD)
+    validate(need(nrow(df) > 0, "Sin datos con los filtros seleccionados (TAB 4)."))
+    df
+  })
+  
+  kpis_t4 <- reactive({
+    base <- datos_base_t4_sin_cor()
+    
+    total_ton_all <- sum(base$ton_a_atlantico, na.rm = TRUE)
+    total_ton_all <- ifelse(is.finite(total_ton_all), total_ton_all, NA_real_)
+    
+    if (is_all(input$cor_t4)) {
+      cor_lbl <- "Todos los corredores"
+      cor_ton <- total_ton_all
+    } else {
+      cor_lbl <- paste0("Corredor ", input$cor_t4)
+      cor_ton <- sum(base$ton_a_atlantico[base$region == input$cor_t4], na.rm = TRUE)
+      cor_ton <- ifelse(is.finite(cor_ton), cor_ton, NA_real_)
+    }
+    
+    lost_pct <- ifelse(is.finite(total_ton_all) && total_ton_all > 0 && is.finite(cor_ton),
+                       (cor_ton / total_ton_all) * 100, NA_real_)
+    
+    list(
+      cor_lbl = cor_lbl,
+      cor_ton = cor_ton,
+      total_ton_all = total_ton_all,
+      lost_pct = lost_pct
+    )
+  })
+  
+  output$t4_kpis_ui <- renderUI({
+    k <- kpis_t4()
+    
+    ton_lbl  <- ifelse(is.finite(k$cor_ton), fmt_ton_co(k$cor_ton, 1), "NA")
+    pct_lbl  <- ifelse(is.finite(k$lost_pct), fmt_pct_co(k$lost_pct, 2), "NA")
+    tot_lbl  <- ifelse(is.finite(k$total_ton_all), fmt_ton_co(k$total_ton_all, 1), "NA")
+    
+    tagList(
+      div(class="kpi-title", paste0("Toneladas hacia ", DPTO_FOCO_NOMBRE, " — ", k$cor_lbl)),
+      div(class="kpi-value", paste0(ton_lbl, " Ton")),
+      div(class="kpi-sub", paste0("Total (todos los corredores): ", tot_lbl, " Ton")),
+      
+      div(class="kpi-divider"),
+      
+      div(class="kpi-title", "Si esa vía fallara, se dejaría de percibir:"),
+      div(class="kpi-value", pct_lbl),
+      div(class="kpi-sub", "% del total de alimentos (Ton) bajo los filtros actuales")
+    )
+  })
+  
+  output$t4_map_routes <- renderLeaflet({
+    leaflet::leaflet(options = leaflet::leafletOptions(zoomControl = TRUE)) %>%
+      leaflet::addProviderTiles(leaflet::providers$CartoDB.Positron) %>%
+      leaflet::setView(lng = -74.0, lat = 4.6, zoom = 5)
+  })
+  safe_outputOptions("t4_map_routes", suspendWhenHidden = FALSE)
+  
+  draw_map_routes_t4 <- function(){
+    validate(need(!is.null(dept_sf) && inherits(dept_sf,"sf") && nrow(dept_sf) > 0,
+                  "No hay shapefile de departamentos para dibujar (TAB 4)."))
+    
+    dpt <- tryCatch(dptos_ctx_sf_t4(), error = function(e) NULL)
+    rts <- tryCatch(rutas_con_ton_t4(), error = function(e) NULL)
+    cps <- tryCatch(caps_sf_t4(), error = function(e) NULL)
+    
+    if (is.null(dpt) || !inherits(dpt,"sf") || nrow(dpt) == 0) return(invisible(NULL))
+    
+    dpt <- dpt %>% sf::st_make_valid() %>% sf::st_zm(drop=TRUE, what="ZM")
+    dpt <- tryCatch(sf::st_cast(dpt, "MULTIPOLYGON", warn=FALSE), error=function(e) dpt)
+    
+    name_map <- dept_sf %>% sf::st_drop_geometry() %>%
+      dplyr::select(cod_dpto, dpto_nm_shp = dpto_nm) %>% dplyr::distinct()
+    
+    dpt2 <- dpt %>%
+      dplyr::left_join(name_map, by = "cod_dpto") %>%
+      dplyr::mutate(
+        dpto_nm_lbl = dplyr::coalesce(dpto_nm_shp, dpto_nm),
+        dpto_nm_lbl = title_case_es(dpto_nm_lbl),
+        dpto_nm_lbl = ifelse(is.na(dpto_nm_lbl) | dpto_nm_lbl == "", paste0("Dpto ", cod_dpto), dpto_nm_lbl)
+      )
+    
+    bb <- sf::st_bbox(dpt2)
+    
+    proxy <- leaflet::leafletProxy("t4_map_routes") %>%
+      leaflet::clearGroup("dpt") %>%
+      leaflet::clearGroup("rts") %>%
+      leaflet::clearGroup("caps") %>%
+      leaflet::clearControls() %>%
+      leaflet::addPolygons(
+        data = dpt2,
+        group="dpt",
+        fillColor   = "#d1d5db",
+        fillOpacity = 0.45,
+        color       = "#9ca3af",
+        weight      = 0.8,
+        label       = ~dpto_nm_lbl,
+        labelOptions = hover_label_opts
+      )
+    
+    if (is.null(rts) || !inherits(rts,"sf") || nrow(rts) == 0) {
+      proxy %>% leaflet::fitBounds(bb[["xmin"]], bb[["ymin"]], bb[["xmax"]], bb[["ymax"]])
+      return(invisible(NULL))
+    }
+    
+    rts <- rts %>% sf::st_make_valid() %>% sf::st_zm(drop=TRUE, what="ZM")
+    rts <- tryCatch(sf::st_cast(rts, "MULTILINESTRING", warn=FALSE), error=function(e) rts)
+    rts <- rts[!sf::st_is_empty(rts$geometry), , drop=FALSE]
+    if (nrow(rts) == 0) {
+      proxy %>% leaflet::fitBounds(bb[["xmin"]], bb[["ymin"]], bb[["xmax"]], bb[["ymax"]])
+      return(invisible(NULL))
+    }
+    
+    # grosor por volumen hacia Atlántico (se conserva)
+    w <- rts$ton_route
+    w <- ifelse(!is.finite(w) | w <= 0, NA_real_, w)
+    if (all(is.na(w))) {
+      rts$w <- 2
+    } else {
+      rts$w <- scales::rescale(w, to = c(1.2, 7), from = range(w, na.rm = TRUE))
+      rts$w[is.na(rts$w)] <- 1.2
+    }
+    
+    sel <- selected_routes_t4()
+    rts$is_sel <- if (length(sel) == 0) TRUE else (rts$route_id %in% sel)
+    any_sel <- length(sel) > 0
+    rts$line_op <- ifelse(rts$is_sel, 0.90, ifelse(any_sel, 0.18, 0.70))
+    rts$line_w  <- ifelse(rts$is_sel, rts$w * 1.25, ifelse(any_sel, pmax(1.2, rts$w * 0.75), rts$w))
+    
+    # ✅ Color por REGIÓN (corredor)
+    rts$region_lbl <- region_label(rts$region)
+    rts$region_col <- dplyr::coalesce(unname(region_palette_map[rts$region_lbl]), region_palette_map[["Sin clasificar"]])
+    
+    proxy %>%
+      leaflet::addPolylines(
+        data = rts,
+        group="rts",
+        layerId = ~route_id,
+        color   = ~region_col,
+        weight  = ~line_w,
+        opacity = ~line_op,
+        # ✅ nombre SOLO por región
+        label = ~paste0("Corredor ", region_lbl, " — ", fmt_ton_co(ton_route, 1), " Ton"),
+        labelOptions = hover_label_opts,
+        popup = ~paste0(
+          "<strong>Corredor ", region_lbl, "</strong>",
+          "<br><strong>Departamento origen:</strong> ", dpto_show,
+          "<br><strong>Ton hacia ", DPTO_FOCO_NOMBRE, ":</strong> ", fmt_ton_co(ton_route, 1),
+          ifelse(is.na(ton_total), "", paste0("<br><strong>Total enviado por el dpto (den):</strong> ", fmt_ton_co(ton_total, 1))),
+          ifelse(is.na(pct), "", paste0("<br><strong>% importancia:</strong> ", fmt_pct_co(pct, 2))),
+          "<br><small>Tip: clic para seleccionar/deseleccionar.</small>"
+        )
+      ) %>%
+      leaflet::fitBounds(bb[["xmin"]], bb[["ymin"]], bb[["xmax"]], bb[["ymax"]])
+    
+    # ✅ Leyenda por corredor (región)
+    regs_present <- sort(unique(na.omit(rts$region_lbl)))
+    if (length(regs_present)) {
+      cols <- unname(region_palette_map[regs_present])
+      cols[is.na(cols)] <- region_palette_map[["Sin clasificar"]]
+      leaflet::leafletProxy("t4_map_routes") %>%
+        leaflet::addLegend(
+          position = "bottomright",
+          colors   = cols,
+          labels   = paste0("Corredor ", regs_present),
+          title    = "Corredores (Región)"
+        )
+    }
+    
+    if (!is.null(cps) && inherits(cps,"sf") && nrow(cps) > 0) {
+      cps <- cps %>% sf::st_make_valid() %>% sf::st_zm(drop=TRUE, what="ZM")
+      leaflet::leafletProxy("t4_map_routes") %>%
+        leaflet::addCircleMarkers(
+          data = cps,
+          group="caps",
+          radius = 3,
+          stroke = TRUE,
+          weight = 1,
+          color = "#0f172a",
+          fillOpacity = 0.9,
+          label = ~ifelse(is.na(mpio_nm) | mpio_nm == "", "Capital", mpio_nm),
+          labelOptions = hover_label_opts,
+          popup = ~paste0(
+            "<strong>Capital:</strong> ", mpio_nm,
+            ifelse(is.na(dpto_nm), "", paste0("<br><strong>Departamento:</strong> ", dpto_nm))
+          )
+        )
+    }
+    
+    invisible(NULL)
+  }
+  
+  observeEvent(
+    list(input$anio_t4, input$grupo_t4, input$alim_t4, input$cor_t4, selected_routes_t4()),
+    { draw_map_routes_t4() },
+    ignoreInit = FALSE
+  )
 }
 
 shinyApp(ui, server)
-
-
-
 
