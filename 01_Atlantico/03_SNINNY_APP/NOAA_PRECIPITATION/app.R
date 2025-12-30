@@ -1,11 +1,18 @@
 # =========================================================
-# Shiny App — NOAA Precipitación (Anual / Mensual)
+# Shiny App — NOAA Precipitación (Anual / Mensual) + PDF (RMarkdown)
+# =========================================================
+# NOTA IMPORTANTE:
+# - Si dejas esta línea activa:
+#     base_raw <- base_raw %>% dplyr::filter(DEPARTAMENTO_D=="ATLÁNTICO")
+#   entonces SOLO verás Atlántico y el filtro "Santander por defecto" NO tendrá sentido.
+#   Si quieres app nacional, comenta/elimina esa línea.
 # =========================================================
 
 # 1) Paquetes
 pkgs <- c("shiny","bslib","dplyr","readr","stringi","sf","leaflet",
           "plotly","ggplot2","htmltools","webshot2","htmlwidgets",
-          "ragg","glue","scales","tibble","zoo","lubridate")
+          "ragg","glue","scales","tibble","zoo","lubridate",
+          "rmarkdown","knitr","kableExtra")
 suppressPackageStartupMessages(invisible(sapply(pkgs, require, character.only = TRUE)))
 options(stringsAsFactors = FALSE, scipen = 999)
 sf::sf_use_s2(FALSE)
@@ -15,8 +22,7 @@ try(Sys.setlocale("LC_CTYPE","es_ES.UTF-8"), silent = TRUE)
 APP_ROOT <- getwd()
 
 # Si estás ejecutando desde runApp(), la ruta ya está configurada
-# Ajusta estas rutas según tu estructura de carpetas
-NOAA_DIR <- APP_ROOT  # Asumiendo que el app está en la misma carpeta que los datos
+NOAA_DIR <- APP_ROOT
 NOAA_DATA_DIR <- file.path(NOAA_DIR, "data")
 SHP_DIR <- file.path(NOAA_DIR, "data/shp")
 
@@ -30,7 +36,6 @@ rds_files <- list.files(NOAA_DATA_DIR, pattern = "\\.rds$", full.names = TRUE, r
 cat("Archivos RDS encontrados:", paste(rds_files, collapse = ", "), "\n")
 
 if (length(rds_files) == 0) {
-  # Buscar recursivamente
   rds_files <- list.files(APP_ROOT, pattern = "\\.rds$", full.names = TRUE, recursive = TRUE)
   cat("Archivos RDS encontrados (búsqueda recursiva):", paste(rds_files, collapse = ", "), "\n")
 }
@@ -41,7 +46,6 @@ if (length(rds_files) > 0) {
 } else {
   stop("No encuentro RDS de NOAA. Buscando en: ", APP_ROOT)
 }
-
 
 # ---------- Helpers ----------
 up_es <- function(x){
@@ -165,23 +169,14 @@ build_bins_labels <- function(values){
       b  <- bins[i + 1]
       sa <- fmt_num(a, accuracy = 1)
       sb <- fmt_num(b, accuracy = 1)
-      if (i == 1) {
-        sprintf("%s – %s", sa, sb)
-      } else {
-        sprintf("> %s – %s", sa, sb)
-      }
+      if (i == 1) sprintf("%s – %s", sa, sb) else sprintf("> %s – %s", sa, sb)
     },
     character(1)
   )
   mids <- (bins[-length(bins)] + bins[-1]) / 2
   cols <- pal(mids)
   
-  list(
-    bins   = bins,
-    pal    = pal,
-    labels = labs,
-    colors = cols
-  )
+  list(bins=bins, pal=pal, labels=labs, colors=cols)
 }
 
 SERIES_CLR  <- "#006d2c"
@@ -190,6 +185,7 @@ RANKING_CLR <- "#006d2c"
 # ---------- Shapefiles ----------
 shp_files <- list.files(SHP_DIR, pattern="\\.shp$", full.names=TRUE, recursive=TRUE)
 if (!length(shp_files)) stop("No encuentro .shp en: ", SHP_DIR)
+
 ruta_shp_mpios <- find_shp(shp_files, "MPIO|MUN")
 ruta_shp_dptos <- find_shp(shp_files, "DPTO|DEP|DEPT")
 if (is.na(ruta_shp_mpios) || is.na(ruta_shp_dptos))
@@ -213,9 +209,9 @@ muni_dpto_code <- pick_first(mpn, muni_depto_code_cands)
 muni_code_col  <- pick_first(mpn, muni_code_cands)
 depto_name_col <- pick_first(dpn, depto_name_cands)
 depto_code_col <- pick_first(dpn, depto_code_cands)
+
 stopifnot(!is.na(muni_name_col), !is.na(muni_dpto_code),
-          !is.na(muni_code_col),
-          !is.na(depto_name_col), !is.na(depto_code_col))
+          !is.na(muni_code_col), !is.na(depto_name_col), !is.na(depto_code_col))
 
 depto_sf <- depto_sf_raw |>
   dplyr::mutate(
@@ -246,6 +242,7 @@ mpios_sf <- mpios_sf_raw |>
 
 # ---------- Base NOAA ----------
 base_raw <- readRDS(DATA_RDS)
+
 base_raw <- base_raw %>% dplyr::filter(DEPARTAMENTO_D=="ATLÁNTICO")
 
 required_cols <- c("fecha_completa","ano","mes","DEPARTAMENTO_D",
@@ -280,7 +277,7 @@ DEPS_LOOKUP <- eva_df |>
   dplyr::arrange(dpto_code)
 
 # ---> Código del departamento SANTANDER para usarlo como seleccionado por defecto
-SANTANDER_CODE <- DEPS_LOOKUP$dpto_code[DEPS_LOOKUP$DEPARTAMENTO_D == "SANTANDER"]
+SANTANDER_CODE <- DEPS_LOOKUP$dpto_code[DEPS_LOOKUP$DEPARTAMENTO_D == "ATLÁNTICO"]
 if (length(SANTANDER_CODE) == 0 || is.na(SANTANDER_CODE)) SANTANDER_CODE <- "Todos"
 
 code_to_depto_name <- function(code){
@@ -483,10 +480,7 @@ ui <- fluidPage(
   div(
     class = "wrap",
     h2("", id = "app-title"),
-    div(
-      class = "data-note",
-      HTML("")
-    ),
+    div(class = "data-note", HTML("")),
     
     # ----------------- FILTROS -----------------
     div(
@@ -530,7 +524,7 @@ ui <- fluidPage(
           selectInput(
             "f_depto", NULL,
             choices  = DEPS_CHOICES,
-            selected = SANTANDER_CODE   # <-- Santander por defecto
+            selected = SANTANDER_CODE
           )
         ),
         div(
@@ -552,27 +546,19 @@ ui <- fluidPage(
       # Mapa
       div(
         class = "card viz-card viz-map",
-        div(
-          class="card-title d-flex align-items-center",
-          span(textOutput("titulo_mapa"))
-        ),
+        div(class="card-title d-flex align-items-center",
+            span(textOutput("titulo_mapa"))),
         div(
           style="display:flex; gap:10px; align-items:center; margin-bottom:8px;",
           actionButton("btn_volver", "◀ Volver a Departamentos", class="btn btn-light"),
           strong(textOutput("nivel_txt", inline = TRUE))
         ),
-        div(
-          class="viz-body",
-          leafletOutput("map_eva", height = "100%")
-        ),
-        div(
-          class = "map-note",
-          "Nota: los rangos de color del mapa se construyen con cuartiles (4 clases) del indicador de precipitación según el subconjunto de datos filtrado."
-        ),
-        div(
-          class="dl-under",
-          downloadButton("dl_png_mapa","PNG — Mapa (simple)")
-        )
+        div(class="viz-body",
+            leafletOutput("map_eva", height = "100%")),
+        div(class = "map-note",
+            "Nota: los rangos de color del mapa se construyen con cuartiles (4 clases) del indicador de precipitación según el subconjunto de datos filtrado."),
+        div(class="dl-under",
+            downloadButton("dl_png_mapa","PNG — Mapa (simple)"))
       ),
       
       # Serie temporal
@@ -598,10 +584,8 @@ ui <- fluidPage(
       # Anomalía
       div(
         class = "card viz-card viz-anom",
-        div(
-          class="card-title d-flex align-items-center",
-          span(textOutput("titulo_anomalia"))
-        ),
+        div(class="card-title d-flex align-items-center",
+            span(textOutput("titulo_anomalia"))),
         div(
           style="display:flex; gap:10px; align-items:baseline; justify-content:space-between; margin-bottom:6px;",
           div(
@@ -613,35 +597,147 @@ ui <- fluidPage(
               )
             )
           ),
-          div(
-            class="dl-under",
-            downloadButton("dl_png_anom","PNG — Anomalía (velas mm³)")
-          )
+          div(class="dl-under",
+              downloadButton("dl_png_anom","PNG — Anomalía (velas mm³)"))
         ),
-        div(
-          class="viz-body",
-          plotlyOutput("anom_plot", height = "100%")
-        ),
-        div(
-          class = "anom-note",
-          textOutput("anom_detalle")
-        )
+        div(class="viz-body",
+            plotlyOutput("anom_plot", height = "100%")),
+        div(class = "anom-note",
+            textOutput("anom_detalle"))
       )
     ),
     
-    # Descarga CSV
+    # Descargas
     div(
       class="dl-footer",
-      downloadButton("dl_csv_expl","Descargar CSV (filtro actual)")
+      downloadButton("dl_csv_expl","Descargar CSV (filtro actual)"),
+      downloadButton("dl_report_pdf","Generar informe (PDF)")
+    ),
+    
+    # Panel de administración (oculto por defecto)
+    conditionalPanel(
+      condition = "input.show_admin == true",
+      div(
+        class = "card",
+        h3("Administración - Archivos en Servidor"),
+        verbatimTextOutput("server_files_list")
+      )
     )
   )
 )
 
-
-
 # ======================= SERVER =======================
-
 server <- function(input, output, session){
+  
+  # -------- Directorios para almacenar imágenes en servidor --------
+  # Crear directorios si no existen
+  img_dirs <- list(
+    mapas = file.path(APP_ROOT, "descargas", "mapas"),
+    series = file.path(APP_ROOT, "descargas", "series"),
+    ranking = file.path(APP_ROOT, "descargas", "ranking"),
+    anomalia = file.path(APP_ROOT, "descargas", "anomalia"),
+    csv = file.path(APP_ROOT, "descargas", "csv")
+  )
+  
+  # Crear directorios
+  lapply(img_dirs, function(dir) {
+    if (!dir.exists(dir)) {
+      dir.create(dir, recursive = TRUE, showWarnings = FALSE)
+      cat("Directorio creado:", dir, "\n")
+    }
+  })
+  
+  # Función para generar nombre de archivo único con timestamp
+  generate_filename <- function(base_name, extension = "png") {
+    timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
+    random_id <- paste0(sample(letters, 3), collapse = "")
+    paste0(base_name, "_", timestamp, "_", random_id, ".", extension)
+  }
+  
+  # Función para guardar imagen en servidor y cliente
+  save_image_dual <- function(plot_obj, filename, subdir, width = 10, height = 6, dpi = 200) {
+    
+    # Ruta completa en servidor
+    server_path <- file.path(img_dirs[[subdir]], filename)
+    
+    cat("Guardando en servidor:", server_path, "\n")
+    
+    if (inherits(plot_obj, "ggplot")) {
+      # Para gráficos ggplot
+      ggsave(filename = server_path, plot = plot_obj, 
+             device = ragg::agg_png, width = width, height = height, 
+             dpi = dpi, units = "in")
+    } else if (inherits(plot_obj, "leaflet")) {
+      # Para mapas leaflet
+      tmp_html <- tempfile(fileext = ".html")
+      htmlwidgets::saveWidget(plot_obj, tmp_html, selfcontained = TRUE)
+      webshot2::webshot(tmp_html, file = server_path, 
+                        vwidth = 1200, vheight = 800, zoom = 2)
+    } else if (inherits(plot_obj, "plotly")) {
+      # Para gráficos plotly
+      tmp_html <- tempfile(fileext = ".html")
+      htmlwidgets::saveWidget(plot_obj, tmp_html, selfcontained = TRUE)
+      webshot2::webshot(tmp_html, file = server_path, 
+                        vwidth = 1100, vheight = 520, zoom = 2)
+    }
+    
+    # Crear archivo temporal para descarga en cliente
+    temp_file <- tempfile(fileext = paste0(".", tools::file_ext(filename)))
+    file.copy(server_path, temp_file, overwrite = TRUE)
+    
+    cat("Archivo temporal creado para cliente:", temp_file, "\n")
+    
+    return(temp_file)
+  }
+  
+  # Función para obtener información de filtros actuales
+  get_filter_info <- function() {
+    list(
+      frecuencia = input$freq,
+      anio = input$f_anio,
+      mes = if (!is.null(input$freq) && input$freq == "Mensual") input$f_mes else NULL,
+      departamento = input$f_depto,
+      municipio = input$f_mpio,
+      nivel_mapa = nivel_mapa(),
+      depto_seleccionado = depto_sel()
+    )
+  }
+  
+  # Función para crear nombre descriptivo del archivo
+  create_descriptive_name <- function(tipo, filters) {
+    
+    base_name <- paste0("NOAA_", tipo)
+    
+    # Agregar año
+    if (!is.null(filters$anio)) {
+      base_name <- paste0(base_name, "_", filters$anio)
+    }
+    
+    # Agregar mes si es mensual
+    if (!is.null(filters$frecuencia) && filters$frecuencia == "Mensual" && !is.null(filters$mes)) {
+      base_name <- paste0(base_name, "_mes", sprintf("%02d", filters$mes))
+    }
+    
+    # Agregar departamento si no es "Todos"
+    if (!is.null(filters$departamento) && filters$departamento != "Todos") {
+      depto_name <- code_to_depto_name(filters$departamento)
+      if (!is.na(depto_name)) {
+        base_name <- paste0(base_name, "_", gsub("[^A-Za-z0-9]", "", depto_name))
+      }
+    }
+    
+    # Agregar municipio si no es "Todos"
+    if (!is.null(filters$municipio) && filters$municipio != "Todos") {
+      base_name <- paste0(base_name, "_", gsub("[^A-Za-z0-9]", "", filters$municipio))
+    }
+    
+    # Agregar nivel del mapa
+    if (tipo == "mapa") {
+      base_name <- paste0(base_name, "_", filters$nivel_mapa)
+    }
+    
+    return(base_name)
+  }
   
   # -------- Estado del mapa --------
   nivel_mapa <- reactiveVal("depto")  # "depto" o "mpio"
@@ -708,7 +804,7 @@ server <- function(input, output, session){
     if (!is.null(input$f_depto) && input$f_depto!="Todos")
       df <- df |> dplyr::filter(dpto_code == input$f_depto)
     if (!is.null(input$f_mpio)  && input$f_mpio !="Todos")
-      df <- df |> dplyr::filter(MUNICIPIO_D    == input$f_mpio)
+      df <- df |> dplyr::filter(MUNICIPIO_D == input$f_mpio)
     if (!is.null(input$f_anio))
       df <- df |> dplyr::filter(anio == input$f_anio)
     if (!is.null(input$freq) && input$freq == "Mensual" &&
@@ -771,16 +867,14 @@ server <- function(input, output, session){
   
   # -------- Función para dibujar deptos --------
   render_deptos <- function(){
-    # Subconjunto según filtros actuales
-    df_vals <- datos_filtrados() |> 
-      dplyr::group_by(dpto_code) |> 
+    df_vals <- datos_filtrados() |>
+      dplyr::group_by(dpto_code) |>
       dplyr::summarise(valor = sum(valor, na.rm = TRUE), .groups = "drop")
     
     mdat <- depto_sf |>
       dplyr::left_join(df_vals, by = "dpto_code") |>
       dplyr::mutate(valor = dplyr::coalesce(valor, 0))
     
-    # Calcular bins y paleta solo con ese subconjunto
     bl  <- build_bins_labels(mdat$valor)
     pal <- bl$pal
     
@@ -813,7 +907,6 @@ server <- function(input, output, session){
   
   # -------- Función para dibujar mpios --------
   render_mpios <- function(dep_code){
-    # Subconjunto exacto de ese departamento
     df_vals <- datos_filtrados() |>
       dplyr::filter(dpto_code == dep_code) |>
       dplyr::group_by(mpio_code) |>
@@ -901,7 +994,6 @@ server <- function(input, output, session){
   observeEvent(input$f_depto, {
     dep <- input$f_depto
     
-    # Caso 1: sin filtro de departamento → mapa nacional
     if (is.null(dep) || dep == "Todos") {
       nivel_mapa("depto")
       depto_sel(NULL)
@@ -909,12 +1001,10 @@ server <- function(input, output, session){
       return()
     }
     
-    # Caso 2: con filtro de departamento (aunque municipio = Todos)
     nivel_mapa("mpio")
     depto_sel(dep)
     render_mpios(dep)
-  }, ignoreInit = FALSE)  # se ejecuta también al inicio
-  
+  }, ignoreInit = FALSE)
   
   # Click sobre el mapa (depto → mpios)
   observeEvent(input$map_eva_shape_click, {
@@ -954,7 +1044,7 @@ server <- function(input, output, session){
     if (!is.null(input$f_depto) && input$f_depto!="Todos")
       base <- base |> dplyr::filter(dpto_code == input$f_depto)
     if (!is.null(input$f_mpio)  && input$f_mpio !="Todos")
-      base <- base |> dplyr::filter(MUNICIPIO_D    == input$f_mpio)
+      base <- base |> dplyr::filter(MUNICIPIO_D == input$f_mpio)
     
     if (!is.null(input$freq) && input$freq == "Mensual") {
       req(input$f_anio)
@@ -984,9 +1074,7 @@ server <- function(input, output, session){
     
     if (!is.null(input$freq) && input$freq == "Mensual") {
       plotly::plot_ly(
-        df,
-        x=~mes,
-        y=~valor_total,
+        df, x=~mes, y=~valor_total,
         type="scatter", mode="lines+markers",
         line=list(width=2, color=SERIES_CLR),
         marker=list(size=6, color=SERIES_CLR),
@@ -1017,9 +1105,7 @@ server <- function(input, output, session){
         )
     } else {
       plotly::plot_ly(
-        df,
-        x=~anio,
-        y=~valor_total,
+        df, x=~anio, y=~valor_total,
         type="scatter", mode="lines+markers",
         line=list(width=2, color=SERIES_CLR),
         marker=list(size=6, color=SERIES_CLR),
@@ -1028,11 +1114,7 @@ server <- function(input, output, session){
         hovertemplate="<b>Año:</b> %{x}<br>mm³ %{text}<extra></extra>"
       ) |>
         plotly::layout(
-          xaxis=list(
-            title="",
-            tickmode="linear", dtick=1,
-            showgrid=FALSE
-          ),
+          xaxis=list(title="", tickmode="linear", dtick=1, showgrid=FALSE),
           yaxis=list(
             title="mm³",
             tickvals = breaks_y,
@@ -1062,13 +1144,12 @@ server <- function(input, output, session){
   output$ranking_abajo <- plotly::renderPlotly({
     plot_df <- ranking_data()
     if (!nrow(plot_df)) {
-      return(
-        plotly::plot_ly() |>
-          plotly::layout(annotations = list(
-            text="Sin datos para el ranking",
-            x=0.5, y=0.5, showarrow=FALSE))
-      )
+      return(plotly::plot_ly() |>
+               plotly::layout(annotations = list(
+                 text="Sin datos para el ranking",
+                 x=0.5, y=0.5, showarrow=FALSE)))
     }
+    
     plot_df <- plot_df |>
       dplyr::mutate(
         muni_tc  = title_case_es(MUNICIPIO_D),
@@ -1109,12 +1190,7 @@ server <- function(input, output, session){
       cliponaxis = FALSE
     ) |>
       plotly::layout(
-        xaxis = list(
-          title = "mm³",
-          tickvals = breaks,
-          ticktext = tick_text,
-          showgrid = FALSE
-        ),
+        xaxis = list(title = "mm³", tickvals = breaks, ticktext = tick_text, showgrid = FALSE),
         yaxis = list(
           title = "",
           categoryorder = "array",
@@ -1133,14 +1209,12 @@ server <- function(input, output, session){
     if (!is.null(input$f_depto) && input$f_depto!="Todos")
       df <- df |> dplyr::filter(dpto_code == input$f_depto)
     if (!is.null(input$f_mpio)  && input$f_mpio !="Todos")
-      df <- df |> dplyr::filter(MUNICIPIO_D    == input$f_mpio)
+      df <- df |> dplyr::filter(MUNICIPIO_D == input$f_mpio)
     
     df |>
       dplyr::group_by(anio, mes) |>
-      dplyr::summarise(
-        valor_mensual = sum(as.numeric(valor), na.rm = TRUE),
-        .groups = "drop"
-      ) |>
+      dplyr::summarise(valor_mensual = sum(as.numeric(valor), na.rm = TRUE),
+                       .groups = "drop") |>
       dplyr::mutate(fecha = as.Date(sprintf("%d-%02d-15", anio, mes)))
   })
   
@@ -1155,8 +1229,7 @@ server <- function(input, output, session){
     clim_base <- m |>
       dplyr::filter(anio %in% base_years) |>
       dplyr::group_by(mes) |>
-      dplyr::summarise(mu = mean(valor_mensual, na.rm = TRUE),
-                       .groups="drop")
+      dplyr::summarise(mu = mean(valor_mensual, na.rm = TRUE), .groups="drop")
     
     s <- m |>
       dplyr::inner_join(clim_base, by = "mes") |>
@@ -1185,9 +1258,7 @@ server <- function(input, output, session){
     )
   })
   
-  output$titulo_anomalia <- renderText({
-    "Anomalía de precipitación (velas de mm³)"
-  })
+  output$titulo_anomalia <- renderText({"Anomalía de precipitación (velas de mm³)"})
   
   output$anom_resumen <- renderText({
     df <- anom_mm_candles_full()
@@ -1234,14 +1305,9 @@ server <- function(input, output, session){
       decreasing = list(line = list(color = "#d62728"))
     ) |>
       plotly::layout(
-        xaxis = list(
-          title    = "",
-          showgrid = FALSE,
-          tickvals = tickvals_x,
-          ticktext = ticktext_x
-        ),
+        xaxis = list(title="", showgrid=FALSE, tickvals=tickvals_x, ticktext=ticktext_x),
         yaxis = list(
-          title    = "mm³ de anomalía",
+          title="mm³ de anomalía",
           tickvals = breaks_y,
           ticktext = tick_text_y,
           zeroline = TRUE, zerolinecolor = "#555555",
@@ -1253,90 +1319,10 @@ server <- function(input, output, session){
   })
   
   # ======================================================
-  # DESCARGAS
+  # DESCARGAS MODIFICADAS (dual: servidor + cliente)
   # ======================================================
-  tabla_export <- reactive({
-    datos_filtrados() |>
-      dplyr::transmute(
-        COD_DPTO      = dpto_code,
-        COD_MPIO      = mpio_code,
-        DEPARTAMENTO  = title_case_es(DEPARTAMENTO_D),
-        MUNICIPIO     = title_case_es(MUNICIPIO_D),
-        anio, mes,
-        precipitacion_mm = valor
-      )
-  })
   
-  output$dl_csv_expl <- downloadHandler(
-    filename = function() {
-      if (!is.null(input$freq) && input$freq == "Mensual")
-        paste0("NOAA_precipitacion_", input$f_anio, "_",
-               sprintf("%02d", as.integer(input$f_mes)), "_",
-               Sys.Date(), ".csv")
-      else
-        paste0("NOAA_precipitacion_", safe_chr(input$f_anio),
-               "_", Sys.Date(), ".csv")
-    },
-    content  = function(file) readr::write_csv(tabla_export(), file, na = "")
-  )
-  
-  output$dl_png_series <- downloadHandler(
-    filename = function() {
-      if (!is.null(input$freq) && input$freq == "Mensual")
-        paste0("NOAA_serie_", input$f_anio, "_",
-               sprintf("%02d", as.integer(input$f_mes)), "_",
-               Sys.Date(), ".png")
-      else
-        paste0("NOAA_serie_", Sys.Date(), ".png")
-    },
-    content  = function(file){
-      df <- series_data()
-      if (!nrow(df)) { file.create(file); return() }
-      
-      max_val   <- max(df$valor_total, na.rm = TRUE)
-      breaks_y  <- pretty(c(0, max_val), n = 5)
-      breaks_y  <- breaks_y[breaks_y >= 0]
-      
-      if (!is.null(input$freq) && input$freq == "Mensual") {
-        g <- ggplot(df, aes(x=mes, y=valor_total)) +
-          geom_line(linewidth=0.9, color=SERIES_CLR) +
-          geom_point(size=2.2, color=SERIES_CLR) +
-          scale_x_continuous(breaks=1:12, labels=month.abb) +
-          scale_y_continuous(
-            labels = format_short,
-            breaks = breaks_y
-          ) +
-          labs(x="Mes", y="Precipitación (mm)",
-               title=paste0("Evolución mensual (", input$f_anio, ")")) +
-          theme_minimal(base_size=12) +
-          theme(
-            panel.grid.minor   = element_blank(),
-            panel.grid.major.x = element_blank(),
-            panel.grid.major.y = element_line(color = "#e5e7eb")
-          )
-      } else {
-        g <- ggplot(df, aes(x=anio, y=valor_total)) +
-          geom_line(linewidth=0.9, color=SERIES_CLR) +
-          geom_point(size=2.2, color=SERIES_CLR) +
-          scale_x_continuous(breaks=unique(df$anio)) +
-          scale_y_continuous(
-            labels = format_short,
-            breaks = breaks_y
-          ) +
-          labs(x=NULL, y="Precipitación (mm)",
-               title="Evolución anual de la precipitación (mm)") +
-          theme_minimal(base_size=12) +
-          theme(
-            panel.grid.minor   = element_blank(),
-            panel.grid.major.x = element_blank(),
-            panel.grid.major.y = element_line(color = "#e5e7eb")
-          )
-      }
-      ggsave(filename=file, plot=g, device=ragg::agg_png,
-             width=10, height=5, dpi=200, units="in")
-    }
-  )
-  
+  # Widget simple del mapa para descarga
   map_widget_simple <- reactive({
     if (nivel_mapa()=="depto"){
       mdat <- depto_sf |>
@@ -1347,10 +1333,7 @@ server <- function(input, output, session){
       leaflet::leaflet(mdat,
                        options=leaflet::leafletOptions(zoomControl=FALSE)) |>
         leaflet::addProviderTiles(leaflet::providers$CartoDB.Positron) |>
-        leaflet::addPolygons(
-          fillColor=~pal(valor), weight=0.5,
-          color="#666", fillOpacity=0.9
-        ) |>
+        leaflet::addPolygons(fillColor=~pal(valor), weight=0.5, color="#666", fillOpacity=0.9) |>
         leaflet::addControl(
           html = htmltools::HTML(
             sprintf("<div style='font-weight:600;font-size:14px;
@@ -1368,20 +1351,14 @@ server <- function(input, output, session){
       dep_nm <- code_to_depto_name(dep)
       mdat <- mpios_sf |>
         dplyr::filter(dpto_code==dep) |>
-        dplyr::left_join(
-          agg_mpio(),
-          by=c("dpto_code","mpio_code")
-        ) |>
+        dplyr::left_join(agg_mpio(), by=c("dpto_code","mpio_code")) |>
         dplyr::mutate(valor = ifelse(is.na(valor), 0, valor))
       bl  <- build_bins_labels(mdat$valor)
       pal <- bl$pal
       leaflet::leaflet(mdat,
                        options=leaflet::leafletOptions(zoomControl=FALSE)) |>
         leaflet::addProviderTiles(leaflet::providers$CartoDB.Positron) |>
-        leaflet::addPolygons(
-          fillColor=~pal(valor), weight=0.4,
-          color="#666", fillOpacity=0.9
-        ) |>
+        leaflet::addPolygons(fillColor=~pal(valor), weight=0.4, color="#666", fillOpacity=0.9) |>
         leaflet::addControl(
           html = htmltools::HTML(
             sprintf("<div style='font-weight:600;font-size:14px;
@@ -1397,96 +1374,538 @@ server <- function(input, output, session){
     }
   })
   
+  # Tabla de datos para exportación
+  tabla_export <- reactive({
+    datos_filtrados() |>
+      dplyr::transmute(
+        COD_DPTO      = dpto_code,
+        COD_MPIO      = mpio_code,
+        DEPARTAMENTO  = title_case_es(DEPARTAMENTO_D),
+        MUNICIPIO     = title_case_es(MUNICIPIO_D),
+        anio, mes,
+        precipitacion_mm = valor
+      )
+  })
+  
+  # Para el mapa
   output$dl_png_mapa <- downloadHandler(
     filename = function() {
-      suf <- if (!is.null(input$freq) && input$freq=="Mensual")
-        paste0("_", input$f_anio, "_",
-               sprintf("%02d", as.integer(input$f_mes)))
-      else ""
-      paste0("NOAA_mapa", suf, "_", Sys.Date(), ".png")
+      filters <- get_filter_info()
+      descriptive_name <- create_descriptive_name("mapa", filters)
+      generate_filename(descriptive_name, "png")
     },
-    content  = function(file){
-      widget   <- map_widget_simple()
-      tmp_html <- tempfile(fileext=".html")
-      htmlwidgets::saveWidget(widget, tmp_html, selfcontained=TRUE)
-      webshot2::webshot(tmp_html, file=file,
-                        vwidth=1200, vheight=800, zoom=2)
+    content = function(file) {
+      tryCatch({
+        filters <- get_filter_info()
+        descriptive_name <- create_descriptive_name("mapa", filters)
+        filename <- generate_filename(descriptive_name, "png")
+        
+        # Guardar en servidor y obtener archivo temporal
+        temp_file <- save_image_dual(
+          plot_obj = map_widget_simple(),
+          filename = filename,
+          subdir = "mapas",
+          width = 12,
+          height = 8
+        )
+        
+        # Copiar archivo temporal al destino de descarga
+        file.copy(temp_file, file, overwrite = TRUE)
+        
+        # Log de la operación
+        cat("Mapa guardado en servidor:", 
+            file.path(img_dirs$mapas, filename), 
+            "\nCliente:", file, "\n")
+        
+      }, error = function(e) {
+        cat("Error al guardar mapa:", e$message, "\n")
+        showNotification("Error al guardar el mapa", type = "error")
+      })
     }
   )
   
+  # Para la serie temporal
+  output$dl_png_series <- downloadHandler(
+    filename = function() {
+      filters <- get_filter_info()
+      descriptive_name <- create_descriptive_name("serie_temporal", filters)
+      generate_filename(descriptive_name, "png")
+    },
+    content = function(file) {
+      tryCatch({
+        df <- series_data()
+        if (!nrow(df)) {
+          showNotification("No hay datos para la serie temporal", type = "warning")
+          return()
+        }
+        
+        filters <- get_filter_info()
+        descriptive_name <- create_descriptive_name("serie_temporal", filters)
+        filename <- generate_filename(descriptive_name, "png")
+        
+        # Crear gráfico ggplot
+        max_val <- max(df$valor_total, na.rm = TRUE)
+        breaks_y <- pretty(c(0, max_val), n = 5)
+        breaks_y <- breaks_y[breaks_y >= 0]
+        
+        if (filters$frecuencia == "Mensual") {
+          g <- ggplot(df, aes(x = mes, y = valor_total)) +
+            geom_line(linewidth = 0.9, color = SERIES_CLR) +
+            geom_point(size = 2.2, color = SERIES_CLR) +
+            scale_x_continuous(breaks = 1:12, 
+                               labels = c("Ene", "Feb", "Mar", "Abr", "May", "Jun",
+                                          "Jul", "Ago", "Sep", "Oct", "Nov", "Dic")) +
+            scale_y_continuous(labels = format_short, breaks = breaks_y) +
+            labs(x = "Mes", y = "Precipitación (mm³)",
+                 title = paste0("Evolución mensual (", filters$anio, ")")) +
+            theme_minimal(base_size = 12) +
+            theme(
+              panel.grid.minor = element_blank(),
+              panel.grid.major.x = element_blank(),
+              panel.grid.major.y = element_line(color = "#e5e7eb")
+            )
+        } else {
+          g <- ggplot(df, aes(x = anio, y = valor_total)) +
+            geom_line(linewidth = 0.9, color = SERIES_CLR) +
+            geom_point(size = 2.2, color = SERIES_CLR) +
+            scale_x_continuous(breaks = unique(df$anio)) +
+            scale_y_continuous(labels = format_short, breaks = breaks_y) +
+            labs(x = NULL, y = "Precipitación (mm³)",
+                 title = "Evolución anual de la precipitación (mm³)") +
+            theme_minimal(base_size = 12) +
+            theme(
+              panel.grid.minor = element_blank(),
+              panel.grid.major.x = element_blank(),
+              panel.grid.major.y = element_line(color = "#e5e7eb")
+            )
+        }
+        
+        # Guardar en servidor y obtener archivo temporal
+        temp_file <- save_image_dual(
+          plot_obj = g,
+          filename = filename,
+          subdir = "series",
+          width = 10,
+          height = 5,
+          dpi = 200
+        )
+        
+        # Copiar archivo temporal al destino de descarga
+        file.copy(temp_file, file, overwrite = TRUE)
+        
+        cat("Serie temporal guardada en servidor:", 
+            file.path(img_dirs$series, filename), 
+            "\nCliente:", file, "\n")
+        
+      }, error = function(e) {
+        cat("Error al guardar serie temporal:", e$message, "\n")
+        showNotification("Error al guardar la serie temporal", type = "error")
+      })
+    }
+  )
+  
+  # Para el ranking
   output$dl_png_ranking <- downloadHandler(
     filename = function() {
-      suf <- if (!is.null(input$freq) && input$freq=="Mensual")
-        paste0("_", input$f_anio, "_",
-               sprintf("%02d", as.integer(input$f_mes)))
-      else
-        paste0("_", safe_chr(input$f_anio))
-      paste0("NOAA_ranking", suf, "_", Sys.Date(), ".png")
+      filters <- get_filter_info()
+      descriptive_name <- create_descriptive_name("ranking_top10", filters)
+      generate_filename(descriptive_name, "png")
     },
-    content  = function(file){
-      plot_df <- ranking_data() |>
-        dplyr::mutate(etiqueta = title_case_es(MUNICIPIO_D))
-      if (!nrow(plot_df)) { file.create(file); return() }
-      max_val <- max(plot_df$valor_total, na.rm = TRUE)
-      breaks  <- pretty(c(0, max_val), n = 5)
-      breaks  <- breaks[breaks >= 0]
-      g <- ggplot(plot_df,
-                  aes(x = valor_total,
-                      y = reorder(etiqueta, -valor_total))) +
-        geom_col(fill = RANKING_CLR) +
-        geom_text(
-          aes(x = valor_total/2,
-              label = fmt_num(valor_total, accuracy = 0.1)),
-          color = "white",
-          size  = 3
-        ) +
-        scale_x_continuous(
-          labels = format_short,
-          breaks = breaks,
-          expand = expansion(mult = c(0, 0.05))
-        ) +
-        labs(x="Precipitación (mm)", y=NULL) +
-        theme_minimal(base_size=12) +
-        theme(
-          axis.text.y=element_text(size=9),
-          plot.margin=margin(r=30),
-          panel.grid.minor=element_blank(),
-          panel.grid.major=element_blank()
+    content = function(file) {
+      tryCatch({
+        plot_df <- ranking_data()
+        if (!nrow(plot_df)) {
+          showNotification("No hay datos para el ranking", type = "warning")
+          return()
+        }
+        
+        filters <- get_filter_info()
+        descriptive_name <- create_descriptive_name("ranking_top10", filters)
+        filename <- generate_filename(descriptive_name, "png")
+        
+        # Crear gráfico ggplot
+        plot_df <- plot_df |>
+          dplyr::mutate(etiqueta = title_case_es(MUNICIPIO_D))
+        
+        max_val <- max(plot_df$valor_total, na.rm = TRUE)
+        breaks <- pretty(c(0, max_val), n = 5)
+        breaks <- breaks[breaks >= 0]
+        
+        g <- ggplot(plot_df,
+                    aes(x = valor_total, 
+                        y = reorder(etiqueta, -valor_total))) +
+          geom_col(fill = RANKING_CLR) +
+          geom_text(aes(x = valor_total / 2,
+                        label = fmt_num(valor_total, accuracy = 0.1)),
+                    color = "white", size = 3) +
+          scale_x_continuous(labels = format_short, breaks = breaks,
+                             expand = expansion(mult = c(0, 0.05))) +
+          labs(x = "Precipitación (mm³)", y = NULL,
+               title = "Top 10 municipios (mm³)") +
+          theme_minimal(base_size = 12) +
+          theme(
+            axis.text.y = element_text(size = 9),
+            plot.margin = margin(r = 30),
+            panel.grid.minor = element_blank(),
+            panel.grid.major = element_blank()
+          )
+        
+        # Guardar en servidor y obtener archivo temporal
+        temp_file <- save_image_dual(
+          plot_obj = g,
+          filename = filename,
+          subdir = "ranking",
+          width = 10,
+          height = 6,
+          dpi = 200
         )
-      ggsave(filename=file, plot=g, device=ragg::agg_png,
-             width=10, height=6, dpi=200, units="in")
+        
+        # Copiar archivo temporal al destino de descarga
+        file.copy(temp_file, file, overwrite = TRUE)
+        
+        cat("Ranking guardado en servidor:", 
+            file.path(img_dirs$ranking, filename), 
+            "\nCliente:", file, "\n")
+        
+      }, error = function(e) {
+        cat("Error al guardar ranking:", e$message, "\n")
+        showNotification("Error al guardar el ranking", type = "error")
+      })
     }
   )
   
+  # Para la anomalía
   output$dl_png_anom <- downloadHandler(
-    filename = function()
-      paste0("NOAA_anomalia_velasMM_full_", Sys.Date(), ".png"),
-    content  = function(file){
-      df <- anom_mm_candles_full()
-      if (is.null(df) || !nrow(df)) { file.create(file); return() }
-      p <- plotly::plot_ly(
-        type  = "candlestick",
-        x     = df$x, open = df$O, high = df$H, low = df$L, close = df$C,
-        increasing = list(line = list(color = "#2ca02c")),
-        decreasing = list(line = list(color = "#d62728"))
-      ) |>
-        plotly::layout(
-          xaxis = list(title = "Fecha", showgrid=FALSE),
-          yaxis = list(
-            title = "MM de anomalía (mm)",
-            zeroline = TRUE, zerolinecolor = "#999",
-            showgrid=FALSE
-          ),
-          margin = list(l=60, r=30, t=20, b=50),
-          showlegend = FALSE
+    filename = function() {
+      filters <- get_filter_info()
+      descriptive_name <- create_descriptive_name("anomalia_velas", filters)
+      generate_filename(descriptive_name, "png")
+    },
+    content = function(file) {
+      tryCatch({
+        df <- anom_mm_candles_full()
+        if (is.null(df) || !nrow(df)) {
+          showNotification("No hay datos suficientes para anomalía", type = "warning")
+          return()
+        }
+        
+        filters <- get_filter_info()
+        descriptive_name <- create_descriptive_name("anomalia_velas", filters)
+        filename <- generate_filename(descriptive_name, "png")
+        
+        # Crear gráfico plotly
+        p <- plotly::plot_ly(
+          type = "candlestick",
+          x = df$x, open = df$O, high = df$H, low = df$L, close = df$C,
+          increasing = list(line = list(color = "#2ca02c")),
+          decreasing = list(line = list(color = "#d62728"))
+        ) |>
+          plotly::layout(
+            xaxis = list(title = "Fecha", showgrid = FALSE),
+            yaxis = list(title = "MM de anomalía (mm³)",
+                         zeroline = TRUE, 
+                         zerolinecolor = "#999", 
+                         showgrid = FALSE),
+            margin = list(l = 60, r = 30, t = 20, b = 50),
+            showlegend = FALSE
+          )
+        
+        # Guardar en servidor y obtener archivo temporal
+        temp_file <- save_image_dual(
+          plot_obj = p,
+          filename = filename,
+          subdir = "anomalia",
+          width = 11,
+          height = 5.2
         )
-      tmp_html <- tempfile(fileext = ".html")
-      htmlwidgets::saveWidget(p, tmp_html, selfcontained = TRUE)
-      webshot2::webshot(tmp_html, file = file,
-                        vwidth = 1100, vheight = 520, zoom = 2)
+        
+        # Copiar archivo temporal al destino de descarga
+        file.copy(temp_file, file, overwrite = TRUE)
+        
+        cat("Anomalía guardada en servidor:", 
+            file.path(img_dirs$anomalia, filename), 
+            "\nCliente:", file, "\n")
+        
+      }, error = function(e) {
+        cat("Error al guardar anomalía:", e$message, "\n")
+        showNotification("Error al guardar la anomalía", type = "error")
+      })
     }
   )
+  
+  # CSV con almacenamiento dual
+  output$dl_csv_expl <- downloadHandler(
+    filename = function() {
+      filters <- get_filter_info()
+      descriptive_name <- create_descriptive_name("datos_filtrados", filters)
+      generate_filename(descriptive_name, "csv")
+    },
+    content = function(file) {
+      tryCatch({
+        datos <- tabla_export()
+        
+        filters <- get_filter_info()
+        descriptive_name <- create_descriptive_name("datos_filtrados", filters)
+        filename <- generate_filename(descriptive_name, "csv")
+        
+        # 1. Guardar en servidor
+        server_path <- file.path(img_dirs$csv, filename)
+        
+        # Crear directorio si no existe
+        if (!dir.exists(dirname(server_path))) {
+          dir.create(dirname(server_path), recursive = TRUE, showWarnings = FALSE)
+        }
+        
+        readr::write_csv(datos, server_path, na = "")
+        
+        # 2. Crear archivo temporal para descarga
+        temp_file <- tempfile(fileext = ".csv")
+        readr::write_csv(datos, temp_file, na = "")
+        
+        # 3. Copiar al destino
+        file.copy(temp_file, file, overwrite = TRUE)
+        
+        cat("CSV guardado en servidor:", server_path, "\nCliente:", file, "\n")
+        
+      }, error = function(e) {
+        cat("Error al guardar CSV:", e$message, "\n")
+        showNotification("Error al guardar el CSV", type = "error")
+      })
+    }
+  )
+  
+  # Panel de administración para ver archivos en servidor
+  output$server_files_list <- renderPrint({
+    cat("=== ARCHIVOS EN SERVIDOR ===\n\n")
+    
+    cat("1. Mapas:\n")
+    mapas <- list.files(img_dirs$mapas, pattern = "\\.png$", full.names = FALSE)
+    if (length(mapas) > 0) {
+      cat(paste(mapas, collapse = "\n"), "\n")
+    } else {
+      cat("No hay archivos\n")
+    }
+    
+    cat("\n2. Series temporales:\n")
+    series <- list.files(img_dirs$series, pattern = "\\.png$", full.names = FALSE)
+    if (length(series) > 0) {
+      cat(paste(series, collapse = "\n"), "\n")
+    } else {
+      cat("No hay archivos\n")
+    }
+    
+    cat("\n3. Rankings:\n")
+    rankings <- list.files(img_dirs$ranking, pattern = "\\.png$", full.names = FALSE)
+    if (length(rankings) > 0) {
+      cat(paste(rankings, collapse = "\n"), "\n")
+    } else {
+      cat("No hay archivos\n")
+    }
+    
+    cat("\n4. Anomalías:\n")
+    anomalias <- list.files(img_dirs$anomalia, pattern = "\\.png$", full.names = FALSE)
+    if (length(anomalias) > 0) {
+      cat(paste(anomalias, collapse = "\n"), "\n")
+    } else {
+      cat("No hay archivos\n")
+    }
+    
+    cat("\n5. CSV:\n")
+    csvs <- list.files(img_dirs$csv, pattern = "\\.csv$", full.names = FALSE)
+    if (length(csvs) > 0) {
+      cat(paste(csvs, collapse = "\n"), "\n")
+    } else {
+      cat("No hay archivos\n")
+    }
+    
+    cat("\n=== TOTAL DE ARCHIVOS ===\n")
+    cat(sprintf("Mapas: %d | Series: %d | Rankings: %d | Anomalías: %d | CSV: %d\n",
+                length(mapas), length(series), length(rankings), length(anomalias), length(csvs)))
+  })
+  
+  # ======================================================
+  # REPORTE (R Markdown) — PDF con imágenes + tablas
+  # ======================================================
+  output$dl_report_pdf <- downloadHandler(
+    filename = function() {
+      suf <- if (!is.null(input$freq) && input$freq == "Mensual") {
+        paste0("_", input$f_anio, "_", sprintf("%02d", as.integer(input$f_mes)))
+      } else {
+        paste0("_", safe_chr(input$f_anio))
+      }
+      paste0("Informe_NOAA", suf, "_", Sys.Date(), ".pdf")
+    },
+    content = function(file) {
+      
+      report_dir <- tempfile("noaa_report_")
+      dir.create(report_dir, recursive = TRUE)
+      
+      img_map     <- file.path(report_dir, "mapa.png")
+      img_series  <- file.path(report_dir, "serie.png")
+      img_rank    <- file.path(report_dir, "ranking.png")
+      img_anom    <- file.path(report_dir, "anomalia.png")
+      
+      save_map_png <- function(out_png){
+        widget   <- map_widget_simple()
+        tmp_html <- file.path(report_dir, "mapa.html")
+        htmlwidgets::saveWidget(widget, tmp_html, selfcontained = TRUE)
+        webshot2::webshot(tmp_html, file = out_png, vwidth = 1300, vheight = 900, zoom = 2)
+      }
+      
+      save_series_png <- function(out_png){
+        df <- series_data()
+        if (!nrow(df)) { file.create(out_png); return() }
+        
+        max_val  <- max(df$valor_total, na.rm = TRUE)
+        breaks_y <- pretty(c(0, max_val), n = 5)
+        breaks_y <- breaks_y[breaks_y >= 0]
+        
+        if (!is.null(input$freq) && input$freq == "Mensual") {
+          g <- ggplot(df, aes(x=mes, y=valor_total)) +
+            geom_line(linewidth=0.9, color=SERIES_CLR) +
+            geom_point(size=2.2, color=SERIES_CLR) +
+            scale_x_continuous(breaks=1:12, labels=c("Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic")) +
+            scale_y_continuous(labels = format_short, breaks = breaks_y) +
+            labs(x="Mes", y="Precipitación (mm³)",
+                 title=paste0("Evolución mensual (", input$f_anio, ")")) +
+            theme_minimal(base_size=12) +
+            theme(
+              panel.grid.minor   = element_blank(),
+              panel.grid.major.x = element_blank(),
+              panel.grid.major.y = element_line(color = "#e5e7eb")
+            )
+        } else {
+          g <- ggplot(df, aes(x=anio, y=valor_total)) +
+            geom_line(linewidth=0.9, color=SERIES_CLR) +
+            geom_point(size=2.2, color=SERIES_CLR) +
+            scale_x_continuous(breaks=unique(df$anio)) +
+            scale_y_continuous(labels = format_short, breaks = breaks_y) +
+            labs(x=NULL, y="Precipitación (mm³)",
+                 title="Evolución anual de la precipitación (mm³)") +
+            theme_minimal(base_size=12) +
+            theme(
+              panel.grid.minor   = element_blank(),
+              panel.grid.major.x = element_blank(),
+              panel.grid.major.y = element_line(color = "#e5e7eb")
+            )
+        }
+        
+        ggsave(filename=out_png, plot=g, device=ragg::agg_png,
+               width=10, height=5, dpi=220, units="in")
+      }
+      
+      save_rank_png <- function(out_png){
+        plot_df <- ranking_data() |>
+          dplyr::mutate(etiqueta = title_case_es(MUNICIPIO_D))
+        if (!nrow(plot_df)) { file.create(out_png); return() }
+        
+        max_val <- max(plot_df$valor_total, na.rm = TRUE)
+        breaks  <- pretty(c(0, max_val), n = 5)
+        breaks  <- breaks[breaks >= 0]
+        
+        g <- ggplot(plot_df,
+                    aes(x = valor_total, y = reorder(etiqueta, -valor_total))) +
+          geom_col(fill = RANKING_CLR) +
+          geom_text(aes(x = valor_total/2, label = fmt_num(valor_total, accuracy = 0.1)),
+                    color = "white", size = 3) +
+          scale_x_continuous(labels = format_short, breaks = breaks,
+                             expand = expansion(mult = c(0, 0.05))) +
+          labs(x="Precipitación (mm³)", y=NULL, title="Top 10 municipios (mm³)") +
+          theme_minimal(base_size=12) +
+          theme(
+            axis.text.y = element_text(size=9),
+            plot.margin = margin(r=30),
+            panel.grid.minor = element_blank(),
+            panel.grid.major = element_blank()
+          )
+        
+        ggsave(filename=out_png, plot=g, device=ragg::agg_png,
+               width=10, height=6, dpi=220, units="in")
+      }
+      
+      save_anom_png <- function(out_png){
+        dfc <- anom_mm_candles_full()
+        if (is.null(dfc) || !nrow(dfc)) { file.create(out_png); return() }
+        
+        p <- plotly::plot_ly(
+          type  = "candlestick",
+          x     = dfc$x, open = dfc$O, high = dfc$H, low = dfc$L, close = dfc$C,
+          increasing = list(line = list(color = "#2ca02c")),
+          decreasing = list(line = list(color = "#d62728"))
+        ) |>
+          plotly::layout(
+            xaxis = list(title = "Fecha", showgrid=FALSE),
+            yaxis = list(title = "Anomalía (mm³)", zeroline = TRUE,
+                         zerolinecolor = "#999", showgrid=FALSE),
+            margin = list(l=60, r=30, t=20, b=50),
+            showlegend = FALSE
+          )
+        
+        tmp_html <- file.path(report_dir, "anom.html")
+        htmlwidgets::saveWidget(p, tmp_html, selfcontained = TRUE)
+        webshot2::webshot(tmp_html, file = out_png, vwidth = 1300, vheight = 650, zoom = 2)
+      }
+      
+      save_map_png(img_map)
+      save_series_png(img_series)
+      save_rank_png(img_rank)
+      save_anom_png(img_anom)
+      
+      filtros_tbl <- data.frame(
+        Parametro = c("Frecuencia", "Año", "Mes", "Departamento", "Municipio"),
+        Valor = c(
+          safe_chr(input$freq),
+          safe_chr(input$f_anio),
+          if (!is.null(input$freq) && input$freq=="Mensual") nombre_mes(input$f_mes) else "—",
+          if (is.null(input$f_depto) || input$f_depto=="Todos") "Todos" else title_case_es(code_to_depto_name(input$f_depto)),
+          if (is.null(input$f_mpio)  || input$f_mpio =="Todos") "Todos" else title_case_es(input$f_mpio)
+        ),
+        stringsAsFactors = FALSE
+      )
+      
+      serie_tbl <- series_data()
+      if (!is.null(input$freq) && input$freq=="Mensual" && nrow(serie_tbl)) {
+        serie_tbl <- serie_tbl |> dplyr::mutate(Mes = nombre_mes(mes)) |> dplyr::select(Mes, valor_total)
+      } else if (nrow(serie_tbl)) {
+        serie_tbl <- serie_tbl |> dplyr::select(anio, valor_total)
+      }
+      
+      ranking_tbl <- ranking_data() |>
+        dplyr::mutate(
+          Municipio = title_case_es(MUNICIPIO_D),
+          Departamento = title_case_es(DEPARTAMENTO_D)
+        ) |>
+        dplyr::select(Municipio, Departamento, valor_total)
+      
+      datos_tbl <- tabla_export()
+      
+      rmd_src <- file.path(APP_ROOT, "Informe_NOAA.Rmd")
+      if (!file.exists(rmd_src)) stop("No encuentro Informe_NOAA.Rmd en APP_ROOT: ", APP_ROOT)
+      
+      rmd_copy <- file.path(report_dir, "Informe_NOAA.Rmd")
+      file.copy(rmd_src, rmd_copy, overwrite = TRUE)
+      
+      rmarkdown::render(
+        input        = rmd_copy,
+        output_file  = file,
+        params       = list(
+          fecha_reporte = Sys.Date(),
+          filtros_tbl   = filtros_tbl,
+          img_map       = "mapa.png",
+          img_series    = "serie.png",
+          img_rank      = "ranking.png",
+          img_anom      = "anomalia.png",
+          serie_tbl     = serie_tbl,
+          ranking_tbl   = ranking_tbl,
+          datos_tbl     = datos_tbl
+        ),
+        knit_root_dir = report_dir,
+        envir         = new.env(parent = globalenv()),
+        quiet         = TRUE
+      )
+    },
+    contentType = "application/pdf"
+  )
 }
-
 
 shinyApp(ui = ui, server = server)

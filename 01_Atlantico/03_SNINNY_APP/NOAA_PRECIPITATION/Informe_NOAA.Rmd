@@ -1,0 +1,165 @@
+---
+title: "Informe_NOAA"
+author: "Universidad EAFIT"
+date: "`r format(params$fecha_reporte, '%Y-%m-%d')`"
+output:
+  pdf_document:
+    latex_engine: xelatex
+params:
+  fecha_reporte: !r Sys.Date()
+
+  # Tabla de filtros (data.frame con columnas: Parametro, Valor)
+  filtros_tbl: NULL
+
+  # Rutas (o nombres) de imágenes ya exportadas desde Shiny
+  img_map: "mapa.png"
+  img_series: "serie.png"
+  img_rank: "ranking.png"
+  img_anom: "anomalia.png"
+
+  # Tablas opcionales
+  serie_tbl: NULL        # ej: data.frame(mes/anio, valor_total)
+  ranking_tbl: NULL      # ej: data.frame(MUNICIPIO_D, DEPARTAMENTO_D, valor_total)
+  datos_tbl: NULL        # ej: tabla export completa (o muestra)
+header-includes:
+  - \usepackage{float}
+  - \usepackage{booktabs}
+  - \usepackage{graphicx}
+  - \usepackage{array}
+  - \usepackage{xcolor}
+  - \usepackage{geometry}
+  - \geometry{margin=1in}
+---
+
+```{r setup, include=FALSE, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+suppressPackageStartupMessages({
+  library(knitr)
+  library(dplyr)
+  library(kableExtra)
+})
+```
+
+\begin{flushright}
+\textcolor{gray}{Informe generado el: `r format(params$fecha_reporte, "%d-%m-%Y")`}
+\end{flushright}
+
+# Parámetros usados
+
+```{r}
+if (!is.null(params$filtros_tbl) && is.data.frame(params$filtros_tbl) && nrow(params$filtros_tbl) > 0) {
+  params$filtros_tbl %>%
+    knitr::kable(
+      format   = "latex",
+      booktabs = TRUE,
+      col.names = c("Parámetro", "Valor"),
+      align    = c("l","l")
+    ) %>%
+    kable_styling(full_width = FALSE, position = "left")
+} else {
+  cat("No se recibieron parámetros.\n")
+}
+```
+
+# Mapa
+
+```{r, out.width="100%"}
+if (!is.null(params$img_map) && file.exists(params$img_map)) {
+  knitr::include_graphics(params$img_map)
+} else {
+  cat("No se encontró la imagen del mapa:", params$img_map, "\n")
+}
+```
+
+# Serie temporal
+
+```{r, out.width="100%"}
+if (!is.null(params$img_series) && file.exists(params$img_series)) {
+  knitr::include_graphics(params$img_series)
+} else {
+  cat("No se encontró la imagen de la serie:", params$img_series, "\n")
+}
+```
+
+```{r}
+if (!is.null(params$serie_tbl) && is.data.frame(params$serie_tbl) && nrow(params$serie_tbl) > 0) {
+  # Intento de nombres amigables
+  cn <- names(params$serie_tbl)
+  col1 <- cn[1]
+  col2 <- cn[2]
+
+  params$serie_tbl %>%
+    knitr::kable(
+      format   = "latex",
+      booktabs = TRUE,
+      col.names = c(col1, "mm³"),
+      align    = c("l","r")
+    ) %>%
+    kable_styling(full_width = FALSE, position = "left")
+} else {
+  cat("No hay tabla de serie temporal para mostrar.\n")
+}
+```
+
+# Ranking Top 10
+
+```{r, out.width="100%"}
+if (!is.null(params$img_rank) && file.exists(params$img_rank)) {
+  knitr::include_graphics(params$img_rank)
+} else {
+  cat("No se encontró la imagen del ranking:", params$img_rank, "\n")
+}
+```
+
+```{r}
+if (!is.null(params$ranking_tbl) && is.data.frame(params$ranking_tbl) && nrow(params$ranking_tbl) > 0) {
+  # Espera columnas tipo: MUNICIPIO_D, DEPARTAMENTO_D, valor_total
+  rt <- params$ranking_tbl
+
+  # Normaliza si vienen con otros nombres
+  if (!("valor_total" %in% names(rt))) {
+    # si trae otra columna numérica, intenta tomar la última
+    num_cols <- names(rt)[sapply(rt, is.numeric)]
+    if (length(num_cols)) names(rt)[match(num_cols[length(num_cols)], names(rt))] <- "valor_total"
+  }
+
+  rt %>%
+    dplyr::mutate(valor_total = as.numeric(valor_total)) %>%
+    knitr::kable(
+      format   = "latex",
+      booktabs = TRUE,
+      col.names = c("Municipio", "Departamento", "mm³"),
+      align    = c("l","l","r")
+    ) %>%
+    kable_styling(full_width = TRUE, position = "left")
+} else {
+  cat("No hay tabla de ranking para mostrar.\n")
+}
+```
+
+# Anomalía (velas)
+
+```{r, out.width="100%"}
+if (!is.null(params$img_anom) && file.exists(params$img_anom)) {
+  knitr::include_graphics(params$img_anom)
+} else {
+  cat("No se encontró la imagen de anomalía:", params$img_anom, "\n")
+}
+```
+
+# Datos exportados (muestra)
+
+```{r}
+if (!is.null(params$datos_tbl) && is.data.frame(params$datos_tbl) && nrow(params$datos_tbl) > 0) {
+  head(params$datos_tbl, 25) %>%
+    knitr::kable(
+      format   = "latex",
+      booktabs = TRUE,
+      align    = "l"
+    ) %>%
+    kable_styling(full_width = TRUE, position = "left")
+} else {
+  cat("No se recibieron datos exportados.\n")
+}
+```
+

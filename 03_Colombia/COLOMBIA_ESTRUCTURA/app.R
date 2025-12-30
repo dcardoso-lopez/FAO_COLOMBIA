@@ -1,9 +1,11 @@
 # app.R — COLOMBIA_ESTRUCTURA (APP COMPLETA)
 # - ICA unificado (robusto aunque falten archivos)
 # - IDM ajustado a tu estructura municipal (COD_DANE_DPTO_D + valor)
-# - ✅ POBLACIÓN RECONFIGURADA: usa `quinquenio` para joven/activa/mayor y razón de dependencia
+# - POBLACIÓN RECONFIGURADA: usa `quinquenio` para joven/activa/mayor y razón de dependencia
+# - SIPSA ABASTECIMIENTO (041_DANE_SIPSA-Abast_o / _d):
+#     * Pestaña 1: serie temporal nacional (con filtros de grupo/alimento)
+#     * Pestaña 2: mapas departamentales (2 mapas) con opción Origen/Destino
 # - Rutas robustas (funciona con runApp() y source())
-# -------------------------------------------------------------------
 
 suppressWarnings({
   library(shiny); library(bslib); library(shinyWidgets)
@@ -93,7 +95,7 @@ pick_dep_name_col <- function(nms){
 }
 
 # =========================================================
-# ✅ Helpers POBLACIÓN (quinquenio)
+# Helpers POBLACIÓN (quinquenio)
 # =========================================================
 pick_quinquenio_col <- function(nms){
   pick_col_simple(nms, c(
@@ -102,7 +104,6 @@ pick_quinquenio_col <- function(nms){
 }
 
 parse_quinquenio_bounds <- function(q){
-  # Devuelve lower, upper (upper puede ser Inf)
   if (is.null(q)) return(list(lower = NA_real_, upper = NA_real_))
   q <- as.character(q)
   q <- stringi::stri_trim_both(q)
@@ -138,6 +139,44 @@ quinquenio_to_group <- function(q){
   if (is.finite(up) && lo >= 65) return("mayor")
   if (is.finite(up) && lo >= 15 && up <= 64) return("activa")
   NA_character_
+}
+
+# =========================================================
+# SIPSA-ABAST helpers (O/D)
+# =========================================================
+pick_dep_o_col <- function(nms){
+  pick_col_simple(nms, c(
+    "cod_dane_dpto_o","cod_dane_dep_o","cod_dpto_o","dpto_o","dpto_origen","origen",
+    "COD_DANE_DPTO_O","COD_DANE_DPTO_O_","cod_dane_dpto_o"
+  ))
+}
+pick_dep_d_col <- function(nms){
+  pick_col_simple(nms, c(
+    "cod_dane_dpto_d","cod_dane_dep_d","cod_dpto_d","dpto_d","dpto_destino","destino",
+    "COD_DANE_DPTO_D","COD_DANE_DPTO_D_","cod_dane_dpto_d"
+  ))
+}
+pick_ton_col <- function(nms){
+  pick_col_simple(nms, c(
+    "ton","toneladas","ton_total","total_ton","t","cantidad_t","cantidad_ton","volumen_ton"
+  ))
+}
+pick_alimento_col <- function(nms){
+  pick_col_simple(nms, c(
+    "alimento","producto","nombre_producto","producto_nombre","articulo","item"
+  ))
+}
+pick_grupo_col <- function(nms){
+  pick_col_simple(nms, c(
+    "grupo","grupo_alimento","grupo_alimentos","grupo_de_alimentos","grupo_producto"
+  ))
+}
+resolve_rds_path <- function(stem){
+  p1 <- file.path(data_dir, stem)
+  p2 <- file.path(data_dir, paste0(stem, ".rds"))
+  if (file.exists(p1)) return(p1)
+  if (file.exists(p2)) return(p2)
+  p2
 }
 
 # =========================================================
@@ -252,6 +291,10 @@ sistemas_df <- tibble::tribble(
   "UPRA_APADT",               list("014_UPRA_APADT.rds"),
   "UPRA_FA",                  list("013_UPRA_FA_Proporcion FA_Total municipal.rds"),
   "UPRA_EVA_A",               list("011_UPRA_EVA-A.rds"),
+  "DANE_SIPSA_ABAST",         list(
+    "041_DANE_SIPSA-Abast_d.rds",
+    "041_DANE_SIPSA-Abast_o.rds"
+  ),
   "ICA_CENSO_PECUARIO",       list(
     "101_ICA_CensoPecuario-Bovino.rds",
     "102_ICA_CensoPecuario-Porcino.rds",
@@ -269,11 +312,12 @@ indicadores_df <- tibble::tribble(
   "Planificación productiva: Área potencial de riego o drenaje para las actividades agropecuarias", "Estructura", "UPRA_APADT",
   "Planificación productiva: Ordenamiento a partir de la frontera agropecuaria con enfoque territorial", "Estructura", "UPRA_FA",
   "Condiciones productivas de los productos agroalimentarios",            "Estructura", "UPRA_EVA_A",
+  "Abastecimiento alimentario (SIPSA): dinámica por origen y destino", "Estructura", "DANE_SIPSA_ABAST",
   "Inventarios pecuarios territoriales",                                  "Estructura", "ICA_CENSO_PECUARIO"
 )
 
 # =========================================================
-# ORDEN DEL SCROLL (Estructura) — solicitado (ICA unificada)
+# ORDEN DEL SCROLL (Estructura)
 # =========================================================
 choices_por_dimension <- function(dim){
   
@@ -282,6 +326,7 @@ choices_por_dimension <- function(dim){
     "UPRA_APADT",
     "HANSEN_COBERTURA_BOSQUE",
     "UPRA_EVA_A",
+    "DANE_SIPSA_ABAST",
     "DANE_POPULATION",
     "DNP-IDM",
     "ICA_CENSO_PECUARIO"
@@ -312,6 +357,7 @@ base_to_indicator_code <- function(sistema){
     "UPRA_APADT"              = "UPRA_APADT",
     "UPRA_FA"                 = "UPRA_FA",
     "UPRA_EVA_A"              = "EVA",
+    "DANE_SIPSA_ABAST"        = "SIPSA_ABAST",
     "ICA_CENSO_PECUARIO"      = "ICA",
     NA_character_
   )
@@ -338,6 +384,15 @@ eva_metric_choices <- c(
   "Producción (t)"             = "produccion_t"
 )
 
+# SIPSA-ABAST: Opciones para filtros
+sipsa_enfoque_choices <- c(
+  "Destino (D)" = "D",
+  "Origen (O)"  = "O"
+)
+
+sipsa_grupo_choices <- c("Todos los grupos" = "__ALL__")
+sipsa_alimento_choices <- c("Todos los alimentos" = "__ALL__")
+
 lbl <- function(x) div(class = "filter-label", x)
 
 selector_base <- function(input_id, dimension){
@@ -361,7 +416,7 @@ normalize_cod_dep <- function(x){
 }
 
 # =========================================================
-# ✅ ICA (CORREGIDO): siempre existe ica_long (aunque no haya archivos)
+# ICA (CORREGIDO): siempre existe ica_long (aunque no haya archivos)
 # =========================================================
 ica_long <- tibble::tibble(
   ano = integer(),
@@ -516,7 +571,7 @@ make_ica_ts_plot_unified <- function(animal_sel = "Bovinos"){
 }
 
 # =========================================================
-# ✅ SERIES (NACIONAL) — DANE POBLACIÓN (desde quinquenio)
+# SERIES (NACIONAL) — DANE POBLACIÓN (desde quinquenio)
 # =========================================================
 pob_ts <- tryCatch({
   p_path <- file.path(data_dir, "051_DANE_Proyecciones_P.rds")
@@ -692,7 +747,7 @@ make_hansen_ts_plot <- function(metric_code){
 }
 
 # =========================================================
-# ✅ IDM — AJUSTADO A TU BASE MUNICIPAL (COD_DANE_DPTO_D + valor)
+# IDM — AJUSTADO A TU BASE MUNICIPAL (COD_DANE_DPTO_D + valor)
 # =========================================================
 idm_raw <- tibble::tibble(
   ano         = integer(),
@@ -713,9 +768,9 @@ idm_raw <- tryCatch({
   
   nms <- names(df)
   
-  col_ano <- pick_year_col(nms)                 # "ano"
-  col_val <- pick_col_simple(nms, c("valor"))   # "valor"
-  col_dep <- pick_dep_col(nms)                  # "COD_DANE_DPTO_D"
+  col_ano <- pick_year_col(nms)
+  col_val <- pick_col_simple(nms, c("valor"))
+  col_dep <- pick_dep_col(nms)
   
   if (any(is.na(c(col_ano, col_val, col_dep)))) {
     message("IDM: faltan columnas clave (ano/valor/depto).")
@@ -734,7 +789,6 @@ idm_raw <- tryCatch({
   idm_raw
 })
 
-# En tu RDS no hay segmento/cuadrante -> dejamos solo promedio nacional
 idm_seg_choices <- c("Promedio nacional" = "__ALL__")
 
 make_idm_ts_plot <- function(segmento = "__ALL__"){
@@ -1048,6 +1102,199 @@ make_eva_ts_plot_dual <- function(cultivo_sel = "__ALL__"){
 }
 
 # =========================================================
+# SIPSA-ABAST (041_..._d / _o) — lectura + filtros
+# =========================================================
+sipsa_abast_raw_d <- NULL
+sipsa_abast_raw_o <- NULL
+
+read_sipsa_abast <- function(stem){
+  p <- resolve_rds_path(stem)
+  if (!file.exists(p)) {
+    message("SIPSA-ABAST: no existe -> ", p)
+    return(NULL)
+  }
+  df <- tryCatch(readRDS(p), error = function(e){
+    message("SIPSA-ABAST: error leyendo ", p, " -> ", e$message)
+    NULL
+  })
+  if (is.null(df) || !nrow(df)) return(NULL)
+  
+  nms <- names(df)
+  col_ano <- pick_year_col(nms)
+  col_o   <- pick_dep_o_col(nms)
+  col_d   <- pick_dep_d_col(nms)
+  col_ton <- pick_ton_col(nms)
+  col_al  <- pick_alimento_col(nms)
+  col_gr  <- pick_grupo_col(nms)
+  
+  if (is.na(col_ano)) {
+    message("SIPSA-ABAST: falta columna de año en ", p)
+    return(NULL)
+  }
+  
+  tibble::tibble(
+    ano   = suppressWarnings(as.integer(df[[col_ano]])),
+    dep_o = if (!is.na(col_o)) normalize_cod_dep(df[[col_o]]) else NA_character_,
+    dep_d = if (!is.na(col_d)) normalize_cod_dep(df[[col_d]]) else NA_character_,
+    ton   = if (!is.na(col_ton)) parse_num_co(df[[col_ton]]) else NA_real_,
+    alimento = if (!is.na(col_al)) stringi::stri_trim_both(as.character(df[[col_al]])) else NA_character_,
+    grupo    = if (!is.na(col_gr)) stringi::stri_trim_both(as.character(df[[col_gr]])) else NA_character_
+  ) %>%
+    dplyr::filter(!is.na(ano))
+}
+
+# Leer ambas bases (Destino y Origen)
+sipsa_abast_raw_d <- read_sipsa_abast("041_DANE_SIPSA-Abast_d.rds")
+sipsa_abast_raw_o <- read_sipsa_abast("041_DANE_SIPSA-Abast_o.rds")
+
+# Función para obtener datos de grupo/alimento de una base
+get_sipsa_filtros <- function(df){
+  if (is.null(df)) return(list(grupos = character(0), alimentos = character(0)))
+  
+  grupos <- if ("grupo" %in% names(df)) {
+    sort(unique(df$grupo[!is.na(df$grupo) & df$grupo != ""]))
+  } else {
+    character(0)
+  }
+  
+  alimentos <- if ("alimento" %in% names(df)) {
+    sort(unique(df$alimento[!is.na(df$alimento) & df$alimento != ""]))
+  } else {
+    character(0)
+  }
+  
+  list(grupos = grupos, alimentos = alimentos)
+}
+
+# Obtener filtros de Destino (para inicializar)
+filtros_d <- get_sipsa_filtros(sipsa_abast_raw_d)
+filtros_o <- get_sipsa_filtros(sipsa_abast_raw_o)
+
+# Actualizar opciones de filtros (inicialmente con Destino)
+sipsa_grupo_choices_d <- c("Todos los grupos" = "__ALL__", stats::setNames(filtros_d$grupos, filtros_d$grupos))
+sipsa_alimento_choices_d <- c("Todos los alimentos" = "__ALL__", stats::setNames(filtros_d$alimentos, filtros_d$alimentos))
+
+sipsa_grupo_choices_o <- c("Todos los grupos" = "__ALL__", stats::setNames(filtros_o$grupos, filtros_o$grupos))
+sipsa_alimento_choices_o <- c("Todos los alimentos" = "__ALL__", stats::setNames(filtros_o$alimentos, filtros_o$alimentos))
+
+# Función para gráfica de series temporales de toneladas por año
+make_sipsa_ts_plot <- function(enfoque = "D", grupo_sel = "__ALL__", alimento_sel = "__ALL__"){
+  if (is.null(sipsa_abast_raw_d) && is.null(sipsa_abast_raw_o)) {
+    return(empty_ts_plot("Sin datos SIPSA-Abastecimiento disponibles."))
+  }
+  
+  # Seleccionar base según enfoque
+  df <- if (enfoque == "D") sipsa_abast_raw_d else sipsa_abast_raw_o
+  
+  if (is.null(df) || !nrow(df)) {
+    return(empty_ts_plot("Sin datos para el enfoque seleccionado."))
+  }
+  
+  grupo_sel <- grupo_sel %||% "__ALL__"
+  alimento_sel <- alimento_sel %||% "__ALL__"
+  
+  # Aplicar filtros
+  if (!is.null(grupo_sel) && grupo_sel != "__ALL__") {
+    df <- df %>% dplyr::filter(grupo == grupo_sel)
+  }
+  
+  if (!is.null(alimento_sel) && alimento_sel != "__ALL__") {
+    df <- df %>% dplyr::filter(alimento == alimento_sel)
+  }
+  
+  if (!nrow(df)) return(empty_ts_plot("Sin datos para los filtros seleccionados."))
+  
+  # Agrupar por año
+  ts <- df %>%
+    dplyr::group_by(ano) %>%
+    dplyr::summarise(
+      toneladas = sum(ton, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    dplyr::arrange(ano)
+  
+  if (!nrow(ts) || all(is.na(ts$toneladas))) {
+    return(empty_ts_plot("Sin datos válidos para los filtros seleccionados."))
+  }
+  
+  ticks_x <- year_ticks_2(ts$ano)
+  
+  # Crear gráfico de líneas
+  plotly::plot_ly(
+    data = ts, 
+    x = ~ano, 
+    y = ~toneladas,
+    type = "scatter",
+    mode = "lines+markers",
+    line = list(width = 2),
+    marker = list(size = 6),
+    customdata = fmt_short(ts$toneladas),
+    hovertemplate = "<b>Año:</b> %{x}<br><b>Toneladas:</b> %{customdata}<extra></extra>"
+  ) %>%
+    plotly::layout(
+      title = NULL,
+      xaxis = list(
+        title = "",
+        tickmode = "array", 
+        tickvals = ticks_x, 
+        ticktext = ticks_x,
+        tickangle = 0, 
+        showgrid = FALSE, 
+        automargin = TRUE
+      ),
+      yaxis = list(
+        title = "Toneladas movilizadas",
+        showgrid = FALSE, 
+        automargin = TRUE
+      ),
+      margin = list(l = 70, r = 20, t = 10, b = 60),
+      hovermode = "x unified",
+      hoverlabel = PLOTLY_HOVERLABEL,
+      plot_bgcolor  = "rgba(0,0,0,0)",
+      paper_bgcolor = "rgba(0,0,0,0)"
+    )
+}
+
+# =========================================================
+# Departamental (mapas) para SIPSA (ambos enfoques)
+# =========================================================
+sipsa_abast_dep_all <- tryCatch({
+  # Datos de Destino
+  dep_d <- if (!is.null(sipsa_abast_raw_d)) {
+    sipsa_abast_raw_d %>%
+      dplyr::filter(!is.na(dep_d)) %>%
+      dplyr::group_by(ano, cod_dep = dep_d) %>%
+      dplyr::summarise(
+        ton = sum(ton, na.rm = TRUE),
+        .groups = "drop"
+      ) %>%
+      dplyr::mutate(enfoque = "D")
+  } else {
+    NULL
+  }
+  
+  # Datos de Origen
+  dep_o <- if (!is.null(sipsa_abast_raw_o)) {
+    sipsa_abast_raw_o %>%
+      dplyr::filter(!is.na(dep_o)) %>%
+      dplyr::group_by(ano, cod_dep = dep_o) %>%
+      dplyr::summarise(
+        ton = sum(ton, na.rm = TRUE),
+        .groups = "drop"
+      ) %>%
+      dplyr::mutate(enfoque = "O")
+  } else {
+    NULL
+  }
+  
+  # Combinar
+  dplyr::bind_rows(dep_d, dep_o)
+}, error = function(e) {
+  message("Error creando sipsa_abast_dep_all: ", e$message)
+  NULL
+})
+
+# =========================================================
 # Tarjetas (UI)
 # =========================================================
 card_box <- function(title, body){
@@ -1085,8 +1332,6 @@ if (!is.null(shp_dep)) {
 # =========================================================
 # Datos departamentales para mapas (agregados por año)
 # =========================================================
-
-# ✅ IDM a nivel departamental (promedio de municipios)
 idm_dep_all <- tryCatch({
   if (is.null(idm_raw) || !nrow(idm_raw)) return(NULL)
   idm_raw %>%
@@ -1187,9 +1432,6 @@ apadt_dep_all <- tryCatch({
     dplyr::mutate(valor = dplyr::if_else(area_tot_ha > 0, 100 * area_pot_ha / area_tot_ha, NA_real_))
 }, error = function(e) NULL)
 
-# =========================================================
-# ✅ POBLACIÓN departamental (desde quinquenio)
-# =========================================================
 pob_dep_all <- tryCatch({
   p <- file.path(data_dir, "051_DANE_Proyecciones_P.rds")
   if (!file.exists(p)) return(NULL)
@@ -1254,13 +1496,14 @@ ica_dep_all <- tryCatch({
 }, error = function(e) NULL)
 
 all_years_dep <- sort(unique(c(
-  if (!is.null(pob_dep_all))    pob_dep_all$ano,
-  if (!is.null(idm_dep_all))    idm_dep_all$ano,
-  if (!is.null(hansen_dep_all)) hansen_dep_all$ano,
+  if (!is.null(pob_dep_all))     pob_dep_all$ano,
+  if (!is.null(idm_dep_all))     idm_dep_all$ano,
+  if (!is.null(hansen_dep_all))  hansen_dep_all$ano,
   if (!is.null(upra_fa_dep_all)) upra_fa_dep_all$ano,
-  if (!is.null(apadt_dep_all))  apadt_dep_all$ano,
-  if (!is.null(eva_dep_all))    eva_dep_all$ano,
-  if (!is.null(ica_dep_all))    ica_dep_all$ano
+  if (!is.null(apadt_dep_all))   apadt_dep_all$ano,
+  if (!is.null(eva_dep_all))     eva_dep_all$ano,
+  if (!is.null(ica_dep_all))     ica_dep_all$ano,
+  if (!is.null(sipsa_abast_dep_all)) sipsa_abast_dep_all$ano
 )), na.last = NA)
 
 default_fixed_year <- if (length(all_years_dep)) max(all_years_dep, na.rm = TRUE) else NA_integer_
@@ -1470,6 +1713,23 @@ server <- function(input, output, session){
         div(lbl("Cultivo"),
             selectInput("estr_eva_cultivo", label = NULL, choices = eva_cultivo_choices, selected = "__ALL__"))
       )
+    } else if (base_sel == "DANE_SIPSA_ABAST") {
+      # Actualizar opciones de filtros dinámicamente según enfoque
+      enfoque_actual <- input$estr_sipsa_enfoque %||% "D"
+      grupo_choices <- if (enfoque_actual == "D") sipsa_grupo_choices_d else sipsa_grupo_choices_o
+      alimento_choices <- if (enfoque_actual == "D") sipsa_alimento_choices_d else sipsa_alimento_choices_o
+      
+      tagList(
+        div(lbl("Enfoque"),
+            selectInput("estr_sipsa_enfoque", label = NULL,
+                        choices = sipsa_enfoque_choices, selected = "D")),
+        div(lbl("Grupo de alimentos"),
+            selectInput("estr_sipsa_grupo", label = NULL,
+                        choices = grupo_choices, selected = "__ALL__")),
+        div(lbl("Alimento específico"),
+            selectInput("estr_sipsa_alimento", label = NULL,
+                        choices = alimento_choices, selected = "__ALL__"))
+      )
     } else if (base_sel == "ICA_CENSO_PECUARIO") {
       tagList(
         div(lbl("Tipo de animal (ICA)"),
@@ -1479,6 +1739,16 @@ server <- function(input, output, session){
     } else {
       NULL
     }
+  })
+  
+  # ----- Observador para actualizar filtros de grupo/alimento cuando cambia el enfoque -----
+  observeEvent(input$estr_sipsa_enfoque, {
+    enfoque_actual <- input$estr_sipsa_enfoque %||% "D"
+    grupo_choices <- if (enfoque_actual == "D") sipsa_grupo_choices_d else sipsa_grupo_choices_o
+    alimento_choices <- if (enfoque_actual == "D") sipsa_alimento_choices_d else sipsa_alimento_choices_o
+    
+    updateSelectInput(session, "estr_sipsa_grupo", choices = grupo_choices, selected = "__ALL__")
+    updateSelectInput(session, "estr_sipsa_alimento", choices = alimento_choices, selected = "__ALL__")
   })
   
   # ----- UI del panel izquierdo (Pestaña 1) -----
@@ -1510,6 +1780,12 @@ server <- function(input, output, session){
       make_idm_ts_plot(input$estr_idm_segmento %||% "__ALL__")
     } else if (base_sel == "UPRA_EVA_A") {
       make_eva_ts_plot_dual(input$estr_eva_cultivo %||% "__ALL__")
+    } else if (base_sel == "DANE_SIPSA_ABAST") {
+      make_sipsa_ts_plot(
+        enfoque = input$estr_sipsa_enfoque %||% "D",
+        grupo_sel = input$estr_sipsa_grupo %||% "__ALL__",
+        alimento_sel = input$estr_sipsa_alimento %||% "__ALL__"
+      )
     } else if (base_sel == "ICA_CENSO_PECUARIO") {
       make_ica_ts_plot_unified(input$estr_ica_animal %||% names(ica_animal_choices)[1] %||% "Bovinos")
     } else if (base_sel %in% c("UPRA_FA","UPRA_APADT")) {
@@ -1630,6 +1906,62 @@ server <- function(input, output, session){
       last_rows = list(list(k="Año", v=na_txt()), list(k="Valor", v=na_txt())),
       growth_rows = list(list(k="Año anterior", v=na_txt()), list(k="Tasa de crecimiento", v=na_txt()))
     )
+    
+    # ---- SIPSA-ABAST ----
+    if (base_sel == "DANE_SIPSA_ABAST") {
+      enfoque_sel <- input$estr_sipsa_enfoque %||% "D"
+      grupo_sel <- input$estr_sipsa_grupo %||% "__ALL__"
+      alimento_sel <- input$estr_sipsa_alimento %||% "__ALL__"
+      
+      # Seleccionar base según enfoque
+      df <- if (enfoque_sel == "D") sipsa_abast_raw_d else sipsa_abast_raw_o
+      
+      if (is.null(df) || !nrow(df)) return(out)
+      
+      # Filtrar datos
+      if (grupo_sel != "__ALL__") df <- df %>% dplyr::filter(grupo == grupo_sel)
+      if (alimento_sel != "__ALL__") df <- df %>% dplyr::filter(alimento == alimento_sel)
+      
+      if (!nrow(df)) return(out)
+      
+      # Agrupar por año
+      ts <- df %>%
+        dplyr::group_by(ano) %>%
+        dplyr::summarise(toneladas = sum(ton, na.rm = TRUE), .groups = "drop") %>%
+        dplyr::arrange(ano)
+      
+      if (!nrow(ts)) return(out)
+      
+      last_year <- max(ts$ano, na.rm = TRUE)
+      last <- ts %>% dplyr::filter(ano == last_year) %>% dplyr::slice(1)
+      prev <- ts %>% dplyr::filter(ano == (last_year - 1)) %>% dplyr::slice(1)
+      
+      val_last <- last$toneladas
+      val_prev <- if (nrow(prev)) prev$toneladas else NA_real_
+      gr <- safe_growth(val_last, val_prev)
+      
+      # Texto descriptivo
+      enfoque_txt <- if (enfoque_sel == "D") "Destino (D)" else "Origen (O)"
+      grupo_txt <- if (grupo_sel == "__ALL__") "todos los grupos" else grupo_sel
+      alimento_txt <- if (alimento_sel == "__ALL__") "todos los alimentos" else alimento_sel
+      
+      out$story <- sprintf(
+        "La serie presenta el total de toneladas movilizadas con enfoque %s. Filtrado por %s y %s. En %d, el volumen total es %s. La variación interanual es %s.",
+        enfoque_txt, grupo_txt, alimento_txt, last_year, fmt_short(val_last),
+        ifelse(is.na(gr), "NA", fmt_pct(100*gr, 1))
+      )
+      
+      out$last_rows <- list(
+        list(k="Enfoque", v=enfoque_txt),
+        list(k="Año", v=as.character(last_year)),
+        list(k="Toneladas movilizadas", v=fmt_short(val_last))
+      )
+      out$growth_rows <- list(
+        list(k="Año anterior", v=if (nrow(prev)) as.character(last_year-1) else na_txt()),
+        list(k="Tasa de crecimiento", v=ifelse(is.na(gr), na_txt(), fmt_pct(100*gr, 1)))
+      )
+      return(out)
+    }
     
     # ---- ICA (unificado) ----
     if (base_sel == "ICA_CENSO_PECUARIO") {
@@ -1904,13 +2236,14 @@ server <- function(input, output, session){
   
   get_dep_data <- function(ind_code){
     switch(ind_code,
-           "POBLACION"  = pob_dep_all,
-           "IDM"        = idm_dep_all,
-           "HANSEN"     = hansen_dep_all,
-           "UPRA_FA"    = upra_fa_dep_all,
-           "UPRA_APADT" = apadt_dep_all,
-           "EVA"        = eva_dep_all,
-           "ICA"        = ica_dep_all,
+           "POBLACION"   = pob_dep_all,
+           "IDM"         = idm_dep_all,
+           "HANSEN"      = hansen_dep_all,
+           "UPRA_FA"     = upra_fa_dep_all,
+           "UPRA_APADT"  = apadt_dep_all,
+           "EVA"         = eva_dep_all,
+           "SIPSA_ABAST" = sipsa_abast_dep_all,
+           "ICA"         = ica_dep_all,
            NULL
     )
   }
@@ -1941,6 +2274,24 @@ server <- function(input, output, session){
             selectInput(paste0(output_id, "_eva_cultivo"), label = NULL, choices = eva_cultivo_choices, selected = "__ALL__")
           )
         )
+      } else if (base_sel == "DANE_SIPSA_ABAST") {
+        tagList(
+          div(
+            lbl("Enfoque SIPSA-Abastecimiento"),
+            selectInput(paste0(output_id, "_sipsa_enfoque"), label = NULL,
+                        choices = sipsa_enfoque_choices, selected = "D")
+          ),
+          div(
+            lbl("Grupo de alimentos"),
+            selectInput(paste0(output_id, "_sipsa_grupo"), label = NULL,
+                        choices = sipsa_grupo_choices_d, selected = "__ALL__")
+          ),
+          div(
+            lbl("Alimento específico"),
+            selectInput(paste0(output_id, "_sipsa_alimento"), label = NULL,
+                        choices = sipsa_alimento_choices_d, selected = "__ALL__")
+          )
+        )
       } else if (base_sel == "ICA_CENSO_PECUARIO") {
         div(
           lbl("Tipo de animal (ICA)"),
@@ -1954,6 +2305,25 @@ server <- function(input, output, session){
   }
   render_extra_map("estr_base2_map1", "map1_extra")
   render_extra_map("estr_base2_map2", "map2_extra")
+  
+  # Observadores para actualizar filtros de grupo/alimento en mapas cuando cambia el enfoque
+  observeEvent(input$map1_extra_sipsa_enfoque, {
+    enfoque_actual <- input$map1_extra_sipsa_enfoque %||% "D"
+    grupo_choices <- if (enfoque_actual == "D") sipsa_grupo_choices_d else sipsa_grupo_choices_o
+    alimento_choices <- if (enfoque_actual == "D") sipsa_alimento_choices_d else sipsa_alimento_choices_o
+    
+    updateSelectInput(session, "map1_extra_sipsa_grupo", choices = grupo_choices, selected = "__ALL__")
+    updateSelectInput(session, "map1_extra_sipsa_alimento", choices = alimento_choices, selected = "__ALL__")
+  })
+  
+  observeEvent(input$map2_extra_sipsa_enfoque, {
+    enfoque_actual <- input$map2_extra_sipsa_enfoque %||% "D"
+    grupo_choices <- if (enfoque_actual == "D") sipsa_grupo_choices_d else sipsa_grupo_choices_o
+    alimento_choices <- if (enfoque_actual == "D") sipsa_alimento_choices_d else sipsa_alimento_choices_o
+    
+    updateSelectInput(session, "map2_extra_sipsa_grupo", choices = grupo_choices, selected = "__ALL__")
+    updateSelectInput(session, "map2_extra_sipsa_alimento", choices = alimento_choices, selected = "__ALL__")
+  })
   
   output$map1_year_ui <- renderUI({
     lock <- input$lock_years %||% FALSE
@@ -2009,12 +2379,44 @@ server <- function(input, output, session){
       if (cul != "__ALL__") df <- df %>% dplyr::filter(cultivo == cul)
       if (!nrow(df)) return(NULL)
       df <- df %>% dplyr::mutate(valor = .data[[met]])
+    } else if (ind_sel == "SIPSA_ABAST") {
+      enfoque_sel <- input$map1_extra_sipsa_enfoque %||% "D"
+      grupo_sel <- input$map1_extra_sipsa_grupo %||% "__ALL__"
+      alimento_sel <- input$map1_extra_sipsa_alimento %||% "__ALL__"
+      
+      # Seleccionar base según enfoque
+      df_base <- if (enfoque_sel == "D") sipsa_abast_raw_d else sipsa_abast_raw_o
+      if (is.null(df_base)) return(NULL)
+      
+      df_filtered <- df_base %>%
+        dplyr::filter(ano == as.integer(yr))
+      
+      if (grupo_sel != "__ALL__") {
+        df_filtered <- df_filtered %>% dplyr::filter(grupo == grupo_sel)
+      }
+      
+      if (alimento_sel != "__ALL__") {
+        df_filtered <- df_filtered %>% dplyr::filter(alimento == alimento_sel)
+      }
+      
+      if (!nrow(df_filtered)) return(NULL)
+      
+      # Agrupar según enfoque
+      if (enfoque_sel == "D") {
+        df <- df_filtered %>%
+          dplyr::group_by(ano, cod_dep = dep_d) %>%
+          dplyr::summarise(valor = sum(ton, na.rm = TRUE), .groups = "drop")
+      } else {
+        df <- df_filtered %>%
+          dplyr::group_by(ano, cod_dep = dep_o) %>%
+          dplyr::summarise(valor = sum(ton, na.rm = TRUE), .groups = "drop")
+      }
     } else if (ind_sel == "ICA") {
       ani <- input$map1_extra_ica_animal %||% names(ica_animal_choices)[1] %||% "Bovinos"
       df <- df %>% dplyr::filter(animal == ani)
       if (!nrow(df)) return(NULL)
     }
-    # IDM ya viene como df$valor
+    # IDM / UPRA_FA / UPRA_APADT ya vienen como df$valor
     
     if (!nrow(df) || is.null(shp_dep) || is.na(dep_code_col_shp)) return(NULL)
     shp <- shp_dep
@@ -2052,12 +2454,44 @@ server <- function(input, output, session){
       if (cul != "__ALL__") df <- df %>% dplyr::filter(cultivo == cul)
       if (!nrow(df)) return(NULL)
       df <- df %>% dplyr::mutate(valor = .data[[met]])
+    } else if (ind_sel == "SIPSA_ABAST") {
+      enfoque_sel <- input$map2_extra_sipsa_enfoque %||% "D"
+      grupo_sel <- input$map2_extra_sipsa_grupo %||% "__ALL__"
+      alimento_sel <- input$map2_extra_sipsa_alimento %||% "__ALL__"
+      
+      # Seleccionar base según enfoque
+      df_base <- if (enfoque_sel == "D") sipsa_abast_raw_d else sipsa_abast_raw_o
+      if (is.null(df_base)) return(NULL)
+      
+      df_filtered <- df_base %>%
+        dplyr::filter(ano == as.integer(yr))
+      
+      if (grupo_sel != "__ALL__") {
+        df_filtered <- df_filtered %>% dplyr::filter(grupo == grupo_sel)
+      }
+      
+      if (alimento_sel != "__ALL__") {
+        df_filtered <- df_filtered %>% dplyr::filter(alimento == alimento_sel)
+      }
+      
+      if (!nrow(df_filtered)) return(NULL)
+      
+      # Agrupar según enfoque
+      if (enfoque_sel == "D") {
+        df <- df_filtered %>%
+          dplyr::group_by(ano, cod_dep = dep_d) %>%
+          dplyr::summarise(valor = sum(ton, na.rm = TRUE), .groups = "drop")
+      } else {
+        df <- df_filtered %>%
+          dplyr::group_by(ano, cod_dep = dep_o) %>%
+          dplyr::summarise(valor = sum(ton, na.rm = TRUE), .groups = "drop")
+      }
     } else if (ind_sel == "ICA") {
       ani <- input$map2_extra_ica_animal %||% names(ica_animal_choices)[1] %||% "Bovinos"
       df <- df %>% dplyr::filter(animal == ani)
       if (!nrow(df)) return(NULL)
     }
-    # IDM ya viene como df$valor
+    # IDM / UPRA_FA / UPRA_APADT ya vienen como df$valor
     
     if (!nrow(df) || is.null(shp_dep) || is.na(dep_code_col_shp)) return(NULL)
     shp <- shp_dep
@@ -2166,11 +2600,15 @@ server <- function(input, output, session){
     var_sel <- input$map1_extra_var %||% "poblacion_total"
     metric1 <- input$map1_extra_metric %||% "pct"
     
-    tipo_val <- if (ind_sel %in% c("UPRA_FA","UPRA_APADT") ||
-                    (ind_sel == "HANSEN" && metric1 == "pct") ||
-                    (ind_sel == "POBLACION" && var_sel == "razon_dependencia")) "percent" else "number"
-    
-    legend_title <- if (ind_sel == "IDM") "Puntos (0–100)" else if (tipo_val == "percent") "Porcentaje" else "Cantidad"
+    if (ind_sel == "SIPSA_ABAST") {
+      tipo_val <- "number"
+      legend_title <- "Toneladas"
+    } else {
+      tipo_val <- if (ind_sel %in% c("UPRA_FA","UPRA_APADT") ||
+                      (ind_sel == "HANSEN" && metric1 == "pct") ||
+                      (ind_sel == "POBLACION" && var_sel == "razon_dependencia")) "percent" else "number"
+      legend_title <- if (ind_sel == "IDM") "Puntos (0–100)" else if (tipo_val == "percent") "Porcentaje" else "Cantidad"
+    }
     
     update_dep_leaflet("map_idm_1", md, palette_name = "Greens",
                        legend_title = legend_title, value_type = tipo_val)
@@ -2184,17 +2622,21 @@ server <- function(input, output, session){
     var_sel <- input$map2_extra_var %||% "poblacion_total"
     metric2 <- input$map2_extra_metric %||% "pct"
     
-    tipo_val <- if (ind_sel %in% c("UPRA_FA","UPRA_APADT") ||
-                    (ind_sel == "HANSEN" && metric2 == "pct") ||
-                    (ind_sel == "POBLACION" && var_sel == "razon_dependencia")) "percent" else "number"
-    
-    legend_title <- if (ind_sel == "IDM") "Puntos (0–100)" else if (tipo_val == "percent") "Porcentaje" else "Cantidad"
+    if (ind_sel == "SIPSA_ABAST") {
+      tipo_val <- "number"
+      legend_title <- "Toneladas"
+    } else {
+      tipo_val <- if (ind_sel %in% c("UPRA_FA","UPRA_APADT") ||
+                      (ind_sel == "HANSEN" && metric2 == "pct") ||
+                      (ind_sel == "POBLACION" && var_sel == "razon_dependencia")) "percent" else "number"
+      legend_title <- if (ind_sel == "IDM") "Puntos (0–100)" else if (tipo_val == "percent") "Porcentaje" else "Cantidad"
+    }
     
     update_dep_leaflet("map_idm_2", md, palette_name = "Blues",
                        legend_title = legend_title, value_type = tipo_val)
   })
 }
 
-# ✅ Forzar retorno de shiny.appobj (evita "did not return a shiny.appobj object")
+# Forzar retorno de shiny.appobj (evita "did not return a shiny.appobj object")
 app <- shinyApp(ui, server)
 app
