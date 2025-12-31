@@ -383,8 +383,8 @@ ui <- fluidPage(
               div(class="card-title d-flex align-items-center", span(textOutput("map_title"))),
               div(class="viz-body", leafletOutput("map_upra", height = "100%")),
               div(class="map-note",
-                  "Nota: la segmentación del mapa corresponde a los cuartiles del indicador seleccionado.")
-          ),
+                  "Nota: El mapa clasifica los valores del indicador en cuartiles (cuatro grupos con igual número de observaciones).")
+                   ),
           div(class="card viz-card",
               div(class="card-title", textOutput("title_top")),
               div(class="viz-body", plotlyOutput("bar_top", height = "100%"))

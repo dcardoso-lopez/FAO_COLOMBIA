@@ -428,7 +428,7 @@ ui <- fluidPage(
               leafletOutput("map_nda", height = 810),
               div(
                 class = "data-note",
-                HTML("Nota: Los colores del mapa corresponden a los <b>cuartiles</b> de la distribución del indicador seleccionado (según los datos visibles), usando el lugar de ocurrencia.")
+                HTML("Nota: El mapa clasifica los valores del indicador en cuartiles (cuatro grupos con igual número de observaciones).")
               )
             )
           ),

@@ -420,7 +420,7 @@ ui <- fluidPage(
               div(class="viz-body",
                   leafletOutput("map_apadt", height = "100%"),
                   div(class="quantiles-note",
-                      HTML("Nota: la segmentación en el mapa muestra los cuartiles de segmentación debajo del mapa.")
+                      HTML("Nota: El mapa clasifica los valores del indicador en cuartiles (cuatro grupos con igual número de observaciones).")
                   )
               )
           ),

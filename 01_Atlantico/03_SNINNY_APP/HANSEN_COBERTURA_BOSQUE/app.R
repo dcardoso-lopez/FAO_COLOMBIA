@@ -523,7 +523,7 @@ ui <- fluidPage(
         div(class="viz-body", leafletOutput("map_eva", height = "100%")),
         div(
           class = "map-note",
-          HTML("Nota: Los colores del mapa se segmentan automáticamente en cuartiles (4 grupos de igual tamaño) del indicador seleccionado.")
+          HTML("Nota: El mapa clasifica los valores del indicador en cuartiles (cuatro grupos con igual número de observaciones).")
         ),
         div(class="dl-under", downloadButton("dl_png_mapa","PNG — Mapa (simple)"))
       ),

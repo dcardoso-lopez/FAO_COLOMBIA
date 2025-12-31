@@ -391,8 +391,7 @@ ui <- fluidPage(
           leafletOutput("map_bpan", height = 720),
           div(
             class = "map-note",
-            "Nota: el mapa está clasificado en 4 cuartiles según los casos observados; ",
-            "la leyenda muestra los rangos de cada cuartil con valores redondeados."
+            "Nota: El mapa clasifica los valores del indicador en cuartiles (cuatro grupos con igual número de observaciones)."
           )
         )
       ),

@@ -556,7 +556,7 @@ ui <- fluidPage(
         div(class="viz-body",
             leafletOutput("map_eva", height = "100%")),
         div(class = "map-note",
-            "Nota: los rangos de color del mapa se construyen con cuartiles (4 clases) del indicador de precipitación según el subconjunto de datos filtrado."),
+            "Nota: El mapa clasifica los valores del indicador en cuartiles (cuatro grupos con igual número de observaciones)."),
         div(class="dl-under",
             downloadButton("dl_png_mapa","PNG — Mapa (simple)"))
       ),

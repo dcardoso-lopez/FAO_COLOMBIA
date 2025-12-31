@@ -1,0 +1,171 @@
+---
+title: "Reporte - NOAA Precipitación (Anual / Mensual)"
+subtitle: "Generado desde la App Shiny"
+output:
+  pdf_document:
+    toc: true
+    number_sections: true
+params:
+  app_root: !r getwd()
+  export_dir: "Descargas"
+  filtros: NULL
+  freq: NULL
+  anio: NULL
+  mes: NULL
+  depto: NULL
+  mpio: NULL
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE, message = FALSE, warning = FALSE,
+  fig.align = "center",
+  out.width = "85%"     # <-- tamaño visual (no gigante)
+)
+
+fmt_val <- function(x){
+  if (is.null(x) || length(x) == 0 || all(is.na(x))) return("Todos")
+  if (length(x) > 1) return(paste(x, collapse = ", "))
+  as.character(x)
+}
+
+nombre_mes <- function(m){
+  m <- as.integer(m)
+  c("Enero","Febrero","Marzo","Abril","Mayo","Junio",
+    "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre")[m]
+}
+
+export_path <- file.path(params$app_root, params$export_dir)
+
+img_paths <- list(
+  mapa    = file.path(export_path, "NOAA_mapa.png"),
+  serie   = file.path(export_path, "NOAA_serie.png"),
+  ranking = file.path(export_path, "NOAA_ranking.png"),
+  anom    = file.path(export_path, "NOAA_anomalia.png")
+)
+
+# =========================
+# ✅ HACER PDF MÁS LIVIANO:
+# - Si existe 'magick', convierte PNG -> JPG reducido (ancho en px + calidad)
+# - Si NO existe, usa PNG original (igual quedará centrado y más pequeño visualmente)
+# =========================
+light_dir <- file.path(export_path, "_reporte_light")
+dir.create(light_dir, showWarnings = FALSE, recursive = TRUE)
+
+make_light_image <- function(in_path, max_width_px = 1400, quality = 65){
+  if (!file.exists(in_path)) return(NA_character_)
+
+  out_path <- file.path(
+    light_dir,
+    paste0(tools::file_path_sans_ext(basename(in_path)), ".jpg")
+  )
+
+  # Si ya existe y es más nuevo (o igual) que el original, reutiliza
+  if (file.exists(out_path)) {
+    if (file.info(out_path)$mtime >= file.info(in_path)$mtime) return(out_path)
+  }
+
+  if (requireNamespace("magick", quietly = TRUE)) {
+    img <- magick::image_read(in_path)
+    # Escala por ancho (mantiene proporción). Ej: "1400" => 1400px de ancho aprox.
+    img <- magick::image_scale(img, paste0(max_width_px))
+    magick::image_write(img, path = out_path, format = "jpeg", quality = quality)
+    return(out_path)
+  } else {
+    return(in_path)
+  }
+}
+
+img_use <- list(
+  mapa    = make_light_image(img_paths$mapa,    max_width_px = 1400, quality = 60),
+  serie   = make_light_image(img_paths$serie,   max_width_px = 1600, quality = 60),
+  ranking = make_light_image(img_paths$ranking, max_width_px = 1400, quality = 60),
+  anom    = make_light_image(img_paths$anom,    max_width_px = 1600, quality = 60)
+)
+
+img_exists <- vapply(img_use, function(p) !is.na(p) && file.exists(p), logical(1))
+
+if (!is.null(params$filtros) && is.data.frame(params$filtros)) {
+  filtros_tbl <- params$filtros
+} else {
+  freq_txt  <- fmt_val(params$freq)
+  anio_txt  <- fmt_val(params$anio)
+  mes_txt   <- if (!is.null(params$freq) && params$freq == "Mensual") nombre_mes(params$mes) else "NA"
+  depto_txt <- fmt_val(params$depto)
+  mpio_txt  <- fmt_val(params$mpio)
+
+  filtros_tbl <- data.frame(
+    Filtro = c("Frecuencia", "Año", "Mes", "Departamento (cód.)", "Municipio"),
+    Valor  = c(freq_txt, anio_txt, mes_txt, depto_txt, mpio_txt),
+    stringsAsFactors = FALSE
+  )
+
+  if (freq_txt != "Mensual") filtros_tbl <- filtros_tbl[filtros_tbl$Filtro != "Mes", , drop = FALSE]
+}
+```
+
+# Resumen del reporte
+Este informe analiza la precipitación como un determinante clave del desempeño de los sistemas agroalimentarios en **Santander**. La lluvia afecta simultáneamente la oferta agrícola (rendimientos, pérdidas por exceso o déficit hídrico), la estabilidad de la producción (variabilidad intra e interanual), y la logística de abastecimiento (condiciones viales, tiempos de transporte, riesgo de interrupciones). En consecuencia, este reporte se usa como insumo para anticipar presiones sobre disponibilidad, acceso, precios y continuidad del suministro.
+
+## Objetivo del reporte
+
+**Objetivo.** Identificar patrones espaciales y temporales de precipitación para apoyar la toma de decisiones en el sistema agroalimentario:
+
+1. **Producción:** detectar periodos con riesgo de estrés hídrico o excesos de humedad que impacten rendimientos y calidad.
+2. **Abastecimiento y logística:** ubicar zonas donde la lluvia puede aumentar costos de transporte, deteriorar vías o generar cuellos de botella.
+3. **Gestión del riesgo y resiliencia:** reconocer episodios anómalos que justifiquen alertas tempranas, planificación de cosecha, drenajes/irrigación y preparación institucional.
+
+
+## Filtros usados
+```{r}
+knitr::kable(filtros_tbl, align = c("l","l"))
+```
+
+# Resultados
+
+## ¿Qué territorios tienen el mayor volumen de lluvias?
+
+```{r, out.width="75%"}
+if (img_exists["mapa"]) {
+  knitr::include_graphics(img_use$mapa)
+} else {
+  cat("No se encontró la imagen del mapa en: ", img_paths$mapa)
+}
+```
+
+## Serie temporal (mm3)
+
+```{r, out.width="75%"}
+if (img_exists["serie"]) {
+  knitr::include_graphics(img_use$serie)
+} else {
+  cat("No se encontró la imagen de la serie en: ", img_paths$serie)
+}
+```
+
+## Ranking Top-10 (mm3)
+
+```{r, out.width="75%"}
+if (img_exists["ranking"]) {
+  knitr::include_graphics(img_use$ranking)
+} else {
+  cat("No se encontró la imagen del ranking en: ", img_paths$ranking)
+}
+```
+
+## Anomalía (velas, mm3)
+
+```{r, out.width="75%"}
+if (img_exists["anom"]) {
+  knitr::include_graphics(img_use$anom)
+} else {
+  cat("No se encontró la imagen de anomalía en: ", img_paths$anom)
+}
+```
+
+# Notas
+
+- Si el PDF sale “sin figuras”, casi siempre es porque no se alcanzaron a escribir los PNG antes de correr `render()`.
+- En la App, el botón de reporte llama `export_pngs()` justo antes de renderizar, para minimizar ese problema.
+- Si tienes `magick` instalado, este reporte crea versiones más livianas en: `r light_dir`
+  y las usa para reducir el peso del PDF.

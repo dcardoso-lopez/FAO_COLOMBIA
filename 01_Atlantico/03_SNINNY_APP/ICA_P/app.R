@@ -503,7 +503,8 @@ ui <- fluidPage(
         leafletOutput("mapa", height = "100%"),
         div(
           class = "map-note",
-          "Nota: los rangos de color del mapa se construyen con cuartiles (4 clases) del inventario de animales según el subconjunto de datos filtrado."
+          style = "font-style: normal;",
+          "Nota: El mapa clasifica los valores del indicador en cuartiles (cuatro grupos con igual número de observaciones)."
         )
       ),
       

@@ -351,7 +351,7 @@ ui <- fluidPage(
                    leafletOutput("map_idm", height=760),
                    div(
                      class = "info-quantiles-note",
-                     HTML("Nota: los cortes del mapa están estructurados en cuartiles del indicador de Índice de Desempeño Municipal.")
+                     HTML("Nota: El mapa clasifica los valores del indicador en cuartiles (cuatro grupos con igual número de observaciones).")
                    )
                )
         ),

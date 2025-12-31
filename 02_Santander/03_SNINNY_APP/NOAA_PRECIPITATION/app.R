@@ -5,7 +5,8 @@
 # 1) Paquetes
 pkgs <- c("shiny","bslib","dplyr","readr","stringi","sf","leaflet",
           "plotly","ggplot2","htmltools","webshot2","htmlwidgets",
-          "ragg","glue","scales","tibble","zoo","lubridate")
+          "ragg","glue","scales","tibble","zoo","lubridate",
+          "rmarkdown")  # <-- para render del reporte
 suppressPackageStartupMessages(invisible(sapply(pkgs, require, character.only = TRUE)))
 options(stringsAsFactors = FALSE, scipen = 999)
 sf::sf_use_s2(FALSE)
@@ -14,9 +15,7 @@ try(Sys.setlocale("LC_CTYPE","es_ES.UTF-8"), silent = TRUE)
 # 2) Rutas (ajusta si difieren)
 APP_ROOT <- getwd()
 
-# Si estás ejecutando desde runApp(), la ruta ya está configurada
-# Ajusta estas rutas según tu estructura de carpetas
-NOAA_DIR <- APP_ROOT  # Asumiendo que el app está en la misma carpeta que los datos
+NOAA_DIR <- APP_ROOT
 NOAA_DATA_DIR <- file.path(NOAA_DIR, "data")
 SHP_DIR <- file.path(NOAA_DIR, "data/shp")
 
@@ -30,7 +29,6 @@ rds_files <- list.files(NOAA_DATA_DIR, pattern = "\\.rds$", full.names = TRUE, r
 cat("Archivos RDS encontrados:", paste(rds_files, collapse = ", "), "\n")
 
 if (length(rds_files) == 0) {
-  # Buscar recursivamente
   rds_files <- list.files(APP_ROOT, pattern = "\\.rds$", full.names = TRUE, recursive = TRUE)
   cat("Archivos RDS encontrados (búsqueda recursiva):", paste(rds_files, collapse = ", "), "\n")
 }
@@ -41,7 +39,6 @@ if (length(rds_files) > 0) {
 } else {
   stop("No encuentro RDS de NOAA. Buscando en: ", APP_ROOT)
 }
-
 
 # ---------- Helpers ----------
 up_es <- function(x){
@@ -165,11 +162,7 @@ build_bins_labels <- function(values){
       b  <- bins[i + 1]
       sa <- fmt_num(a, accuracy = 1)
       sb <- fmt_num(b, accuracy = 1)
-      if (i == 1) {
-        sprintf("%s – %s", sa, sb)
-      } else {
-        sprintf("> %s – %s", sa, sb)
-      }
+      if (i == 1) sprintf("%s – %s", sa, sb) else sprintf("> %s – %s", sa, sb)
     },
     character(1)
   )
@@ -186,6 +179,19 @@ build_bins_labels <- function(values){
 
 SERIES_CLR  <- "#006d2c"
 RANKING_CLR <- "#006d2c"
+
+# ======================================================
+# ✅ FIX FONDO NEGRO: helper Plotly con fondo blanco
+# (NO toca xaxis/yaxis para no pisar tus ticks)
+# ======================================================
+plotly_white_bg <- function(p){
+  p %>% plotly::layout(
+    template      = "plotly_white",
+    paper_bgcolor = "white",
+    plot_bgcolor  = "white",
+    font = list(color = "#111827")
+  )
+}
 
 # ---------- Shapefiles ----------
 shp_files <- list.files(SHP_DIR, pattern="\\.shp$", full.names=TRUE, recursive=TRUE)
@@ -279,7 +285,6 @@ DEPS_LOOKUP <- eva_df |>
   dplyr::distinct(dpto_code, DEPARTAMENTO_D) |>
   dplyr::arrange(dpto_code)
 
-# ---> Código del departamento SANTANDER para usarlo como seleccionado por defecto
 SANTANDER_CODE <- DEPS_LOOKUP$dpto_code[DEPS_LOOKUP$DEPARTAMENTO_D == "SANTANDER"]
 if (length(SANTANDER_CODE) == 0 || is.na(SANTANDER_CODE)) SANTANDER_CODE <- "Todos"
 
@@ -320,173 +325,65 @@ ui <- fluidPage(
         --viz-row-2:350px;
         --anom-h:380px;
       }
-      .wrap{
-        max-width:1360px;
-        margin:0 auto;
-        padding:16px 20px 32px;
-      }
-      h2#app-title{
-        font-weight:700;
-        letter-spacing:.2px;
-        margin-top:4px;
-        margin-bottom:6px;
-        text-align:left;
-      }
-      .data-note{
-        font-size:13px;
-        color:#6b7280;
-        margin:0 0 16px;
-      }
+      .wrap{ max-width:1360px; margin:0 auto; padding:16px 20px 32px; }
+      h2#app-title{ font-weight:700; letter-spacing:.2px; margin-top:4px; margin-bottom:6px; text-align:left; }
+      .data-note{ font-size:13px; color:#6b7280; margin:0 0 16px; }
       .filters{
-        background:#fff;
-        border:1px solid var(--accent-border);
-        border-radius:16px;
-        box-shadow:0 2px 10px rgba(0,0,0,.05);
-        padding:6px 12px 8px;
-        margin-bottom:12px;
+        background:#fff; border:1px solid var(--accent-border); border-radius:16px;
+        box-shadow:0 2px 10px rgba(0,0,0,.05); padding:6px 12px 8px; margin-bottom:12px;
       }
-      .filters-grid{
-        display:grid;
-        grid-template-columns:repeat(5,minmax(180px,1fr));
-        gap:12px;
-        align-items:stretch;
+      .filters-grid{ display:grid; grid-template-columns:repeat(5,minmax(180px,1fr)); gap:12px; align-items:stretch; }
+      .filter{ display:flex; flex-direction:column; justify-content:flex-start; }
+      .filter-label{ font-family:'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        font-size:14px; font-weight:500; letter-spacing:.2px; color:#111827; margin-bottom:6px;
       }
-      .filter{
-        display:flex;
-        flex-direction:column;
-        justify-content:flex-start;
+      .filters-grid .shiny-input-container{ margin:0 !important; width:100%; }
+      .filters-grid .selectize-control{ margin:0 !important; }
+      .filters-grid .selectize-input, .filters-grid .form-control, .filters-grid .form-select{
+        height:60px !important; min-height:60px; padding-top:10px; padding-bottom:10px;
+        border-radius:10px; border:1px solid var(--accent-border) !important;
       }
-      .filter-label{
-        font-family:'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-        font-size:14px;
-        font-weight:500;
-        letter-spacing:.2px;
-        color:#111827;
-        margin-bottom:6px;
+      .filters-grid .selectize-input:focus, .filters-grid .form-control:focus, .filters-grid .form-select:focus{
+        border-color:var(--accent-border) !important; box-shadow:0 0 0 .2rem rgba(255,179,102,.25) !important;
       }
-      .filters-grid .shiny-input-container{
-        margin:0 !important;
-        width:100%;
+      .card{ background:#fff; border:1px solid var(--accent-border); border-radius:16px;
+        box-shadow:0 2px 10px rgba(0,0,0,.05); padding:12px; margin-bottom:12px;
       }
-      .filters-grid .selectize-control{
-        margin:0 !important;
-      }
-      .filters-grid .selectize-input,
-      .filters-grid .form-control,
-      .filters-grid .form-select{
-        height:60px !important;
-        min-height:60px;
-        padding-top:10px;
-        padding-bottom:10px;
-        border-radius:10px;
-        border:1px solid var(--accent-border) !important;
-      }
-      .filters-grid .selectize-input:focus,
-      .filters-grid .form-control:focus,
-      .filters-grid .form-select:focus{
-        border-color:var(--accent-border) !important;
-        box-shadow:0 0 0 .2rem rgba(255,179,102,.25) !important;
-      }
-      .card{
-        background:#fff;
-        border:1px solid var(--accent-border);
-        border-radius:16px;
-        box-shadow:0 2px 10px rgba(0,0,0,.05);
-        padding:12px;
-        margin-bottom:12px;
-      }
-      .anom-note{
-        font-size:12px;
-        color:#4b5563;
-        margin-top:6px;
-      }
-      .card-title{
-        font-weight:700;
-        font-size:16px;
-        margin-bottom:8px;
-        color:#111827;
-      }
+      .anom-note{ font-size:12px; color:#4b5563; margin-top:6px; }
+      .card-title{ font-weight:700; font-size:16px; margin-bottom:8px; color:#111827; }
       .content-grid{
-        display:grid;
-        grid-template-columns:1.05fr 1fr;
+        display:grid; grid-template-columns:1.05fr 1fr;
         grid-template-rows:var(--viz-row-1) var(--viz-row-2) var(--anom-h);
         gap:var(--gap);
       }
-      .viz-card{
-        display:flex;
-        flex-direction:column;
-        height:100%;
-        margin:0;
-      }
-      .viz-body{
-        flex:1 1 auto;
-        min-height:0;
-      }
-      .viz-map{
-        grid-row:1 / span 2;
-      }
-      .viz-anom{
-        grid-column:1 / span 2;
-      }
-      .viz-body .leaflet,
-      .viz-body .plotly.html-widget{
-        height:100% !important;
-      }
+      .viz-card{ display:flex; flex-direction:column; height:100%; margin:0; }
+      .viz-body{ flex:1 1 auto; min-height:0; }
+      .viz-map{ grid-row:1 / span 2; }
+      .viz-anom{ grid-column:1 / span 2; }
+      .viz-body .leaflet, .viz-body .plotly.html-widget{ height:100% !important; }
       .leaflet-tooltip.lbl-clean{
-        background: rgba(255,255,255,.92);
-        border: 1px solid #e6e6e6;
-        border-radius: 6px;
-        padding: 4px 6px;
-        color: #222;
-        font-weight: 600;
-        box-shadow: 0 1px 4px rgba(0,0,0,.08);
+        background: rgba(255,255,255,.92); border: 1px solid #e6e6e6; border-radius: 6px;
+        padding: 4px 6px; color: #222; font-weight: 600; box-shadow:0 1px 4px rgba(0,0,0,.08);
       }
-      .leaflet-control, .leaflet-control .legend, .leaflet-control .info{
-        border-radius:12px;
-      }
+      .leaflet-control, .leaflet-control .legend, .leaflet-control .info{ border-radius:12px; }
       .leaflet-top .leaflet-control { margin-top: 6px; }
       .leaflet-left .leaflet-control { margin-left: 6px; }
-      .btn, .btn-default {
-        font-size:12px;
-        padding:6px 10px;
-        border-radius:8px;
-        border-color:var(--accent-border) !important;
-      }
-      .form-control{
-        border-color:var(--accent-border) !important;
-      }
-      .form-control:focus{
-        border-color:var(--accent-border) !important;
-        box-shadow:0 0 0 0.2rem rgba(255,179,102,0.25);
-      }
-      .selectize-input{
-        border-color:var(--accent-border) !important;
-      }
-      .selectize-input.focus{
-        border-color:var(--accent-border) !important;
-        box-shadow:0 0 0 0.2rem rgba(255,179,102,0.25);
-      }
-      input[type='radio'],
-      input[type='checkbox']{
-        accent-color:#ffb366;
-      }
+      .btn, .btn-default { font-size:12px; padding:6px 10px; border-radius:8px; border-color:var(--accent-border) !important; }
+      .form-control{ border-color:var(--accent-border) !important; }
+      .form-control:focus{ border-color:var(--accent-border) !important; box-shadow:0 0 0 0.2rem rgba(255,179,102,0.25); }
+      .selectize-input{ border-color:var(--accent-border) !important; }
+      .selectize-input.focus{ border-color:var(--accent-border) !important; box-shadow:0 0 0 0.2rem rgba(255,179,102,0.25); }
+      input[type='radio'], input[type='checkbox']{ accent-color:#ffb366; }
       .dl-under{ margin-top:8px; text-align:right; }
       .dl-footer{ margin-top:10px; text-align:right; }
-      .map-note{
-        font-size:12px;
-        color:#4b5563;
-        margin-top:6px;
-      }
+      .map-note{ font-size:12px; color:#4b5563; margin-top:6px; }
     "))
   ),
   
   div(
     class = "wrap",
     h2("", id = "app-title"),
-    div(
-      class = "data-note",
-      HTML("")
-    ),
+    div(class = "data-note", HTML("")),
     
     # ----------------- FILTROS -----------------
     div(
@@ -530,7 +427,7 @@ ui <- fluidPage(
           selectInput(
             "f_depto", NULL,
             choices  = DEPS_CHOICES,
-            selected = SANTANDER_CODE   # <-- Santander por defecto
+            selected = SANTANDER_CODE
           )
         ),
         div(
@@ -552,26 +449,19 @@ ui <- fluidPage(
       # Mapa
       div(
         class = "card viz-card viz-map",
-        div(
-          class="card-title d-flex align-items-center",
-          span(textOutput("titulo_mapa"))
-        ),
+        div(class="card-title d-flex align-items-center",
+            span(textOutput("titulo_mapa"))),
         div(
           style="display:flex; gap:10px; align-items:center; margin-bottom:8px;",
           actionButton("btn_volver", "◀ Volver a Departamentos", class="btn btn-light"),
           strong(textOutput("nivel_txt", inline = TRUE))
         ),
-        div(
-          class="viz-body",
-          leafletOutput("map_eva", height = "100%")
+        div(class="viz-body", leafletOutput("map_eva", height = "100%")),
+        div(class="map-note",
+            "Nota: los rangos de color del mapa se construyen con cuartiles (4 clases) del indicador de precipitación según el subconjunto de datos filtrado."
         ),
-        div(
-          class = "map-note",
-          "Nota: los rangos de color del mapa se construyen con cuartiles (4 clases) del indicador de precipitación según el subconjunto de datos filtrado."
-        ),
-        div(
-          class="dl-under",
-          downloadButton("dl_png_mapa","PNG — Mapa (simple)")
+        div(class="dl-under",
+            downloadButton("dl_png_mapa","PNG — Mapa (simple)")
         )
       ),
       
@@ -579,29 +469,23 @@ ui <- fluidPage(
       div(
         class = "card viz-card",
         div(class="card-title", textOutput("titulo_serie")),
-        div(class="viz-body",
-            plotlyOutput("plot_arriba", height = "100%")),
-        div(class="dl-under",
-            downloadButton("dl_png_series","PNG — Serie temporal"))
+        div(class="viz-body", plotlyOutput("plot_arriba", height = "100%")),
+        div(class="dl-under", downloadButton("dl_png_series","PNG — Serie temporal"))
       ),
       
       # Ranking
       div(
         class = "card viz-card",
         div(class="card-title", textOutput("titulo_ranking")),
-        div(class="viz-body",
-            plotlyOutput("ranking_abajo", height = "100%")),
-        div(class="dl-under",
-            downloadButton("dl_png_ranking","PNG — Ranking Top-10"))
+        div(class="viz-body", plotlyOutput("ranking_abajo", height = "100%")),
+        div(class="dl-under", downloadButton("dl_png_ranking","PNG — Ranking Top-10"))
       ),
       
       # Anomalía
       div(
         class = "card viz-card viz-anom",
-        div(
-          class="card-title d-flex align-items-center",
-          span(textOutput("titulo_anomalia"))
-        ),
+        div(class="card-title d-flex align-items-center",
+            span(textOutput("titulo_anomalia"))),
         div(
           style="display:flex; gap:10px; align-items:baseline; justify-content:space-between; margin-bottom:6px;",
           div(
@@ -613,34 +497,26 @@ ui <- fluidPage(
               )
             )
           ),
-          div(
-            class="dl-under",
-            downloadButton("dl_png_anom","PNG — Anomalía (velas mm³)")
+          div(class="dl-under",
+              downloadButton("dl_png_anom","PNG — Anomalía (velas mm³)")
           )
         ),
-        div(
-          class="viz-body",
-          plotlyOutput("anom_plot", height = "100%")
-        ),
-        div(
-          class = "anom-note",
-          textOutput("anom_detalle")
-        )
+        div(class="viz-body", plotlyOutput("anom_plot", height = "100%")),
+        div(class="anom-note", textOutput("anom_detalle"))
       )
     ),
     
-    # Descarga CSV
+    # Descargas
     div(
       class="dl-footer",
-      downloadButton("dl_csv_expl","Descargar CSV (filtro actual)")
+      downloadButton("dl_csv_expl","Descargar CSV (filtro actual)"),
+      tags$span(style="margin-left:10px;"),
+      downloadButton("dl_pdf_report","Generar reporte PDF")
     )
   )
 )
 
-
-
 # ======================= SERVER =======================
-
 server <- function(input, output, session){
   
   # -------- Estado del mapa --------
@@ -719,13 +595,13 @@ server <- function(input, output, session){
   })
   
   # -------- Títulos --------
-  output$titulo_mapa    <- renderText({"¿Qué departamentos tienen el mayor volumen de lluvias?"})
+  output$titulo_mapa    <- renderText({"¿Qué territorios tienen el mayor volumen de lluvias?"})
   output$titulo_serie   <- renderText({"¿Cómo ha evolucionado el volumen de lluvias en el tiempo?"})
   output$titulo_ranking <- renderText({"Top 10 municipios con mayor volumen de lluvias"})
   
   # -------- Badge filtros --------
   badge_filtros <- reactive({
-    if (input$freq == "Mensual") {
+    if (!is.null(input$freq) && input$freq == "Mensual") {
       htmltools::HTML(sprintf(
         '<div style="background:#fff;padding:6px 10px;border-radius:8px;
                     box-shadow:0 1px 6px rgba(0,0,0,.15);
@@ -771,16 +647,14 @@ server <- function(input, output, session){
   
   # -------- Función para dibujar deptos --------
   render_deptos <- function(){
-    # Subconjunto según filtros actuales
-    df_vals <- datos_filtrados() |> 
-      dplyr::group_by(dpto_code) |> 
+    df_vals <- datos_filtrados() |>
+      dplyr::group_by(dpto_code) |>
       dplyr::summarise(valor = sum(valor, na.rm = TRUE), .groups = "drop")
     
     mdat <- depto_sf |>
       dplyr::left_join(df_vals, by = "dpto_code") |>
       dplyr::mutate(valor = dplyr::coalesce(valor, 0))
     
-    # Calcular bins y paleta solo con ese subconjunto
     bl  <- build_bins_labels(mdat$valor)
     pal <- bl$pal
     
@@ -813,7 +687,6 @@ server <- function(input, output, session){
   
   # -------- Función para dibujar mpios --------
   render_mpios <- function(dep_code){
-    # Subconjunto exacto de ese departamento
     df_vals <- datos_filtrados() |>
       dplyr::filter(dpto_code == dep_code) |>
       dplyr::group_by(mpio_code) |>
@@ -900,21 +773,16 @@ server <- function(input, output, session){
   # -------- Cambios por selección de departamento --------
   observeEvent(input$f_depto, {
     dep <- input$f_depto
-    
-    # Caso 1: sin filtro de departamento → mapa nacional
     if (is.null(dep) || dep == "Todos") {
       nivel_mapa("depto")
       depto_sel(NULL)
       render_deptos()
       return()
     }
-    
-    # Caso 2: con filtro de departamento (aunque municipio = Todos)
     nivel_mapa("mpio")
     depto_sel(dep)
     render_mpios(dep)
-  }, ignoreInit = FALSE)  # se ejecuta también al inicio
-  
+  }, ignoreInit = FALSE)
   
   # Click sobre el mapa (depto → mpios)
   observeEvent(input$map_eva_shape_click, {
@@ -1014,7 +882,8 @@ server <- function(input, output, session){
           hovermode="x unified",
           margin=list(l=60,r=20,t=20,b=40),
           legend=list(orientation="h")
-        )
+        ) |>
+        plotly_white_bg()
     } else {
       plotly::plot_ly(
         df,
@@ -1044,7 +913,8 @@ server <- function(input, output, session){
           hovermode="x unified",
           margin=list(l=60,r=20,t=20,b=40),
           legend=list(orientation="h")
-        )
+        ) |>
+        plotly_white_bg()
     }
   })
   
@@ -1122,7 +992,8 @@ server <- function(input, output, session){
           showgrid = FALSE
         ),
         margin = list(l = 140, r = 40, t = 10, b = 40)
-      )
+      ) |>
+      plotly_white_bg()
   })
   
   # ======================================================
@@ -1185,9 +1056,7 @@ server <- function(input, output, session){
     )
   })
   
-  output$titulo_anomalia <- renderText({
-    "Anomalía de precipitación (velas de mm³)"
-  })
+  output$titulo_anomalia <- renderText({"Anomalía de precipitación (velas de mm³)"})
   
   output$anom_resumen <- renderText({
     df <- anom_mm_candles_full()
@@ -1249,11 +1118,12 @@ server <- function(input, output, session){
         ),
         margin = list(l = 60, r = 30, t = 50, b = 60),
         showlegend = FALSE
-      )
+      ) |>
+      plotly_white_bg()
   })
   
   # ======================================================
-  # DESCARGAS
+  # DESCARGAS (CSV)
   # ======================================================
   tabla_export <- reactive({
     datos_filtrados() |>
@@ -1280,6 +1150,9 @@ server <- function(input, output, session){
     content  = function(file) readr::write_csv(tabla_export(), file, na = "")
   )
   
+  # ======================================================
+  # DESCARGAS PNG (manuales)
+  # ======================================================
   output$dl_png_series <- downloadHandler(
     filename = function() {
       if (!is.null(input$freq) && input$freq == "Mensual")
@@ -1302,11 +1175,8 @@ server <- function(input, output, session){
           geom_line(linewidth=0.9, color=SERIES_CLR) +
           geom_point(size=2.2, color=SERIES_CLR) +
           scale_x_continuous(breaks=1:12, labels=month.abb) +
-          scale_y_continuous(
-            labels = format_short,
-            breaks = breaks_y
-          ) +
-          labs(x="Mes", y="Precipitación (mm)",
+          scale_y_continuous(labels = format_short, breaks = breaks_y) +
+          labs(x="Mes", y="Precipitación (mm³)",
                title=paste0("Evolución mensual (", input$f_anio, ")")) +
           theme_minimal(base_size=12) +
           theme(
@@ -1319,12 +1189,9 @@ server <- function(input, output, session){
           geom_line(linewidth=0.9, color=SERIES_CLR) +
           geom_point(size=2.2, color=SERIES_CLR) +
           scale_x_continuous(breaks=unique(df$anio)) +
-          scale_y_continuous(
-            labels = format_short,
-            breaks = breaks_y
-          ) +
-          labs(x=NULL, y="Precipitación (mm)",
-               title="Evolución anual de la precipitación (mm)") +
+          scale_y_continuous(labels = format_short, breaks = breaks_y) +
+          labs(x=NULL, y="Precipitación (mm³)",
+               title="Evolución anual de la precipitación (mm³)") +
           theme_minimal(base_size=12) +
           theme(
             panel.grid.minor   = element_blank(),
@@ -1333,7 +1200,8 @@ server <- function(input, output, session){
           )
       }
       ggsave(filename=file, plot=g, device=ragg::agg_png,
-             width=10, height=5, dpi=200, units="in")
+             width=10, height=5, dpi=200, units="in",
+             bg="white")  # ✅ FIX transparencia → negro en PDF
     }
   )
   
@@ -1342,14 +1210,26 @@ server <- function(input, output, session){
       mdat <- depto_sf |>
         dplyr::left_join(agg_depto(), by="dpto_code") |>
         dplyr::mutate(valor = ifelse(is.na(valor), 0, valor))
+      
       bl  <- build_bins_labels(mdat$valor)
       pal <- bl$pal
-      leaflet::leaflet(mdat,
-                       options=leaflet::leafletOptions(zoomControl=FALSE)) |>
+      
+      leaflet::leaflet(
+        mdat,
+        options = leaflet::leafletOptions(zoomControl=FALSE)
+      ) |>
         leaflet::addProviderTiles(leaflet::providers$CartoDB.Positron) |>
         leaflet::addPolygons(
           fillColor=~pal(valor), weight=0.5,
           color="#666", fillOpacity=0.9
+        ) |>
+        # ✅ NUEVO: Leyenda incluida en el PNG exportado
+        leaflet::addLegend(
+          position = "bottomright",
+          colors   = bl$colors,
+          labels   = bl$labels,
+          opacity  = 0.9,
+          title    = "mm³"
         ) |>
         leaflet::addControl(
           html = htmltools::HTML(
@@ -1366,6 +1246,7 @@ server <- function(input, output, session){
     } else {
       dep    <- depto_sel()
       dep_nm <- code_to_depto_name(dep)
+      
       mdat <- mpios_sf |>
         dplyr::filter(dpto_code==dep) |>
         dplyr::left_join(
@@ -1373,14 +1254,26 @@ server <- function(input, output, session){
           by=c("dpto_code","mpio_code")
         ) |>
         dplyr::mutate(valor = ifelse(is.na(valor), 0, valor))
+      
       bl  <- build_bins_labels(mdat$valor)
       pal <- bl$pal
-      leaflet::leaflet(mdat,
-                       options=leaflet::leafletOptions(zoomControl=FALSE)) |>
+      
+      leaflet::leaflet(
+        mdat,
+        options = leaflet::leafletOptions(zoomControl=FALSE)
+      ) |>
         leaflet::addProviderTiles(leaflet::providers$CartoDB.Positron) |>
         leaflet::addPolygons(
           fillColor=~pal(valor), weight=0.4,
           color="#666", fillOpacity=0.9
+        ) |>
+        # ✅ NUEVO: Leyenda incluida en el PNG exportado
+        leaflet::addLegend(
+          position = "bottomright",
+          colors   = bl$colors,
+          labels   = bl$labels,
+          opacity  = 0.9,
+          title    = "mm³"
         ) |>
         leaflet::addControl(
           html = htmltools::HTML(
@@ -1396,6 +1289,7 @@ server <- function(input, output, session){
           position="topleft")
     }
   })
+  
   
   output$dl_png_mapa <- downloadHandler(
     filename = function() {
@@ -1445,7 +1339,7 @@ server <- function(input, output, session){
           breaks = breaks,
           expand = expansion(mult = c(0, 0.05))
         ) +
-        labs(x="Precipitación (mm)", y=NULL) +
+        labs(x="Precipitación (mm³)", y=NULL) +
         theme_minimal(base_size=12) +
         theme(
           axis.text.y=element_text(size=9),
@@ -1454,7 +1348,8 @@ server <- function(input, output, session){
           panel.grid.major=element_blank()
         )
       ggsave(filename=file, plot=g, device=ragg::agg_png,
-             width=10, height=6, dpi=200, units="in")
+             width=10, height=6, dpi=200, units="in",
+             bg="white")  # ✅ FIX transparencia → negro en PDF
     }
   )
   
@@ -1473,20 +1368,299 @@ server <- function(input, output, session){
         plotly::layout(
           xaxis = list(title = "Fecha", showgrid=FALSE),
           yaxis = list(
-            title = "MM de anomalía (mm)",
+            title = "MM de anomalía (mm³)",
             zeroline = TRUE, zerolinecolor = "#999",
             showgrid=FALSE
           ),
           margin = list(l=60, r=30, t=20, b=50),
           showlegend = FALSE
-        )
+        ) |>
+        plotly_white_bg()  # ✅ fondo blanco en export
+      
       tmp_html <- tempfile(fileext = ".html")
       htmlwidgets::saveWidget(p, tmp_html, selfcontained = TRUE)
       webshot2::webshot(tmp_html, file = file,
                         vwidth = 1100, vheight = 520, zoom = 2)
     }
   )
+  
+  # ======================================================
+  # AUTO-EXPORT PNG (al abrir + al cambiar filtros)
+  # - Guarda SIEMPRE en ./Descargas (dentro de APP_ROOT)
+  # - Sobrescribe las imágenes cada vez
+  # ======================================================
+  EXPORT_DIR <- file.path(APP_ROOT, "Descargas")
+  if (!dir.exists(EXPORT_DIR)) dir.create(EXPORT_DIR, recursive = TRUE, showWarnings = FALSE)
+  
+  EXPORT_PATHS <- list(
+    mapa    = file.path(EXPORT_DIR, "NOAA_mapa.png"),
+    serie   = file.path(EXPORT_DIR, "NOAA_serie.png"),
+    ranking = file.path(EXPORT_DIR, "NOAA_ranking.png"),
+    anom    = file.path(EXPORT_DIR, "NOAA_anomalia.png")
+  )
+  
+  build_series_ggplot <- function(){
+    df <- series_data()
+    if (!nrow(df)) return(NULL)
+    
+    max_val  <- max(df$valor_total, na.rm = TRUE)
+    breaks_y <- pretty(c(0, max_val), n = 5)
+    breaks_y <- breaks_y[breaks_y >= 0]
+    
+    if (!is.null(input$freq) && input$freq == "Mensual") {
+      ggplot(df, aes(x = mes, y = valor_total)) +
+        geom_line(linewidth = 0.9, color = SERIES_CLR) +
+        geom_point(size = 2.2, color = SERIES_CLR) +
+        scale_x_continuous(breaks = 1:12, labels = month.abb) +
+        scale_y_continuous(labels = format_short, breaks = breaks_y) +
+        labs(
+          x = "Mes", y = "Precipitación (mm³)",
+          title = paste0("Evolución mensual (", input$f_anio, ")")
+        ) +
+        theme_minimal(base_size = 12) +
+        theme(
+          panel.grid.minor   = element_blank(),
+          panel.grid.major.x = element_blank(),
+          panel.grid.major.y = element_line(color = "#e5e7eb")
+        )
+    } else {
+      ggplot(df, aes(x = anio, y = valor_total)) +
+        geom_line(linewidth = 0.9, color = SERIES_CLR) +
+        geom_point(size = 2.2, color = SERIES_CLR) +
+        scale_x_continuous(breaks = unique(df$anio)) +
+        scale_y_continuous(labels = format_short, breaks = breaks_y) +
+        labs(
+          x = NULL, y = "Precipitación (mm³)",
+          title = "Evolución anual de la precipitación (mm³)"
+        ) +
+        theme_minimal(base_size = 12) +
+        theme(
+          panel.grid.minor   = element_blank(),
+          panel.grid.major.x = element_blank(),
+          panel.grid.major.y = element_line(color = "#e5e7eb")
+        )
+    }
+  }
+  
+  build_ranking_ggplot <- function(){
+    plot_df <- ranking_data() |> dplyr::mutate(etiqueta = title_case_es(MUNICIPIO_D))
+    if (!nrow(plot_df)) return(NULL)
+    
+    max_val <- max(plot_df$valor_total, na.rm = TRUE)
+    breaks  <- pretty(c(0, max_val), n = 5)
+    breaks  <- breaks[breaks >= 0]
+    
+    ggplot(plot_df, aes(x = valor_total, y = reorder(etiqueta, -valor_total))) +
+      geom_col(fill = RANKING_CLR) +
+      geom_text(
+        aes(x = valor_total / 2, label = fmt_num(valor_total, accuracy = 0.1)),
+        color = "white", size = 3
+      ) +
+      scale_x_continuous(
+        labels = format_short,
+        breaks = breaks,
+        expand = expansion(mult = c(0, 0.05))
+      ) +
+      labs(x = "Precipitación (mm³)", y = NULL) +
+      theme_minimal(base_size = 12) +
+      theme(
+        axis.text.y = element_text(size = 9),
+        plot.margin = margin(r = 30),
+        panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank()
+      )
+  }
+  
+  build_anom_plotly <- function(){
+    df <- anom_mm_candles_full()
+    if (is.null(df) || !nrow(df)) return(NULL)
+    
+    plotly::plot_ly(
+      type  = "candlestick",
+      x     = df$x, open = df$O, high = df$H, low = df$L, close = df$C,
+      increasing = list(line = list(color = "#2ca02c")),
+      decreasing = list(line = list(color = "#d62728"))
+    ) |>
+      plotly::layout(
+        xaxis = list(title = "Fecha", showgrid = FALSE),
+        yaxis = list(
+          title = "MM de anomalía (mm³)",
+          zeroline = TRUE, zerolinecolor = "#999",
+          showgrid = FALSE
+        ),
+        margin = list(l = 60, r = 30, t = 20, b = 50),
+        showlegend = FALSE
+      ) |>
+      plotly_white_bg()  # ✅ fondo blanco
+  }
+  
+  # ======================================================
+  # ✅ CORRECCIÓN 1: export_pngs() robusto (isolate + lock)
+  # ======================================================
+  export_running <- shiny::reactiveVal(FALSE)
+  
+  export_pngs <- function(){
+    if (isTRUE(export_running())) return(invisible(NULL))
+    export_running(TRUE)
+    on.exit(export_running(FALSE), add = TRUE)
+    
+    isolate({
+      if (!dir.exists(EXPORT_DIR)) dir.create(EXPORT_DIR, recursive = TRUE, showWarnings = FALSE)
+      
+      # 1) MAPA
+      try({
+        w_map <- map_widget_simple()
+        tmp_html <- tempfile(fileext = ".html")
+        htmlwidgets::saveWidget(w_map, tmp_html, selfcontained = TRUE)
+        webshot2::webshot(tmp_html, file = EXPORT_PATHS$mapa,
+                          vwidth = 1200, vheight = 800, zoom = 2)
+      }, silent = TRUE)
+      
+      # 2) SERIE
+      try({
+        g <- build_series_ggplot()
+        if (!is.null(g)) {
+          ggsave(
+            filename = EXPORT_PATHS$serie,
+            plot     = g,
+            device   = ragg::agg_png,
+            width    = 10, height = 5, dpi = 200, units = "in",
+            bg       = "white"  # ✅ FIX transparencia
+          )
+        }
+      }, silent = TRUE)
+      
+      # 3) RANKING
+      try({
+        g <- build_ranking_ggplot()
+        if (!is.null(g)) {
+          ggsave(
+            filename = EXPORT_PATHS$ranking,
+            plot     = g,
+            device   = ragg::agg_png,
+            width    = 10, height = 6, dpi = 200, units = "in",
+            bg       = "white"  # ✅ FIX transparencia
+          )
+        }
+      }, silent = TRUE)
+      
+      # 4) ANOMALÍA
+      try({
+        p <- build_anom_plotly()
+        if (!is.null(p)) {
+          tmp_html <- tempfile(fileext = ".html")
+          htmlwidgets::saveWidget(p, tmp_html, selfcontained = TRUE)
+          webshot2::webshot(tmp_html, file = EXPORT_PATHS$anom,
+                            vwidth = 1100, vheight = 520, zoom = 2)
+        }
+      }, silent = TRUE)
+    })
+  }
+  
+  # ======================================================
+  # ✅ CORRECCIÓN 2: no usar session$onFlushed(export_pngs)
+  # ======================================================
+  observeEvent(input$f_anio, {
+    export_pngs()
+  }, once = TRUE, ignoreInit = FALSE)
+  
+  # (B) Exporta (sobrescribe) cada vez que cambian filtros / nivel de mapa
+  export_key <- reactive({
+    list(
+      freq  = input$freq,
+      anio  = input$f_anio,
+      mes   = if (!is.null(input$freq) && input$freq == "Mensual") input$f_mes else NA,
+      depto = input$f_depto,
+      mpio  = input$f_mpio,
+      nivel = nivel_mapa(),
+      dep2  = depto_sel()
+    )
+  })
+  
+  export_key_db <- shiny::debounce(export_key, millis = 700)
+  
+  observeEvent(export_key_db(), {
+    export_pngs()
+  }, ignoreInit = TRUE)
+  
+  # ======================================================
+  # REPORTE PDF (Rmarkdown dentro de Shiny)
+  # ======================================================
+  output$dl_pdf_report <- downloadHandler(
+    filename = function(){
+      suf <- if (!is.null(input$freq) && input$freq == "Mensual") {
+        paste0(input$f_anio, "_", sprintf("%02d", as.integer(input$f_mes)))
+      } else {
+        safe_chr(input$f_anio)
+      }
+      paste0("Reporte_NOAA_", suf, "_", Sys.Date(), ".pdf")
+    },
+    content = function(file){
+      
+      # Asegura PNGs actualizados (aislado por seguridad)
+      isolate(export_pngs())
+      
+      # Tabla de filtros para el reporte
+      filtros_tbl <- data.frame(
+        Filtro = c("Frecuencia", "Año", "Mes", "Departamento (cód.)", "Municipio"),
+        Valor  = c(
+          safe_chr(input$freq),
+          safe_chr(input$f_anio),
+          if (!is.null(input$freq) && input$freq == "Mensual") nombre_mes(input$f_mes) else "NA",
+          safe_chr(input$f_depto),
+          safe_chr(input$f_mpio)
+        ),
+        stringsAsFactors = FALSE
+      )
+      if (safe_chr(input$freq) != "Mensual") {
+        filtros_tbl <- filtros_tbl[filtros_tbl$Filtro != "Mes", , drop = FALSE]
+      }
+      
+      # Ruta del Rmd (NOMBRE REAL)
+      rmd_in <- file.path(APP_ROOT, "Informe_descargable.Rmd")
+      if (!file.exists(rmd_in)) {
+        stop(
+          "No encuentro el Rmd del reporte en: ", rmd_in,
+          "\nGuárdalo como 'Informe_descargable.Rmd' en la misma carpeta del app.R."
+        )
+      }
+      
+      # Render a un PDF temporal (único) y copiar al destino final
+      out_dir  <- tempdir()
+      out_pdf  <- tempfile("Informe_descargable_", tmpdir = out_dir, fileext = ".pdf")
+      
+      # Intermedios en carpeta propia (evita choques)
+      inter_dir <- file.path(out_dir, paste0("knit_", Sys.getpid(), "_", as.integer(Sys.time())))
+      dir.create(inter_dir, showWarnings = FALSE, recursive = TRUE)
+      
+      rmd_norm <- normalizePath(rmd_in, winslash = "/", mustWork = TRUE)
+      
+      res <- rmarkdown::render(
+        input             = rmd_norm,
+        output_format     = "pdf_document",
+        output_dir        = dirname(out_pdf),
+        output_file       = basename(out_pdf),
+        intermediates_dir = inter_dir,
+        clean             = TRUE,
+        params = list(
+          app_root   = APP_ROOT,
+          export_dir = "Descargas",
+          filtros    = filtros_tbl,
+          freq  = safe_chr(input$freq),
+          anio  = input$f_anio,
+          mes   = if (!is.null(input$freq) && input$freq == "Mensual") as.integer(input$f_mes) else NULL,
+          depto = safe_chr(input$f_depto),
+          mpio  = safe_chr(input$f_mpio)
+        ),
+        envir = new.env(parent = globalenv()),
+        quiet = TRUE
+      )
+      
+      file.copy(res, file, overwrite = TRUE)
+    }
+  )
+  
 }
 
-
 shinyApp(ui = ui, server = server)
+

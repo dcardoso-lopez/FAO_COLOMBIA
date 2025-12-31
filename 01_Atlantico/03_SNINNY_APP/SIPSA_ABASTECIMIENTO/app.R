@@ -552,7 +552,7 @@ ui <- fluidPage(
               class = "card viz-card viz-map",
               div(class="card-title", strong("¿En que departamentos se concentra la mayor cantidad de alimentos remitidos de la central mayorista priorizada?")),
               div(class="viz-body", leafletOutput("map_t1")),
-              div(class="map-note","Nota: cuartiles (4 clases) con valores > 0. Dptos sin información en gris."),
+              div(class="map-note","Nota: El mapa clasifica los valores del indicador en cuartiles (cuatro grupos con igual número de observaciones)."),
               div(class="dl-under", downloadButton("dl_png_map_t1", "PNG — Mapa (simple)"))
             )
           ),
@@ -611,7 +611,7 @@ ui <- fluidPage(
               class = "card viz-card viz-map",
               div(class="card-title", strong("¿En que departamentos se concentra la mayor cantidad de alimentos recibidos de la central mayorista priorizada?")),
               div(class="viz-body", leafletOutput("map_t2")),
-              div(class="map-note","Nota: cuartiles (4 clases) con valores > 0. Dptos sin información en gris."),
+              div(class="map-note","Nota: El mapa clasifica los valores del indicador en cuartiles (cuatro grupos con igual número de observaciones)."),
               div(class="dl-under", downloadButton("dl_png_map_t2", "PNG — Mapa (simple)"))
             )
           ),

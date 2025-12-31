@@ -559,7 +559,7 @@ server <- function(input, output, session){
     if (is.null(df_vals) || nrow(df_vals) == 0) {
       "Nota: Sin información suficiente para segmentar el indicador en cuartiles."
     } else {
-      "Nota: Los colores del mapa representan cuartiles del indicador seleccionado (rangos redondeados)."
+      "Nota: El mapa clasifica los valores del indicador en cuartiles (cuatro grupos con igual número de observaciones)."
     }
   })
   
