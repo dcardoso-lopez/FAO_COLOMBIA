@@ -778,8 +778,8 @@ server <- function(input, output, session){
       hovertemplate = "%{customdata}<extra></extra>"
     ) %>%
       layout(
-        xaxis = list(title = x_title, showgrid = FALSE),
-        yaxis = list(title = "", automargin = TRUE, showgrid = TRUE, gridcolor = GRID_COLOR, gridwidth = 0.5),
+        xaxis = list(title = x_title, showgrid = TRUE, gridcolor = GRID_COLOR, gridwidth = 0.5),
+        yaxis = list(title = "", automargin = TRUE, showgrid = FALSE),
         margin = list(l = 10, r = 10, t = 10, b = 10),
         showlegend = FALSE
       )
@@ -824,8 +824,8 @@ server <- function(input, output, session){
       hoverlabel = list(align = "left")
     ) %>%
       layout(
-        xaxis = list(title = "", dtick = 1, showgrid = FALSE),
-        yaxis = list(title = "Casos", showgrid = TRUE, gridcolor = GRID_COLOR, gridwidth = 0.5),
+        xaxis = list(title = "", dtick = 1, showgrid = TRUE, gridcolor = GRID_COLOR, gridwidth = 0.5),
+        yaxis = list(title = "Casos", showgrid = FALSE),
         margin = list(l = 60, r = 20, b = 40, t = 10),
         showlegend = FALSE
       )

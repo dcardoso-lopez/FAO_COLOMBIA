@@ -1,6 +1,14 @@
-# app_sninny_estructura_multi_bases_con_finagro_con_crecimiento.R
-# (MODIFICADO — Incluye indicador de crecimiento poblacional de 30 años)
-# (MODIFICADO — SE ELIMINA TODO LO DE FINAGRO)
+# app_sninny_estructura_multi_bases_con_crecimiento_y_SIPSA_IHH.R
+# -------------------------------------------------------------------
+# ✅ Incluye indicador de crecimiento poblacional (30 años)
+# ✅ Incluye SIPSA Abastecimiento OD: 041_DANE_SIPSA-Abast_od.rds
+#    - Serie temporal: IHH nacional (según Origen/Destino + Grupo)
+#    - Mapas: IHH por departamento (según Origen/Destino + Grupo)
+# ✅ SIN filtro de alimento para SIPSA
+# ✅ Tooltips/labels de mapas: muestran nombre del departamento (Caldas, Antioquia, etc.)
+# ✅ NUEVO (pedido): en TODOS los mapas (excepto SIPSA) la etiqueta usa el nombre tal cual viene
+#    en la base usada (DEPARTAMENTO_D o DEPARTAMENTO_O). No se fuerza Title Case.
+# ✅ NUEVO (pedido HOY): en el mapa SIPSA (departamento) las etiquetas van en MAYÚSCULAS.
 # -------------------------------------------------------------------
 
 suppressWarnings({
@@ -72,6 +80,7 @@ pick_col_simple <- function(nms, cands){
 pick_year_col <- function(nms) pick_col_simple(nms, c("ano","año","anio","year"))
 pick_dep_col  <- function(nms) pick_col_simple(nms, c("cod_dane_dpto_d","cod_dane_dpto","cod_dpto","cod_depto","dpto_ccdgo","COD_DPTO2","cod_dpto2"))
 pick_dep_name_col <- function(nms) pick_col_simple(nms, c("departamento_d","departamento","nom_dpto","depto","NOM_DPTO","DEPARTAMENTO_D"))
+pick_dep_name_col_o <- function(nms) pick_col_simple(nms, c("departamento_o","DEPARTAMENTO_O","depto_o","nom_dpto_o","origen_dpto","DEPARTAMENTO_ORIGEN"))
 
 fmt_num_es <- function(x, digits = 1){
   scales::number(x, accuracy = 10^-digits, big.mark = ".", decimal.mark = ",")
@@ -142,6 +151,24 @@ norm_dep2 <- function(x){
   stringi::stri_pad_left(x,2,"0")
 }
 
+norm_txt_upper <- function(x){
+  x <- as.character(x)
+  x <- stringi::stri_trans_general(x, "Latin-ASCII")
+  x <- stringi::stri_trim_both(toupper(x))
+  x
+}
+title_case_simple <- function(x){
+  x <- as.character(x)
+  x <- stringi::stri_trans_general(x, "Latin-ASCII")
+  x <- tolower(stringr::str_squish(x))
+  stringi::stri_trans_totitle(x)
+}
+trim_safe <- function(x){
+  x <- as.character(x)
+  x <- stringi::stri_replace_all_fixed(x, "\u00A0", " ")
+  stringi::stri_trim_both(x)
+}
+
 # =========================================================
 # Sistemas + Indicadores (Estructura)
 # =========================================================
@@ -150,6 +177,7 @@ sistemas_df <- tibble::tribble(
   "DANE_POPULATION",     list("051_DANE_Proyecciones_P.rds"),
   "DANE_POP_CRECIMIENTO",list("051_DANE_Proyecciones_P.rds"),
   "DANE_ECV",            list("052_DANE_ECV.rds"),
+  "DANE_SIPSA_ABAST_OD", list("041_DANE_SIPSA-Abast_od.rds"),
   "INS_SIVIGILA_BPAN",   list("021_INS_SIVIGILA-BPAN.rds"),
   "INS_SIVIGILA_ETA",    list("022_INS_SIVIGILA-ETA.rds"),
   "INS_SIVIGILA_NDA",    list("023_INS_SIVIGILA-NDA.rds"),
@@ -164,6 +192,7 @@ indicadores_df <- tibble::tribble(
   "Transición demográfica territorial — Razón de dependencia",           "Estructura", "DANE_POPULATION",
   "Crecimiento poblacional promedio anual (30 años)",                    "Estructura", "DANE_POP_CRECIMIENTO",
   "Condiciones de inseguridad alimentaria y consumo de ultra-procesados en los hogares", "Estructura", "DANE_ECV",
+  "Abastecimiento de alimentos (SIPSA) — Concentración (IHH) por dpto",   "Estructura", "DANE_SIPSA_ABAST_OD",
   "Enfermedades Transmitidas por Alimentos",                             "Estructura", "INS_SIVIGILA_ETA",
   "Bajo peso al nacer",                                                  "Estructura", "INS_SIVIGILA_BPAN",
   "Desnutrición aguda infantil",                                         "Estructura", "INS_SIVIGILA_NDA",
@@ -177,6 +206,7 @@ choices_por_dimension <- function(dim){
     "DANE_POPULATION",
     "DANE_POP_CRECIMIENTO",
     "DANE_ECV",
+    "DANE_SIPSA_ABAST_OD",
     "INS_SIVIGILA_ETA",
     "INS_SIVIGILA_BPAN",
     "INS_SIVIGILA_NDA",
@@ -201,7 +231,8 @@ base_to_indicator_code <- function(sistema){
     "DANE_POPULATION"      = "DEP_RATIO",
     "DANE_POP_CRECIMIENTO" = "DEP_CRECIMIENTO",
     "DANE_ECV"             = "ECV_FIES",
-    "INS_SIVIGILA_BPAN"    = "BPAN",     # (FIX) antes tenía una 'a' minúscula
+    "DANE_SIPSA_ABAST_OD"  = "SIPSA_IHH",
+    "INS_SIVIGILA_BPAN"    = "BPAN",
     "INS_SIVIGILA_ETA"     = "ETA",
     "INS_SIVIGILA_NDA"     = "NDA",
     "DNP_SISBEN"           = "SISBEN",
@@ -237,39 +268,95 @@ dep_name_col_shp <- if (!is.null(shp_dep)) pick_dep_name_col(names(shp_dep)) els
 if (!is.null(shp_dep)) {
   shp_dep <- sf::st_transform(shp_dep, 4326)
   shp_dep <- sf::st_simplify(shp_dep, dTolerance = 0.001, preserveTopology = TRUE)
+  
   shp_dep$join_code <- if (!is.na(dep_code_col_shp)) as.character(shp_dep[[dep_code_col_shp]]) else NA_character_
-  shp_dep$join_name <- if (!is.na(dep_name_col_shp)) stringi::stri_trans_general(as.character(shp_dep[[dep_name_col_shp]]), "Latin-ASCII") else NA_character_
-  shp_dep$join_name <- stringi::stri_trim_both(toupper(shp_dep$join_name))
+  shp_dep$join_name <- if (!is.na(dep_name_col_shp)) norm_txt_upper(shp_dep[[dep_name_col_shp]]) else NA_character_
+  
+  # (solo fallback)
+  shp_dep$DEP_LABEL <- if (!is.na(dep_name_col_shp)) safe_chr(shp_dep[[dep_name_col_shp]]) else shp_dep$join_code
 }
 
+# =========================================================
+# JOIN: conservar etiqueta tal cual base (DEPARTAMENTO_D/DEPARTAMENTO_O) excepto SIPSA (que ya trae DEP_LABEL)
+# =========================================================
 join_dep_shp <- function(df, shp, df_key_code = NULL, df_key_name = NULL){
   if (is.null(df) || !nrow(df) || is.null(shp)) return(NULL)
   
   df2 <- df
   
+  # join_code por código
   if (!is.null(df_key_code) && df_key_code %in% names(df2)) {
     df2$join_code <- as.character(df2[[df_key_code]])
   } else {
     df2$join_code <- NA_character_
   }
   
+  # join_name (solo para fallback) EN MAYÚSCULAS NORMALIZADAS
   if (!is.null(df_key_name) && df_key_name %in% names(df2)) {
     nm <- as.character(df2[[df_key_name]])
+    nm <- stringi::stri_trans_general(nm, "Latin-ASCII")
+    df2$join_name <- stringi::stri_trim_both(toupper(nm))
+  } else if ("dep_nom" %in% names(df2)) {
+    nm <- as.character(df2$dep_nom)
+    nm <- stringi::stri_trans_general(nm, "Latin-ASCII")
+    df2$join_name <- stringi::stri_trim_both(toupper(nm))
+  } else if ("DEPARTAMENTO_D" %in% names(df2)) {
+    nm <- as.character(df2$DEPARTAMENTO_D)
+    nm <- stringi::stri_trans_general(nm, "Latin-ASCII")
+    df2$join_name <- stringi::stri_trim_both(toupper(nm))
+  } else if ("DEPARTAMENTO_O" %in% names(df2)) {
+    nm <- as.character(df2$DEPARTAMENTO_O)
     nm <- stringi::stri_trans_general(nm, "Latin-ASCII")
     df2$join_name <- stringi::stri_trim_both(toupper(nm))
   } else {
     df2$join_name <- NA_character_
   }
   
+  # ✅ etiqueta "tal cual base" (preferencia)
+  # (si ya viene DEP_LABEL desde SIPSA, se respeta; si no, toma DEPARTAMENTO_D/DEPARTAMENTO_O/dep_nom)
+  if ("DEP_LABEL" %in% names(df2)) {
+    df2$DEP_LABEL_SRC <- trim_safe(df2$DEP_LABEL)
+  } else if ("DEPARTAMENTO_D" %in% names(df2)) {
+    df2$DEP_LABEL_SRC <- trim_safe(df2$DEPARTAMENTO_D)
+  } else if ("DEPARTAMENTO_O" %in% names(df2)) {
+    df2$DEP_LABEL_SRC <- trim_safe(df2$DEPARTAMENTO_O)
+  } else if ("dep_nom" %in% names(df2)) {
+    df2$DEP_LABEL_SRC <- trim_safe(df2$dep_nom)
+  } else if (!is.null(df_key_name) && df_key_name %in% names(df2)) {
+    df2$DEP_LABEL_SRC <- trim_safe(df2[[df_key_name]])
+  } else {
+    df2$DEP_LABEL_SRC <- NA_character_
+  }
+  
   out_code <- suppressWarnings(dplyr::left_join(shp, df2, by = c("join_code" = "join_code")))
   ok_code  <- if ("valor" %in% names(out_code)) mean(!is.na(out_code$valor)) else 0
   out <- if (is.finite(ok_code) && ok_code >= 0.20) out_code else suppressWarnings(dplyr::left_join(shp, df2, by = c("join_name" = "join_name")))
   
+  # ✅ garantizar variable principal (para tu regla)
   if (!("DEPARTAMENTO_D" %in% names(out))) {
-    if ("dep_nom" %in% names(out)) out$DEPARTAMENTO_D <- out$dep_nom
-    else if ("join_name" %in% names(out)) out$DEPARTAMENTO_D <- out$join_name
-    else out$DEPARTAMENTO_D <- out$join_code
+    if ("dep_nom" %in% names(out)) {
+      out$DEPARTAMENTO_D <- out$dep_nom
+    } else if ("join_name" %in% names(out)) {
+      out$DEPARTAMENTO_D <- out$join_name
+    } else if ("NOM_DPTO" %in% names(out)) {
+      out$DEPARTAMENTO_D <- out$NOM_DPTO
+    } else if ("DPTO_CNMBR" %in% names(out)) {
+      out$DEPARTAMENTO_D <- out$DPTO_CNMBR
+    } else {
+      out$DEPARTAMENTO_D <- out$join_code
+    }
   }
+  
+  # ✅ DEP_LABEL final: usar lo que venga de la BASE (DEP_LABEL_SRC) si existe
+  out$DEP_LABEL <- if ("DEP_LABEL_SRC" %in% names(out)) out$DEP_LABEL_SRC else NA_character_
+  out$DEP_LABEL <- ifelse(is.na(out$DEP_LABEL) | !nzchar(out$DEP_LABEL),
+                          if ("DEP_LABEL" %in% names(shp)) as.character(out$DEP_LABEL) else NA_character_,
+                          out$DEP_LABEL)
+  
+  # fallback a DEPARTAMENTO_D / join_code
+  out$DEP_LABEL <- ifelse(is.na(out$DEP_LABEL) | !nzchar(out$DEP_LABEL), as.character(out$DEPARTAMENTO_D), out$DEP_LABEL)
+  out$DEP_LABEL <- ifelse(is.na(out$DEP_LABEL) | !nzchar(out$DEP_LABEL), as.character(out$join_code), out$DEP_LABEL)
+  
   out
 }
 
@@ -423,6 +510,7 @@ pob_dep_all <- tryCatch({
       cod_dep = COD_DANE_DPTO_D,
       dep_nom = DEPARTAMENTO_D,
       DEPARTAMENTO_D = DEPARTAMENTO_D,
+      DEP_LABEL = DEPARTAMENTO_D,  # ✅ etiqueta tal cual base
       valor   = valor
     ) %>%
     arrange(ano, cod_dep)
@@ -480,6 +568,7 @@ pob_crecimiento_30 <- tryCatch({
       cod_dep = COD_DANE_DPTO_D,
       dep_nom = DEPARTAMENTO_D,
       DEPARTAMENTO_D = DEPARTAMENTO_D,
+      DEP_LABEL = DEPARTAMENTO_D,  # ✅ etiqueta tal cual base
       valor = g_aprox * 100
     ) %>%
     arrange(cod_dep, ano)
@@ -582,6 +671,152 @@ make_dep_ratio_ts_plot <- function(){
 }
 
 # =========================================================
+# SIPSA ABAST OD — IHH (HHI)
+# =========================================================
+sipsa_raw <- tryCatch({
+  p <- file.path(data_dir, "041_DANE_SIPSA-Abast_od.rds")
+  if (!file.exists(p)) return(NULL)
+  df <- readRDS(p)
+  if (is.null(df) || !nrow(df)) return(NULL)
+  df
+}, error = function(e) NULL)
+
+sipsa_long <- NULL
+sipsa_years <- integer(0)
+sipsa_group_levels <- character(0)
+
+if (!is.null(sipsa_raw) && nrow(sipsa_raw)) {
+  nms <- names(sipsa_raw)
+  
+  col_ano <- pick_year_col(nms)
+  
+  col_cod_o <- pick_col_simple(nms, c("cod_dane_dpto_o","cod_dane_dep_o","cod_dep_o","cod_dpto_o","cod_origen","cod_dane_origen","COD_DANE_DPTO_O","COD_DANE_DEP_O"))
+  col_nom_o <- pick_col_simple(nms, c("departamento_o","depto_o","nom_dpto_o","origen_dpto","DEPARTAMENTO_O","DEPARTAMENTO_ORIGEN"))
+  col_cod_d <- pick_col_simple(nms, c("cod_dane_dpto_d","cod_dane_dep_d","cod_dep_d","cod_dpto_d","cod_destino","cod_dane_destino","COD_DANE_DPTO_D","COD_DANE_DEP_D"))
+  col_nom_d <- pick_col_simple(nms, c("departamento_d","depto_d","nom_dpto_d","destino_dpto","DEPARTAMENTO_D","DEPARTAMENTO_DESTINO"))
+  
+  col_grupo <- pick_col_simple(nms, c("grupo","grupo_alimentos","grupo_alimento","GRUPO"))
+  col_ton   <- pick_col_simple(nms, c("toneladas","ton","ton_total","cantidad_ton","q_ton","TON","TONELADAS","valor_ton"))
+  
+  if (!any(is.na(c(col_ano, col_cod_o, col_cod_d, col_ton)))) {
+    sipsa_long <- sipsa_raw %>%
+      transmute(
+        ano   = suppressWarnings(as.integer(parse_num_co(.data[[col_ano]]))),
+        cod_o = norm_dep2(.data[[col_cod_o]]),
+        nom_o = if (!is.na(col_nom_o)) safe_chr(.data[[col_nom_o]]) else NA_character_,
+        cod_d = norm_dep2(.data[[col_cod_d]]),
+        nom_d = if (!is.na(col_nom_d)) safe_chr(.data[[col_nom_d]]) else NA_character_,
+        grupo = if (!is.na(col_grupo)) safe_chr(.data[[col_grupo]]) else "TOTAL",
+        ton   = parse_num_co(.data[[col_ton]])
+      ) %>%
+      filter(is.finite(ano), !is.na(cod_o), nzchar(cod_o), !is.na(cod_d), nzchar(cod_d),
+             is.finite(ton), ton >= 0) %>%
+      mutate(
+        # (SIPSA mantiene su lógica actual)
+        nom_o = norm_txt_upper(nom_o),
+        nom_d = norm_txt_upper(nom_d),
+        grupo = stringi::stri_trim_both(toupper(grupo))
+      )
+    
+    if (!is.null(sipsa_long) && nrow(sipsa_long)) {
+      sipsa_years <- sort(unique(sipsa_long$ano))
+      sipsa_group_levels <- sort(unique(na.omit(as.character(sipsa_long$grupo))))
+      if (!length(sipsa_group_levels)) sipsa_group_levels <- "TOTAL"
+    }
+  }
+}
+
+sipsa_group_choices <- {
+  if (!length(sipsa_group_levels)) c("Todos" = "Todos")
+  else c("Todos" = "Todos", stats::setNames(sipsa_group_levels, sipsa_group_levels))
+}
+
+calc_hhi <- function(x){
+  x <- x[is.finite(x) & x >= 0]
+  if (!length(x)) return(NA_real_)
+  s <- sum(x)
+  if (!is.finite(s) || s <= 0) return(NA_real_)
+  p <- x / s
+  10000 * sum(p^2, na.rm = TRUE)
+}
+
+sipsa_ts_nacional <- function(dir = c("Origen","Destino"), grupo = "Todos"){
+  dir <- match.arg(dir)
+  if (is.null(sipsa_long) || !nrow(sipsa_long)) return(NULL)
+  dd <- sipsa_long
+  if (!is.null(grupo) && grupo != "Todos") dd <- dd %>% filter(grupo == grupo)
+  if (!nrow(dd)) return(NULL)
+  
+  if (dir == "Origen") {
+    by_year_dep <- dd %>% group_by(ano, cod_dep = cod_o) %>% summarise(ton = sum(ton, na.rm = TRUE), .groups="drop")
+  } else {
+    by_year_dep <- dd %>% group_by(ano, cod_dep = cod_d) %>% summarise(ton = sum(ton, na.rm = TRUE), .groups="drop")
+  }
+  
+  by_year_dep %>%
+    group_by(ano) %>%
+    summarise(valor = calc_hhi(ton), .groups="drop") %>%
+    arrange(ano)
+}
+
+make_sipsa_ihh_ts_plot <- function(dir = "Origen", grupo = "Todos"){
+  ts <- sipsa_ts_nacional(dir = dir, grupo = grupo)
+  if (is.null(ts) || !nrow(ts)) return(empty_ts_plot("Sin datos SIPSA para los filtros seleccionados."))
+  
+  ticks_x <- year_ticks_2(ts$ano)
+  
+  plotly::plot_ly(
+    data = ts, x = ~ano, y = ~valor,
+    type = "scatter", mode = "lines+markers",
+    line = list(width = 2, color = COL_PLOT),
+    marker = list(size = 6, color = COL_PLOT),
+    customdata = fmt_num_es(ts$valor, 0),
+    hovertemplate = paste0(
+      "<b>Año:</b> %{x}<br>",
+      "<b>Rol:</b> ", dir, "<br>",
+      "<b>IHH (0–10.000):</b> %{customdata}<extra></extra>"
+    )
+  ) %>%
+    plotly::layout(
+      xaxis = list(title = "", tickmode = "array", tickvals = ticks_x, ticktext = ticks_x, showgrid = FALSE, automargin = TRUE),
+      yaxis = list(title = "IHH (0–10.000)", showgrid = FALSE, automargin = TRUE, rangemode = "tozero"),
+      margin = list(l = 70, r = 20, t = 10, b = 60),
+      hovermode = "x unified",
+      hoverlabel = PLOTLY_HOVERLABEL,
+      plot_bgcolor  = "rgba(0,0,0,0)",
+      paper_bgcolor = "rgba(0,0,0,0)"
+    )
+}
+
+sipsa_map_ihh_by_dep <- function(year_val, dir = c("Origen","Destino"), grupo = "Todos"){
+  dir <- match.arg(dir)
+  if (is.null(sipsa_long) || !nrow(sipsa_long)) return(NULL)
+  if (is.null(year_val) || !is.finite(as.integer(year_val))) return(NULL)
+  
+  dd <- sipsa_long %>% filter(ano == as.integer(year_val))
+  if (!is.null(grupo) && grupo != "Todos") dd <- dd %>% filter(grupo == grupo)
+  if (!nrow(dd)) return(NULL)
+  
+  if (dir == "Origen") {
+    by_pair <- dd %>%
+      group_by(cod_dep = cod_o, dep_nom = nom_o, counter = cod_d) %>%
+      summarise(ton = sum(ton, na.rm = TRUE), .groups="drop")
+  } else {
+    by_pair <- dd %>%
+      group_by(cod_dep = cod_d, dep_nom = nom_d, counter = cod_o) %>%
+      summarise(ton = sum(ton, na.rm = TRUE), .groups="drop")
+  }
+  
+  by_pair %>%
+    group_by(cod_dep, dep_nom) %>%
+    summarise(valor = calc_hhi(ton), .groups="drop") %>%
+    mutate(
+      DEPARTAMENTO_D = dep_nom,
+      DEP_LABEL = dep_nom  # ✅ SIPSA se queda con su etiqueta (ya viene en MAYÚSCULA)
+    )
+}
+
+# =========================================================
 # 2) SIVIGILA — BPAN / NDA (conteo) y ETA (sum total_enf)
 # =========================================================
 load_sivigila <- function(file_name){
@@ -613,7 +848,11 @@ prep_sivigila_counts_dep <- function(df){
   tibble(ano = ano, cod_dep = cod, dep_nom = nam) %>%
     filter(!is.na(ano)) %>%
     group_by(ano, cod_dep, dep_nom) %>%
-    summarise(valor = dplyr::n(), .groups = "drop")
+    summarise(valor = dplyr::n(), .groups = "drop") %>%
+    mutate(
+      DEPARTAMENTO_D = dep_nom,
+      DEP_LABEL      = dep_nom # ✅ etiqueta tal cual base
+    )
 }
 
 prep_sivigila_eta_dep <- function(df){
@@ -633,7 +872,11 @@ prep_sivigila_eta_dep <- function(df){
   tibble(ano = ano, cod_dep = cod, dep_nom = nam, total_enf = enf) %>%
     filter(!is.na(ano)) %>%
     group_by(ano, cod_dep, dep_nom) %>%
-    summarise(valor = sum(total_enf, na.rm = TRUE), .groups = "drop")
+    summarise(valor = sum(total_enf, na.rm = TRUE), .groups = "drop") %>%
+    mutate(
+      DEPARTAMENTO_D = dep_nom,
+      DEP_LABEL      = dep_nom # ✅ etiqueta tal cual base
+    )
 }
 
 bpan_dep_all <- prep_sivigila_counts_dep(bpan_raw)
@@ -672,7 +915,7 @@ make_sivigila_ts_plot <- function(which_one = c("BPAN","NDA","ETA")){
 }
 
 # =========================================================
-# 3) SISBEN — prevalencia i# usando agregados
+# 3) SISBEN — prevalencia IPM / hogares
 # =========================================================
 sisben_i_labels <- c(
   i1  = "Bajo logro educativo",
@@ -750,7 +993,8 @@ prep_sisben_agg_preval_long <- function(df){
     ) %>%
     mutate(
       valor = if_else(denom > 0, 100 * numer / denom, NA_real_),
-      DEPARTAMENTO_D = dep_nom
+      DEPARTAMENTO_D = dep_nom,
+      DEP_LABEL      = dep_nom # ✅ etiqueta tal cual base
     ) %>%
     filter(is.finite(denom)) %>%
     arrange(metric, ano, cod_dep, dep_nom, grupo)
@@ -778,15 +1022,16 @@ prep_sisben_hogares_long <- function(df){
     ) %>%
     filter(!is.na(ano), is.finite(hogares), hogares > 0) %>%
     mutate(
-      grupo   = toupper(stringi::stri_trim_both(grupo)),
-      dep_nom = stringi::stri_trans_general(dep_nom, "Latin-ASCII"),
-      dep_nom = stringi::stri_trim_both(toupper(dep_nom))
+      grupo   = toupper(stringi::stri_trim_both(grupo))
     )
   
   out %>%
     group_by(ano, cod_dep, dep_nom, grupo) %>%
     summarise(hogares = sum(hogares, na.rm = TRUE), .groups = "drop") %>%
-    mutate(DEPARTAMENTO_D = dep_nom)
+    mutate(
+      DEPARTAMENTO_D = dep_nom,
+      DEP_LABEL      = dep_nom # ✅ etiqueta tal cual base
+    )
 }
 
 sisben_prev_long <- prep_sisben_agg_preval_long(sisben_raw)
@@ -1043,7 +1288,8 @@ if (!is.null(ecv_raw) && nrow(ecv_raw)) {
     ) %>%
     mutate(
       valor = if_else(denom > 0, 100 * numer / denom, NA_real_),
-      DEPARTAMENTO_D = dep_nom
+      DEPARTAMENTO_D = dep_nom,
+      DEP_LABEL      = dep_nom # ✅ etiqueta tal cual base
     )
   
   ecv_fies_agg_nat <- ecv_long %>%
@@ -1092,7 +1338,7 @@ make_ecv_fies_ts_plot <- function(metric_sel){
 }
 
 # =========================================================
-# 5) NOAA — Precipitación (mm³)
+# 5) NOAA — Precipitación
 # =========================================================
 noaa_raw <- tryCatch({
   p <- file.path(data_dir, "131_NOAA_Precipitación.rds")
@@ -1129,17 +1375,16 @@ if (!is.null(noaa_raw)) {
         cod_dep = if (!is.na(col_dep_code)) norm_dep2(.[[col_dep_code]]) else NA_character_,
         dep_nom = if (!is.na(col_dep_name)) safe_chr(.[[col_dep_name]]) else NA_character_
       ) %>%
-      filter(!is.na(ano), !is.na(valor), valor >= 0) %>%
-      mutate(
-        dep_nom = stringi::stri_trans_general(dep_nom, "Latin-ASCII"),
-        dep_nom = stringi::stri_trim_both(toupper(dep_nom))
-      )
+      filter(!is.na(ano), !is.na(valor), valor >= 0)
     
     noaa_dep_all <- df %>%
       filter(!is.na(cod_dep), nzchar(cod_dep)) %>%
       group_by(ano, cod_dep, dep_nom) %>%
       summarise(valor = sum(valor, na.rm = TRUE), .groups = "drop") %>%
-      mutate(DEPARTAMENTO_D = dep_nom)
+      mutate(
+        DEPARTAMENTO_D = dep_nom,
+        DEP_LABEL      = dep_nom # ✅ etiqueta tal cual base
+      )
     
     noaa_ts <- noaa_dep_all %>%
       group_by(ano) %>%
@@ -1175,7 +1420,7 @@ make_noaa_ts_plot <- function(){
 }
 
 # =========================================================
-# 6) HANSEN — Deforestación (ha)
+# 6) HANSEN — Deforestación
 # =========================================================
 hansen_raw <- tryCatch({
   p <- file.path(data_dir, "141_HANSEN_DEFORESTATION.rds")
@@ -1199,16 +1444,15 @@ if (!is.null(hansen_raw)) {
         cod_dep = norm_dep2(COD_DANE_DPTO_D),
         dep_nom = safe_chr(DEPARTAMENTO_D)
       ) %>%
-      filter(!is.na(ano), is.finite(valor), valor >= 0, !is.na(cod_dep), nzchar(cod_dep)) %>%
-      mutate(
-        dep_nom = stringi::stri_trans_general(dep_nom, "Latin-ASCII"),
-        dep_nom = stringi::stri_trim_both(toupper(dep_nom))
-      )
+      filter(!is.na(ano), is.finite(valor), valor >= 0, !is.na(cod_dep), nzchar(cod_dep))
     
     hansen_dep_all <- df %>%
       group_by(ano, cod_dep, dep_nom) %>%
       summarise(valor = sum(valor, na.rm = TRUE), .groups = "drop") %>%
-      mutate(DEPARTAMENTO_D = dep_nom)
+      mutate(
+        DEPARTAMENTO_D = dep_nom,
+        DEP_LABEL      = dep_nom # ✅ etiqueta tal cual base
+      )
     
     hansen_ts <- hansen_dep_all %>%
       group_by(ano) %>%
@@ -1257,6 +1501,7 @@ get_dep_data <- function(ind_code){
          "SISBEN"          = sisben_prev_long,
          "PRECIP"          = noaa_dep_all,
          "HANSEN"          = hansen_dep_all,
+         "SIPSA_IHH"       = NULL,
          NULL)
 }
 
@@ -1270,7 +1515,8 @@ all_years_dep <- sort(unique(c(
   if (!is.null(sisben_prev_long))    sisben_prev_long$ano,
   if (!is.null(sisben_hog_long))     sisben_hog_long$ano,
   if (!is.null(noaa_dep_all))        noaa_dep_all$ano,
-  if (!is.null(hansen_dep_all))      hansen_dep_all$ano
+  if (!is.null(hansen_dep_all))      hansen_dep_all$ano,
+  if (length(sipsa_years))           sipsa_years
 )), na.last = NA)
 
 default_fixed_year <- if (length(all_years_dep)) max(all_years_dep, na.rm = TRUE) else NA_integer_
@@ -1344,9 +1590,7 @@ ui <- fluidPage(
     .grid-2maps{ display:grid; grid-template-columns:1fr 1fr; gap:20px; align-items:stretch; }
     .map-panel{ display:flex; flex-direction:column; gap:10px; background:#fff; border:1px solid var(--ecv-bdr); border-radius:16px; padding:16px 16px 18px; box-shadow:0 2px 6px rgba(0,0,0,.03); }
     .map-panel .filters{ border:none; box-shadow:none; padding:0; margin:0 0 8px 0; }
-
     .filters-map{ height:auto; display:flex; flex-direction:column; justify-content:flex-start; overflow:visible; }
-
     @media (max-width:980px){
       .filters-grid-2{ grid-template-columns:1fr; }
       .filters-grid-3{ grid-template-columns:1fr; }
@@ -1443,7 +1687,6 @@ ui <- fluidPage(
 # =========================================================
 server <- function(input, output, session){
   
-  # ----- Extra UI Pestaña 1 -----
   output$estr_extra1 <- renderUI({
     base_sel <- input$estr_base1
     if (is.null(base_sel)) return(NULL)
@@ -1494,12 +1737,32 @@ server <- function(input, output, session){
                         selected = unname(inds_fies)[1]))
       )
       
+    } else if (base_sel == "DANE_SIPSA_ABAST_OD") {
+      
+      tagList(
+        div(
+          lbl("Rol del departamento"),
+          selectInput(
+            "estr_sipsa_dir", label = NULL,
+            choices = c("Origen" = "Origen", "Destino" = "Destino"),
+            selected = "Origen"
+          )
+        ),
+        div(
+          lbl("Grupo"),
+          selectInput(
+            "estr_sipsa_grupo", label = NULL,
+            choices = sipsa_group_choices,
+            selected = "Todos"
+          )
+        )
+      )
+      
     } else {
       NULL
     }
   })
   
-  # ----- Plot principal (serie temporal) -----
   output$estr_ts <- renderPlotly({
     base_sel <- input$estr_base1 %||% default_base_estructura
     
@@ -1509,6 +1772,11 @@ server <- function(input, output, session){
       make_pob_crecimiento_ts_plot()
     } else if (base_sel == "DANE_ECV") {
       make_ecv_fies_ts_plot(metric_sel = input$estr_ecv_fies_metric %||% unname(inds_fies)[1])
+    } else if (base_sel == "DANE_SIPSA_ABAST_OD") {
+      make_sipsa_ihh_ts_plot(
+        dir   = input$estr_sipsa_dir %||% "Origen",
+        grupo = input$estr_sipsa_grupo %||% "Todos"
+      )
     } else if (base_sel == "INS_SIVIGILA_BPAN") {
       make_sivigila_ts_plot("BPAN")
     } else if (base_sel == "INS_SIVIGILA_ETA") {
@@ -1538,9 +1806,6 @@ server <- function(input, output, session){
     p
   })
   
-  # =========================================================
-  # Tarjetas
-  # =========================================================
   summary_from_ts <- function(ts, year_col = "ano", value_col = "valor",
                               titulo = "Indicador",
                               value_type = c("percent","number"),
@@ -1604,6 +1869,16 @@ server <- function(input, output, session){
   
   current_summary <- reactive({
     base_sel <- input$estr_base1 %||% default_base_estructura
+    
+    if (base_sel == "DANE_SIPSA_ABAST_OD") {
+      ts <- sipsa_ts_nacional(
+        dir   = input$estr_sipsa_dir %||% "Origen",
+        grupo = input$estr_sipsa_grupo %||% "Todos"
+      )
+      return(summary_from_ts(ts, "ano", "valor",
+                             titulo = "SIPSA — IHH (0–10.000)",
+                             value_type = "number"))
+    }
     
     if (base_sel == "DANE_POP_CRECIMIENTO") {
       ts <- pob_crecimiento_ts
@@ -1737,9 +2012,6 @@ server <- function(input, output, session){
     )
   })
   
-  # =======================================================
-  # Pestaña 2 — filtro año fijo
-  # =======================================================
   output$fixed_year_ui <- renderUI({
     lock <- input$lock_years %||% FALSE
     if (!isTRUE(lock)) return(tags$span("Active el año fijo para usar este filtro.", style = "font-size:12px;color:#9ca3af;"))
@@ -1748,7 +2020,6 @@ server <- function(input, output, session){
     selectInput("fixed_year", label = NULL, choices = yrs, selected = default_fixed_year)
   })
   
-  # ----- Extra UI mapas -----
   render_extra_map <- function(base_input_id, output_id, prefix){
     output[[output_id]] <- renderUI({
       base_sel <- input[[base_input_id]]
@@ -1790,6 +2061,25 @@ server <- function(input, output, session){
                       choices = inds_fies,
                       selected = unname(inds_fies)[1])
         )
+      } else if (base_sel == "DANE_SIPSA_ABAST_OD") {
+        tagList(
+          div(
+            lbl("Rol del departamento"),
+            selectInput(
+              paste0(prefix, "_sipsa_dir"), label = NULL,
+              choices = c("Origen" = "Origen", "Destino" = "Destino"),
+              selected = "Origen"
+            )
+          ),
+          div(
+            lbl("Grupo"),
+            selectInput(
+              paste0(prefix, "_sipsa_grupo"), label = NULL,
+              choices = sipsa_group_choices,
+              selected = "Todos"
+            )
+          )
+        )
       } else {
         NULL
       }
@@ -1808,14 +2098,19 @@ server <- function(input, output, session){
     if (ind_sel == "SISBEN") {
       view_sel <- input$map1_sisben_view %||% "prevalencia"
       df <- if (view_sel == "hogares") sisben_hog_long else sisben_prev_long
+      yrs <- sort(unique(df$ano))
+      if (!length(yrs)) return(tags$span("Sin años disponibles para esta base", style="font-size:12px;color:#9ca3af;"))
+      selectInput("map1_year", label = NULL, choices = yrs, selected = max(yrs, na.rm = TRUE))
+    } else if (ind_sel == "SIPSA_IHH") {
+      yrs <- sipsa_years
+      if (!length(yrs)) return(tags$span("Sin años disponibles para SIPSA", style="font-size:12px;color:#9ca3af;"))
+      selectInput("map1_year", label = NULL, choices = yrs, selected = max(yrs, na.rm = TRUE))
     } else {
       df <- get_dep_data(ind_sel)
+      if (is.null(df) || !nrow(df)) return(tags$span("Sin años disponibles para esta base", style="font-size:12px;color:#9ca3af;"))
+      yrs <- sort(unique(df$ano))
+      selectInput("map1_year", label = NULL, choices = yrs, selected = max(yrs, na.rm = TRUE))
     }
-    
-    if (is.null(df) || !nrow(df)) return(tags$span("Sin años disponibles para esta base", style="font-size:12px;color:#9ca3af;"))
-    
-    yrs <- sort(unique(df$ano))
-    selectInput("map1_year", label = NULL, choices = yrs, selected = max(yrs, na.rm = TRUE))
   })
   
   output$map2_year_ui <- renderUI({
@@ -1828,14 +2123,19 @@ server <- function(input, output, session){
     if (ind_sel == "SISBEN") {
       view_sel <- input$map2_sisben_view %||% "prevalencia"
       df <- if (view_sel == "hogares") sisben_hog_long else sisben_prev_long
+      yrs <- sort(unique(df$ano))
+      if (!length(yrs)) return(tags$span("Sin años disponibles para esta base", style="font-size:12px;color:#9ca3af;"))
+      selectInput("map2_year", label = NULL, choices = yrs, selected = max(yrs, na.rm = TRUE))
+    } else if (ind_sel == "SIPSA_IHH") {
+      yrs <- sipsa_years
+      if (!length(yrs)) return(tags$span("Sin años disponibles para SIPSA", style="font-size:12px;color:#9ca3af;"))
+      selectInput("map2_year", label = NULL, choices = yrs, selected = max(yrs, na.rm = TRUE))
     } else {
       df <- get_dep_data(ind_sel)
+      if (is.null(df) || !nrow(df)) return(tags$span("Sin años disponibles para esta base", style="font-size:12px;color:#9ca3af;"))
+      yrs <- sort(unique(df$ano))
+      selectInput("map2_year", label = NULL, choices = yrs, selected = max(yrs, na.rm = TRUE))
     }
-    
-    if (is.null(df) || !nrow(df)) return(tags$span("Sin años disponibles para esta base", style="font-size:12px;color:#9ca3af;"))
-    
-    yrs <- sort(unique(df$ano))
-    selectInput("map2_year", label = NULL, choices = yrs, selected = max(yrs, na.rm = TRUE))
   })
   
   build_map_sf <- function(base_sel, year_val, prefix){
@@ -1856,7 +2156,10 @@ server <- function(input, output, session){
         dd <- dd %>%
           group_by(cod_dep, dep_nom) %>%
           summarise(valor = sum(hogares, na.rm = TRUE), .groups = "drop") %>%
-          mutate(DEPARTAMENTO_D = dep_nom)
+          mutate(
+            DEPARTAMENTO_D = dep_nom,
+            DEP_LABEL      = dep_nom
+          )
         
       } else {
         if (is.null(sisben_prev_long) || !nrow(sisben_prev_long)) return(NULL)
@@ -1880,7 +2183,10 @@ server <- function(input, output, session){
             valor = if_else(denom > 0, 100 * numer / denom, NA_real_),
             .groups = "drop"
           ) %>%
-          mutate(DEPARTAMENTO_D = dep_nom)
+          mutate(
+            DEPARTAMENTO_D = dep_nom,
+            DEP_LABEL      = dep_nom
+          )
       }
       
     } else if (ind_sel == "ECV_FIES") {
@@ -1900,11 +2206,24 @@ server <- function(input, output, session){
           valor = if_else(denom > 0, 100 * numer / denom, NA_real_),
           .groups = "drop"
         ) %>%
-        mutate(DEPARTAMENTO_D = dep_nom)
+        mutate(
+          DEPARTAMENTO_D = dep_nom,
+          DEP_LABEL      = dep_nom
+        )
       
     } else if (ind_sel == "DEP_CRECIMIENTO") {
       if (is.null(pob_crecimiento_30) || !nrow(pob_crecimiento_30)) return(NULL)
-      dd <- pob_crecimiento_30 %>% filter(ano == as.integer(year_val)) %>% mutate(DEPARTAMENTO_D = dep_nom)
+      dd <- pob_crecimiento_30 %>% filter(ano == as.integer(year_val)) %>%
+        mutate(
+          DEPARTAMENTO_D = dep_nom,
+          DEP_LABEL      = dep_nom
+        )
+      
+    } else if (ind_sel == "SIPSA_IHH") {
+      dir   <- input[[paste0(prefix, "_sipsa_dir")]]   %||% "Origen"
+      grupo <- input[[paste0(prefix, "_sipsa_grupo")]] %||% "Todos"
+      dd <- sipsa_map_ihh_by_dep(year_val = year_val, dir = dir, grupo = grupo)
+      if (is.null(dd) || !nrow(dd)) return(NULL)
       
     } else {
       df <- get_dep_data(ind_sel)
@@ -1916,10 +2235,14 @@ server <- function(input, output, session){
       dd <- dd %>%
         group_by(cod_dep, dep_nom) %>%
         summarise(valor = sum(valor, na.rm = TRUE), .groups = "drop") %>%
-        mutate(DEPARTAMENTO_D = dep_nom)
+        mutate(
+          DEPARTAMENTO_D = dep_nom,
+          DEP_LABEL      = dep_nom
+        )
     }
     
     if (is.null(dd) || !nrow(dd)) return(NULL)
+    
     join_dep_shp(dd, shp_dep, df_key_code = "cod_dep", df_key_name = "dep_nom")
   }
   
@@ -1961,8 +2284,13 @@ server <- function(input, output, session){
     labs
   }
   
-  update_dep_leaflet <- function(map_id, md, palette_name, legend_title, value_type = c("percent","number"), unit_suffix = ""){
+  # ✅ label_mode: "asis" (usar tal cual base) o "titlecase" (solo para SIPSA)
+  update_dep_leaflet <- function(map_id, md, palette_name, legend_title,
+                                 value_type = c("percent","number"),
+                                 unit_suffix = "",
+                                 label_mode = c("asis","titlecase")){
     value_type <- match.arg(value_type)
+    label_mode <- match.arg(label_mode)
     
     if (is.null(md) || !"valor" %in% names(md)) {
       leaflet::leafletProxy(map_id) %>% leaflet::clearShapes() %>% leaflet::clearControls()
@@ -1982,11 +2310,26 @@ server <- function(input, output, session){
     
     pal <- leaflet::colorBin(palette = palette_name, domain = vals, bins = bins, na.color = "#f5f5f5")
     
-    dep_name <- if ("DEPARTAMENTO_D" %in% names(md)) as.character(md$DEPARTAMENTO_D) else NA_character_
+    # ✅ Prioridad: DEP_LABEL (ya es el nombre de la base), luego DEPARTAMENTO_D, luego DEPARTAMENTO_O
+    dep_name <- if ("DEP_LABEL" %in% names(md)) as.character(md$DEP_LABEL) else NA_character_
     if (all(is.na(dep_name) | !nzchar(dep_name))) {
-      dep_name <- if ("dep_nom" %in% names(md)) as.character(md$dep_nom) else md$join_name
+      dep_name <- if ("DEPARTAMENTO_D" %in% names(md)) as.character(md$DEPARTAMENTO_D) else NA_character_
     }
-    if (all(is.na(dep_name) | !nzchar(dep_name))) dep_name <- md$join_code
+    if (all(is.na(dep_name) | !nzchar(dep_name))) {
+      dep_name <- if ("DEPARTAMENTO_O" %in% names(md)) as.character(md$DEPARTAMENTO_O) else NA_character_
+    }
+    if (all(is.na(dep_name) | !nzchar(dep_name))) {
+      dep_name <- if ("join_name" %in% names(md)) as.character(md$join_name) else md$join_code
+    }
+    
+    dep_name <- trim_safe(dep_name)
+    
+    # ✅ SIPSA (pedido HOY): MAYÚSCULAS en etiquetas
+    # (solo se aplica cuando label_mode == "titlecase", que es la excepción usada por SIPSA)
+    if (label_mode == "titlecase") {
+      dep_name <- norm_txt_upper(dep_name)
+    }
+    
     dep_name <- ifelse(is.na(dep_name) | !nzchar(dep_name), md$join_code, dep_name)
     
     lab_vals <- if (value_type == "percent") fmt_pct(md$valor, 1) else fmt_short(md$valor)
@@ -2027,10 +2370,17 @@ server <- function(input, output, session){
     
     tipo_val <- "number"
     legend_title <- "Cantidad"
+    label_mode <- "asis"
     
     if (ind_sel == "DEP_CRECIMIENTO") {
       tipo_val <- "percent"
       legend_title <- "Crecimiento anual (%)"
+    } else if (ind_sel == "SIPSA_IHH") {
+      tipo_val <- "number"
+      dir   <- input$map1_sipsa_dir %||% "Origen"
+      grp   <- input$map1_sipsa_grupo %||% "Todos"
+      legend_title <- paste0("IHH (", dir, if (grp != "Todos") paste0(" / ", grp) else "", ")")
+      label_mode <- "titlecase"  # ✅ excepción SIPSA (AHORA: MAYÚSCULAS)
     } else if (ind_sel == "SISBEN") {
       view_sel  <- input$map1_sisben_view %||% "prevalencia"
       grupo_sel <- input$map1_sisben_grupo %||% "Todos"
@@ -2049,7 +2399,8 @@ server <- function(input, output, session){
     
     update_dep_leaflet("map_1", md, palette_name = "Greens",
                        legend_title = legend_title,
-                       value_type = tipo_val, unit_suffix = "")
+                       value_type = tipo_val, unit_suffix = "",
+                       label_mode = label_mode)
   })
   
   observe({
@@ -2059,10 +2410,17 @@ server <- function(input, output, session){
     
     tipo_val <- "number"
     legend_title <- "Cantidad"
+    label_mode <- "asis"
     
     if (ind_sel == "DEP_CRECIMIENTO") {
       tipo_val <- "percent"
       legend_title <- "Crecimiento anual (%)"
+    } else if (ind_sel == "SIPSA_IHH") {
+      tipo_val <- "number"
+      dir   <- input$map2_sipsa_dir %||% "Origen"
+      grp   <- input$map2_sipsa_grupo %||% "Todos"
+      legend_title <- paste0("IHH (", dir, if (grp != "Todos") paste0(" / ", grp) else "", ")")
+      label_mode <- "titlecase"  # ✅ excepción SIPSA (AHORA: MAYÚSCULAS)
     } else if (ind_sel == "SISBEN") {
       view_sel  <- input$map2_sisben_view %||% "prevalencia"
       grupo_sel <- input$map2_sisben_grupo %||% "Todos"
@@ -2081,8 +2439,11 @@ server <- function(input, output, session){
     
     update_dep_leaflet("map_2", md, palette_name = "Blues",
                        legend_title = legend_title,
-                       value_type = tipo_val, unit_suffix = "")
+                       value_type = tipo_val, unit_suffix = "",
+                       label_mode = label_mode)
   })
 }
 
 shinyApp(ui, server)
+
+
