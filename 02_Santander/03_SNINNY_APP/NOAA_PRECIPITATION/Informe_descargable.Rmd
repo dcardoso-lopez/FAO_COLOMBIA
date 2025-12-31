@@ -124,6 +124,7 @@ knitr::kable(filtros_tbl, align = c("l","l"))
 # Resultados
 
 ## ¿Qué territorios tienen el mayor volumen de lluvias?
+Este indicador sirve para ubicar territorialmente dónde se concentra la precipitación en el periodo seleccionado y, con ello, identificar municipios con mayor exposición a afectaciones agroalimentarias. En un sistema agroalimentario, un municipio que presenta acumulados altos de forma recurrente suele enfrentar mayor probabilidad de saturación de suelos, problemas sanitarios en cultivos, dificultades de secado y pérdidas en poscosecha. Además, el exceso de lluvia incrementa el riesgo de interrupciones logísticas por deterioro de vías y eventos como inundaciones o deslizamientos, lo que puede frenar la salida de producto y encarecer el transporte. En consecuencia, el mapa no se interpreta solo como “dónde llueve más”, sino como una herramienta para focalizar monitoreo, asistencia técnica y preparación logística en los territorios donde el sistema podría tensionarse.
 
 ```{r, out.width="75%"}
 if (img_exists["mapa"]) {
@@ -134,7 +135,7 @@ if (img_exists["mapa"]) {
 ```
 
 ## Serie temporal (mm3)
-
+Este indicador sirve para reconocer cuándo el comportamiento de la lluvia puede alterar el funcionamiento del sistema agroalimentario en el tiempo. La serie temporal permite identificar rachas húmedas o secas y compararlas con años previos para entender si el periodo reciente está dentro de lo esperable o si se está configurando una condición de riesgo. Cuando se observan picos prolongados, aumentan las probabilidades de afectaciones a cosecha y poscosecha, así como interrupciones de rutas y mayores costos de movilización; cuando se observan caídas persistentes, se vuelve más probable una reducción de rendimientos, mayores necesidades de riego o ajustes de calendario agrícola. En términos de gestión, esta vista permite anticipar presiones sobre oferta y planear medidas de coordinación territorial antes de que el impacto aparezca en volúmenes comercializados o en precios.
 ```{r, out.width="75%"}
 if (img_exists["serie"]) {
   knitr::include_graphics(img_use$serie)
@@ -144,6 +145,7 @@ if (img_exists["serie"]) {
 ```
 
 ## Ranking Top-10 (mm3)
+Este indicador sirve para focalizar prioridades dentro del territorio, especialmente cuando los recursos de seguimiento e intervención son limitados. Al identificar los municipios con mayores acumulados de precipitación en el periodo, el ranking ayuda a definir dónde conviene intensificar la vigilancia y la preparación: desde acciones agronómicas preventivas (manejo sanitario, drenajes, programación de cosecha) hasta medidas de logística (rutas alternas, preparación de centros de acopio, coordinación con gestión del riesgo). En un enfoque agroalimentario, el valor del Top-10 es operativo: permite pasar de un diagnóstico general a una lista concreta de territorios donde es más probable que aparezcan disrupciones en producción o en abastecimiento.
 
 ```{r, out.width="75%"}
 if (img_exists["ranking"]) {
@@ -154,7 +156,7 @@ if (img_exists["ranking"]) {
 ```
 
 ## Anomalía (velas, mm3)
-
+Este indicador sirve para distinguir variaciones normales de comportamientos realmente relevantes para el sistema agroalimentario, porque muestra si el periodo analizado está siendo más húmedo o más seco que una referencia. Una anomalía sostenida es particularmente útil como señal temprana: si se acumulan anomalías positivas durante varios periodos, se incrementa la probabilidad de pérdidas asociadas a exceso de humedad y fallas logísticas; si la anomalía es negativa y persistente, aumenta el riesgo de estrés hídrico, caída de oferta y presión sobre los precios por menor disponibilidad. En otras palabras, la anomalía permite decir con claridad si el sistema está operando bajo una condición climática “fuera de lo usual”, lo cual justifica activar seguimiento, coordinación institucional y medidas preventivas.
 ```{r, out.width="75%"}
 if (img_exists["anom"]) {
   knitr::include_graphics(img_use$anom)
