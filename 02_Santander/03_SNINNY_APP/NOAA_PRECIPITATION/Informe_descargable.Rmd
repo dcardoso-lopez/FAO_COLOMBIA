@@ -1,6 +1,15 @@
 ---
-title: "Reporte - NOAA Precipitación (Anual / Mensual)"
-subtitle: "Generado desde la App Shiny"
+title: "Informe del análisis de lluvias en el territorio"
+subtitle: "PLATEA"
+header-includes:
+  - \usepackage{graphicx}
+  - \usepackage{fancyhdr}
+  - \pagestyle{fancy}
+  - \setlength{\headheight}{45pt}   # <-- sube a 45pt o 50pt si necesitas más
+  - \fancyhead[L]{\includegraphics[height=2cm]{C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/02_Santander/03_SNINNY_APP/NOAA_PRECIPITATION/www/LOGO_PLATEA.png}}
+  - \fancyfoot[C]{\thepage}
+  - \renewcommand{\headrulewidth}{0.8pt}
+  - \renewcommand{\footrulewidth}{0.8pt}
 output:
   pdf_document:
     toc: true
@@ -15,6 +24,7 @@ params:
   depto: NULL
   mpio: NULL
 ---
+
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(
@@ -165,9 +175,3 @@ if (img_exists["anom"]) {
 }
 ```
 
-# Notas
-
-- Si el PDF sale “sin figuras”, casi siempre es porque no se alcanzaron a escribir los PNG antes de correr `render()`.
-- En la App, el botón de reporte llama `export_pngs()` justo antes de renderizar, para minimizar ese problema.
-- Si tienes `magick` instalado, este reporte crea versiones más livianas en: `r light_dir`
-  y las usa para reducir el peso del PDF.

@@ -736,7 +736,7 @@ ui <- fluidPage(
       
       # -------- TAB 1 (FIES) --------
       tabPanel(
-        "Condición de inseguridad alimentaria (FIES-8)",
+        "Condición de inseguridad alimentaria",
         
         div(
           class = "filters",
@@ -1142,7 +1142,7 @@ server <- function(input, output, session){
       if (nrow(dep_row) > 0) {
         prx %>% addPolygons(
           data  = dep_row, fill = FALSE,
-          color = "#111", weight = 2.2, opacity = 1
+          color = "#111", weight = 0.7, opacity = 1
         )
         fit_bounds_proxy(prx, dep_row)
       }
