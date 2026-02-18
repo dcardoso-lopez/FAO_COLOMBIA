@@ -1,4 +1,9 @@
-# app_upra.R — UPRA (FA) — FIX numéricos + filtro % SOLO cuando el indicador es proporción
+# app_upra.R — UPRA (FA)
+# ✅ SIN “pantallazo” (sin html2canvas)
+# ✅ MODS:
+#   1) Más zoom (Colombia + depto con zoom extra)
+#   2) Descargar mapa en .PNG (con webshot2 desde el widget Leaflet)
+#   3) La leyenda queda dentro del PNG (se captura el widget completo)
 
 suppressWarnings({
   library(shiny); library(bslib); library(shinyWidgets)
@@ -6,10 +11,13 @@ suppressWarnings({
   library(scales); library(htmltools); library(plotly)
   library(stringi); library(readr); library(tibble)
   library(shinyjs)
+  library(rmarkdown)
+  library(htmlwidgets)
+  library(webshot2)   # ✅ PNG desde widget
 })
 
 options(stringsAsFactors = FALSE)
-options(scipen = 999)  # evita notación científica al imprimir (NO cambia valores)
+options(scipen = 999)
 sf::sf_use_s2(FALSE)
 
 # ---------- Rutas ----------
@@ -23,9 +31,15 @@ ruta_pob       <- file.path(data_dir, "051_DANE_Proyecciones_P_total.rds")
 ruta_shp_mpios <- file.path(data_dir, "shp", "MGN_ANM_MPIOS.shp")
 ruta_shp_dptos <- file.path(data_dir, "shp", "MGN_ANM_DPTOS.shp")
 
+# ✅ RMD (puede estar en raíz o en data)
+ruta_rmd_root <- file.path(app_root, "Informe_descargable.Rmd")
+ruta_rmd_data <- file.path(data_dir,  "Informe_descargable.Rmd")
+ruta_rmd      <- if (file.exists(ruta_rmd_root)) ruta_rmd_root else ruta_rmd_data
+
 must_exist <- c(ruta_upra, ruta_pob, ruta_shp_mpios, ruta_shp_dptos)
 miss <- must_exist[!file.exists(must_exist)]
 if (length(miss)) stop("Faltan archivos. data_dir usado: ", data_dir, "\n", paste("-", miss, collapse = "\n"))
+
 check_shp_parts <- function(shp){
   b <- sub("\\.shp$", "", shp)
   req <- paste0(b, c(".shp",".dbf",".shx",".prj"))
@@ -38,6 +52,12 @@ if (length(miss_shp)) stop("Faltan componentes de shapefile:\n", paste("-", miss
 `%||%` <- function(x, y) if (is.null(x) || length(x) == 0) y else x
 norm_txt <- function(x) stringi::stri_trans_general(trimws(as.character(x)), "Latin-ASCII")
 NUP <- function(x) toupper(norm_txt(x))
+
+safe_chr <- function(x){
+  if (is.null(x) || length(x) == 0) return("")
+  if (all(is.na(x))) return("")
+  as.character(x)[1]
+}
 
 title_case_es <- function(x) {
   stopw <- c("de","del","la","las","los","y","e","o","u","en","a","al","por","para",
@@ -59,24 +79,16 @@ title_case_es <- function(x) {
   }, character(1))
 }
 
-# ✅ NUM robusto:
-# - Si ya es numérico (dbl/int), NO lo re-parsea (evita inflar por separadores)
-# - Si es texto, soporta decimal "," o "."
 num_or_na <- function(x){
   if (is.numeric(x)) return(as.numeric(x))
-  
   x0 <- trimws(as.character(x))
   x0[x0 %in% c("", "NA", "NaN", "Inf", "-Inf")] <- NA_character_
-  
-  # Si hay coma, asumimos ES: decimal "," miles "."
   if (any(grepl(",", x0, fixed = TRUE), na.rm = TRUE)) {
     return(suppressWarnings(readr::parse_number(
       x0,
       locale = readr::locale(decimal_mark = ",", grouping_mark = ".")
     )))
   }
-  
-  # Si no hay coma, asumimos decimal "." (y miles "," si viniera)
   suppressWarnings(readr::parse_number(
     x0,
     locale = readr::locale(decimal_mark = ".", grouping_mark = ",")
@@ -89,15 +101,6 @@ pick_col <- function(df, primary, pattern){
   if (length(alt)) alt[1] else NA_character_
 }
 safe_pull <- function(df, col) if (!is.na(col) && col %in% names(df)) df[[col]] else NA
-
-make_pal_bin <- function(values, palette = "Blues", n_bins = 6){
-  vals <- suppressWarnings(as.numeric(values)); vals <- vals[is.finite(vals)]
-  if (!length(vals)) vals <- 0
-  qs <- stats::quantile(vals, probs = seq(0, 1, length.out = n_bins), na.rm = TRUE)
-  qs <- unique(as.numeric(qs)); if (length(qs) < 3) qs <- pretty(vals, n = n_bins)
-  bins <- sort(unique(c(min(vals, na.rm = TRUE), qs, max(vals, na.rm = TRUE))))
-  leaflet::colorBin(palette, domain = vals, bins = bins, na.color = "#f0f0f0")
-}
 
 fmt_pct <- function(x, acc = 0.1){
   ifelse(is.na(x), "NA", scales::percent(x, accuracy = acc, decimal.mark = ","))
@@ -135,25 +138,30 @@ format_interval_label <- function(a, b, as_percent = FALSE, is_first = TRUE){
 }
 build_interval_labels <- function(breaks, as_percent = FALSE){
   if (length(breaks) < 2) return(character(0))
-  vapply(
-    seq_len(length(breaks) - 1),
-    function(i){
-      format_interval_label(
-        a          = breaks[i],
-        b          = breaks[i + 1],
-        as_percent = as_percent,
-        is_first   = (i == 1)
-      )
-    },
-    character(1)
-  )
+  vapply(seq_len(length(breaks) - 1), function(i){
+    format_interval_label(breaks[i], breaks[i+1], as_percent = as_percent, is_first = (i==1))
+  }, character(1))
 }
 
 PALETA_VERDE  <- c("#e5f5e0","#a1d99b","#74c476","#31a354","#006d2c")
 COLOR_RANK    <- "#007a3d"
 COLOR_BORDE   <- "#99d5ec"
-N_CLASES_MAPA <- 4
-N_BINS_MAPA   <- N_CLASES_MAPA + 1
+
+# ✅ Botones: fondo blanco, texto gris, borde azul
+BTN_COLOR_BG  <- "#ffffff"
+BTN_COLOR_BD  <- "#2563eb"
+BTN_COLOR_TX  <- "#6b7280"
+
+# ---------- Carpeta de export (para PNG y reporte) ----------
+EXPORT_DIR <- file.path(app_root, "Descargas")
+dir.create(EXPORT_DIR, recursive = TRUE, showWarnings = FALSE)
+IMG_MAP_AUTO <- file.path(EXPORT_DIR, "UPRA_mapa.png")
+IMG_TOP_AUTO <- file.path(EXPORT_DIR, "UPRA_top10.png")
+
+# ✅ PNG más liviano: controla tamaño del “viewport”
+PNG_VWIDTH  <- 900
+PNG_VHEIGHT <- 650
+PNG_DELAY   <- 1.2
 
 # ---------- Cargar UPRA + población ----------
 upra_raw <- readRDS(ruta_upra)
@@ -188,14 +196,11 @@ upra <- tibble(
   prop_fa        = num_or_na(safe_pull(upra_raw, col_prop_fa))
 )
 
-# Si prop viene en % (p.ej. 48) → 0,48
 if (suppressWarnings(max(upra$prop_fa, na.rm = TRUE)) > 1.5) upra$prop_fa <- upra$prop_fa / 100
 
-# DANE 5 dígitos
 upra$COD_DANE_MUNI <- sprintf("%05s", gsub("\\D", "", upra$COD_DANE_MUNI))
 upra$COD_DANE_DPTO <- sprintf("%02s", gsub("\\D", "", upra$COD_DANE_DPTO))
 
-# Población
 col_ano_p   <- pick_col(pob_raw, "ano", "^a(n|ñ)o$|year")
 col_mun_p   <- pick_col(pob_raw, "COD_DANE_MUNIC_D", "MUNI.*COD|COD.*MUNI|DANE.*MUNI|MPIO|CODMUN|COD_MUN5")
 col_pob_tot <- pick_col(pob_raw, "poblacion", "poblaci(o|ó)n|total|p_total|POB|pob$")
@@ -260,18 +265,23 @@ dptos_sf$DEP_NORM_SHP <- NUP(dptos_sf$DEPARTAMENTO_N)
 ui <- fluidPage(
   shinyjs::useShinyjs(),
   theme = bs_theme(
-    version = 5, primary = "#2563eb",
+    version = 5,
+    primary = BTN_COLOR_BD,
     base_font = bslib::font_google("Inter"),
     heading_font = bslib::font_google("Inter Tight"),
     "border-radius" = "0.9rem", "font-size-base" = "0.98rem"
   ),
+  
   tags$head(
-    tags$style(HTML("
+    tags$style(HTML(paste0("
     :root{
       --accent-border:#99d5ec;
       --gap:12px;
       --viz-row-h:360px;
       --kpi-h: 110px;
+      --btn-bg:", BTN_COLOR_BG, ";
+      --btn-bd:", BTN_COLOR_BD, ";
+      --btn-tx:", BTN_COLOR_TX, ";
     }
     .wrap{max-width:1360px;margin:0 auto;padding:16px 20px 32px;}
     h3{font-weight:700;letter-spacing:.2px;margin-bottom:8px}
@@ -299,14 +309,19 @@ ui <- fluidPage(
       border-color:var(--accent-border) !important;
       box-shadow:0 0 0 .2rem rgba(153,213,236,.25) !important;
     }
-    .slider-text-container{ margin-top:0 !important; }
-    .slider-text-container .irs{ margin-top:0 !important; }
 
     .card-title{font-weight:700;font-size:16px;margin-bottom:8px;color:#111827}
     .leaflet-control, .leaflet-control .legend, .leaflet-control .info{
       border:1px solid var(--accent-border) !important; border-radius:12px; }
     .leaflet-top .leaflet-control { margin-top: 6px; }
     .leaflet-left .leaflet-control { margin-left: 6px; }
+
+    /* ✅ Fondo/legibilidad de leyenda */
+    .leaflet-control .legend{
+      background: rgba(255,255,255,0.92) !important;
+      padding: 8px 10px !important;
+      border-radius: 12px !important;
+    }
 
     .content-grid{
       display:grid;
@@ -337,10 +352,54 @@ ui <- fluidPage(
     .kpi .kpi-value{font-size:22px; font-weight:800; color:#0f5132; line-height:1;}
     .kpi .kpi-sub{font-size:12px; color:#4b5563; margin-top:2px;}
     .kpi.muted{opacity:.25}
-
     .map-note{font-size:12px;color:#6b7280;margin-top:6px;}
-    "))
+
+    /* ✅ Botón unificado */
+    .btn-unified{
+      background: #ffffff !important;
+      border: 1px solid var(--btn-bd) !important;
+      color: var(--btn-tx) !important;
+      font-weight: 700 !important;
+      border-radius: 12px !important;
+      padding: 8px 12px !important;
+    }
+    .btn-unified:hover,
+    .btn-unified:focus,
+    .btn-unified:active{
+      background: #ffffff !important;
+      border-color: var(--btn-bd) !important;
+      color: var(--btn-tx) !important;
+      filter: none !important;
+      box-shadow: 0 0 0 .2rem rgba(37,99,235,.15) !important;
+    }
+
+    .footer-actions{
+      margin-top: 14px;
+      display:flex;
+      justify-content:flex-end;
+      gap: 10px;
+      padding: 10px 6px 0;
+      flex-wrap: wrap;
+    }
+    .footer-actions .btn{
+      border-radius: 12px;
+      padding: 10px 14px;
+      font-weight: 700;
+      background: #ffffff !important;
+      border: 1px solid var(--btn-bd) !important;
+      color: var(--btn-tx) !important;
+    }
+    .footer-actions .btn:hover,
+    .footer-actions .btn:focus,
+    .footer-actions .btn:active{
+      background: #ffffff !important;
+      border-color: var(--btn-bd) !important;
+      color: var(--btn-tx) !important;
+      box-shadow: 0 0 0 .2rem rgba(37,99,235,.15) !important;
+    }
+    ")))
   ),
+  
   div(class="wrap",
       h3(""),
       div(class="data-note", HTML("")),
@@ -352,7 +411,7 @@ ui <- fluidPage(
               ),
               div(class="filter",
                   div(class="filter-label","¿En qué departamento?"),
-                  selectInput("f_dep", NULL, choices = "Todos", selected = "Todos")
+                  selectInput("f_dep", NULL, choices = "Todos", selected = "Atlántico")
               ),
               div(class="filter",
                   div(class="filter-label","¿Algún municipio en particular?"),
@@ -378,21 +437,35 @@ ui <- fluidPage(
               )
           )
       ),
+      
       div(class="content-grid",
           div(class="card viz-card viz-map",
-              div(class="card-title d-flex align-items-center", span(textOutput("map_title"))),
+              div(class="card-title d-flex justify-content-between align-items-center",
+                  span(textOutput("map_title")),
+                  downloadButton("dl_map_png", "Descargar PNG", class = "btn-unified")
+              ),
               div(class="viz-body", leafletOutput("map_upra", height = "100%")),
               div(class="map-note",
                   "Nota: El mapa clasifica los valores del indicador en cuartiles (cuatro grupos con igual número de observaciones).")
-                   ),
+          ),
+          
           div(class="card viz-card",
-              div(class="card-title", textOutput("title_top")),
+              div(class="card-title d-flex justify-content-between align-items-center",
+                  span(textOutput("title_top")),
+                  downloadButton("dl_bar_png", "Descargar PNG", class = "btn-unified")
+              ),
               div(class="viz-body", plotlyOutput("bar_top", height = "100%"))
           ),
+          
           div(class="card viz-card",
               div(class="card-title", "Indicadores de tierras aptas para actividades agropecuarias"),
               div(class="viz-body", uiOutput("kpi_boxes"))
           )
+      ),
+      
+      div(class="footer-actions",
+          downloadButton("dl_data_csv", "Descargar CSV", class = "btn-unified"),
+          downloadButton("dl_report_pdf", "Descargar Informe (PDF)", class = "btn-unified")
       )
   )
 )
@@ -400,6 +473,7 @@ ui <- fluidPage(
 # ---------- SERVER ----------
 server <- function(input, output, session){
   
+  # =============== filtros UI ===============
   safe_choices <- function(x) { x <- unique(as.character(x)); x[!is.na(x) & nzchar(x)] }
   update_select_clean <- function(inputId, choices, selected = NULL) {
     ch <- safe_choices(choices); if (length(ch) == 0) ch <- character(0)
@@ -408,7 +482,6 @@ server <- function(input, output, session){
     updateSelectInput(session, inputId, choices = ch_full, selected = sel)
   }
   
-  # bandera para fijar SANTANDER solo en el primer render
   first_run <- reactiveVal(TRUE)
   
   output$ui_slider_prop <- renderUI({
@@ -500,21 +573,42 @@ server <- function(input, output, session){
   
   observeEvent(input$btn_back_co, { updateSelectInput(session, "f_dep", selected = "Todos") })
   
-  # =========================================================
-  # ✅ FIX: SOLO filtrar por porcentaje cuando el indicador es prop_fa
-  # =========================================================
   base_filtrada <- reactive({
     req(input$anio)
     d <- base_upra %>% filter(ano == input$anio)
     if (!is.null(input$f_dep) && input$f_dep != "Todos") d <- d %>% filter(DEPARTAMENTO_TC == input$f_dep)
     if (!is.null(input$f_mun) && input$f_mun != "Todos") d <- d %>% filter(MUNICIPIO_TC == input$f_mun)
-    
     if (is.null(input$f_ind) || input$f_ind == "area_fa_ha") return(d)
-    
     rng <- prop_range()
     d %>% filter(!is.na(prop_fa), prop_fa >= rng[1], prop_fa <= rng[2])
   })
   
+  # -------- CSV: base con filtros --------
+  output$dl_data_csv <- downloadHandler(
+    filename = function(){
+      dep_tag <- if (is.null(input$f_dep) || input$f_dep=="Todos") "Colombia" else gsub("\\s+","_", input$f_dep)
+      mun_tag <- if (is.null(input$f_mun) || input$f_mun=="Todos") "Todos" else gsub("\\s+","_", input$f_mun)
+      paste0("base_upra_filtrada_", dep_tag, "_", mun_tag, "_", input$anio, ".csv")
+    },
+    content = function(file){
+      d <- base_filtrada()
+      if (is.null(d)) d <- tibble()
+      
+      d_out <- d %>%
+        select(
+          fecha_completa, ano, mes,
+          COD_DANE_DPTO, DEPARTAMENTO, DEPARTAMENTO_TC,
+          COD_DANE_MUNI, MUNICIPIO_NORM, MUNICIPIO_TC,
+          area_mpio_ha, area_fa_ha, prop_fa,
+          pob_total
+        ) %>%
+        arrange(DEPARTAMENTO_TC, MUNICIPIO_TC)
+      
+      readr::write_csv2(d_out, file)
+    }
+  )
+  
+  # -------- KPIs --------
   kpi_dep <- reactive({
     req(input$anio)
     d <- base_upra %>% filter(ano == input$anio)
@@ -576,13 +670,7 @@ server <- function(input, output, session){
     }
   })
   
-  output$map_upra <- renderLeaflet({
-    leaflet() %>%
-      addProviderTiles(providers$CartoDB.Positron) %>%
-      setView(-74.3, 5, 5.45) %>%
-      htmlwidgets::onRender("function(el,x){ this.zoomControl.setPosition('topright'); }")
-  })
-  
+  # ---------- Helpers mapa ----------
   get_cod_from_dep_name <- function(dep_name){
     if (is.null(dep_name) || dep_name == "Todos") return(NA_character_)
     dep_norm <- NUP(dep_name)
@@ -599,168 +687,24 @@ server <- function(input, output, session){
     ifelse(is.na(dep_tc) | !nzchar(dep_tc), title_case_es(nom_shp), dep_tc)
   }
   
-  observe({
-    d <- base_filtrada()
-    if (is.null(d) || nrow(d) == 0) {
-      leafletProxy("map_upra") %>% clearShapes() %>% clearControls()
-      return(invisible(NULL))
-    }
+  # ✅ Zoom “extra” para deptos (en vez de fitBounds)
+  zoom_from_bbox <- function(bb){
+    dx <- as.numeric(bb["xmax"] - bb["xmin"])
+    dy <- as.numeric(bb["ymax"] - bb["ymin"])
+    d  <- max(dx, dy, na.rm = TRUE)
     
-    ind <- input$f_ind
-    label_txt_global <- if (ind == "prop_fa") "Porcentaje" else "Área (ha)"
-    
-    if (is.null(input$f_dep) || input$f_dep == "Todos") {
-      
-      dd <- d %>%
-        mutate(COD_DPTO2 = sprintf("%02d", as.integer(substr(COD_DANE_MUNI, 1, 2)))) %>%
-        group_by(COD_DPTO2) %>%
-        summarise(
-          valor = if (ind == "area_fa_ha") sum(area_fa_ha, na.rm = TRUE)
-          else sum(area_fa_ha, na.rm = TRUE) / sum(area_mpio_ha, na.rm = TRUE),
-          .groups = "drop"
-        )
-      
-      shp <- dptos_sf %>%
-        left_join(dd, by = "COD_DPTO2") %>%
-        mutate(
-          nombre = coalesce(DEPARTAMENTO_TC, title_case_es(DEPARTAMENTO_N)),
-          valor  = as.numeric(valor)
-        )
-      
-      brks <- compute_breaks_quartiles(shp$valor)
-      pal  <- leaflet::colorBin(PALETA_VERDE, domain = shp$valor, bins = brks, na.color = "#f0f0f0")
-      
-      mp <- leafletProxy("map_upra", data = shp) %>%
-        clearShapes() %>% clearControls() %>%
-        addPolygons(
-          layerId = ~COD_DPTO2,
-          fillColor = ~pal(valor),
-          color = COLOR_BORDE, weight = 0.7, fillOpacity = 0.9,
-          label = ~lapply(
-            paste0(
-              "<b>", nombre, "</b><br>", label_txt_global, ": ",
-              ifelse(is.na(valor), "NA",
-                     if (ind == "prop_fa") fmt_pct(valor, acc = 0.1) else fmt_num(valor, digs = 1))
-            ),
-            htmltools::HTML
-          ),
-          labelOptions = labelOptions(sticky = FALSE, textsize = "12px", direction = "auto"),
-          highlightOptions = highlightOptions(color = "black", weight = 2, bringToFront = TRUE)
-        )
-      
-      if (ind == "prop_fa") {
-        labels_legend <- build_interval_labels(brks, as_percent = TRUE)
-        mids          <- (brks[-length(brks)] + brks[-1]) / 2
-        cols_legend   <- pal(mids)
-        mp <- mp %>% addLegend(
-          position = "bottomright",
-          colors   = cols_legend,
-          labels   = labels_legend,
-          opacity  = 0.9,
-          title    = "Porcentaje"
-        )
-      } else {
-        mp <- mp %>% addLegend(
-          position = "bottomright",
-          pal = pal, values = ~valor, title = "Hectáreas",
-          labFormat = leaflet::labelFormat(
-            transform = function(x) round(x),
-            digits    = 0,
-            big.mark  = "."
-          )
-        )
-      }
-      
-      mp
-      
-    } else {
-      
-      sel_cod <- get_cod_from_dep_name(input$f_dep)
-      if (is.na(sel_cod) || !nzchar(sel_cod)) {
-        sel_cod <- d$COD_DANE_DPTO %>% unique() %>% sprintf("%02d", as.integer(.)) %>% .[1]
-      }
-      
-      dd <- d %>%
-        mutate(COD_MUN5 = sprintf("%05d", as.integer(COD_DANE_MUNI))) %>%
-        group_by(COD_DANE_MUNI, MUNICIPIO_TC, DEPARTAMENTO_TC) %>%
-        summarise(
-          valor = if (ind == "area_fa_ha") sum(area_fa_ha, na.rm = TRUE)
-          else sum(area_fa_ha, na.rm = TRUE) / sum(area_mpio_ha, na.rm = TRUE),
-          area_fa_ha = sum(area_fa_ha, na.rm = TRUE),
-          prop_fa    = sum(area_fa_ha, na.rm = TRUE) / sum(area_mpio_ha, na.rm = TRUE),
-          pob_total  = mean(pob_total, na.rm = TRUE),
-          .groups = "drop"
-        )
-      
-      shp <- mpios_sf %>% filter(COD_DPTO2 == sel_cod)
-      idx <- match(shp$COD_MUN5, sprintf("%05d", as.integer(dd$COD_DANE_MUNI)))
-      
-      shp$valor        <- dd$valor[idx]
-      shp$MUNICIPIO_TC <- dd$MUNICIPIO_TC[idx]
-      shp$area_fa_ha   <- dd$area_fa_ha[idx]
-      shp$prop_fa      <- dd$prop_fa[idx]
-      shp$pob_total    <- dd$pob_total[idx]
-      shp$DEP_TC       <- dd$DEPARTAMENTO_TC[idx]
-      
-      shp <- shp %>% mutate(
-        MUNICIPIO_MOSTRAR = coalesce(MUNICIPIO_TC, title_case_es(MUNICIPIO_N)),
-        DEP_MOSTRAR       = coalesce(DEP_TC, "")
-      )
-      
-      brks <- compute_breaks_quartiles(shp$valor)
-      pal  <- leaflet::colorBin(PALETA_VERDE, domain = shp$valor, bins = brks, na.color = "#f0f0f0")
-      bb   <- sf::st_bbox(shp)
-      
-      mp <- leafletProxy("map_upra", data = shp) %>%
-        clearShapes() %>% clearControls() %>%
-        addPolygons(
-          layerId = ~COD_MUN5,
-          fillColor = ~pal(valor),
-          color = COLOR_BORDE, weight = 0.4, fillOpacity = 0.9,
-          label = ~lapply(
-            paste0(
-              "<b>", MUNICIPIO_MOSTRAR, " (", DEP_MOSTRAR, ")</b><br>",
-              label_txt_global, ": ",
-              ifelse(is.na(valor), "NA",
-                     if (ind == "prop_fa") fmt_pct(valor, acc = 0.1) else fmt_num(valor, digs = 1)),
-              "<br>Área apta acumulada (ha): ", fmt_num(area_fa_ha, digs = 1),
-              "<br>Porcentaje de tierras aptas: ", fmt_pct(prop_fa, acc = 0.1),
-              "<br>Población: ", fmt_num(pob_total, digs = 1)
-            ),
-            htmltools::HTML
-          ),
-          labelOptions = labelOptions(sticky = FALSE, textsize = "12px", direction = "auto"),
-          highlightOptions = highlightOptions(color = "black", weight = 2, bringToFront = TRUE)
-        )
-      
-      if (ind == "prop_fa") {
-        labels_legend <- build_interval_labels(brks, as_percent = TRUE)
-        mids          <- (brks[-length(brks)] + brks[-1]) / 2
-        cols_legend   <- pal(mids)
-        mp <- mp %>% addLegend(
-          position = "bottomright",
-          colors   = cols_legend,
-          labels   = labels_legend,
-          opacity  = 0.9,
-          title    = "Porcentaje"
-        )
-      } else {
-        mp <- mp %>% addLegend(
-          position = "bottomright",
-          pal = pal, values = ~valor, title = "Hectáreas",
-          labFormat = leaflet::labelFormat(
-            transform = function(x) round(x),
-            digits    = 0,
-            big.mark  = "."
-          )
-        )
-      }
-      
-      mp %>% fitBounds(bb["xmin"], bb["ymin"], bb["xmax"], bb["ymax"])
-    }
-  })
+    if (!is.finite(d)) return(7)
+    if (d > 10) return(6)
+    if (d >  6) return(6.5)
+    if (d >  3) return(7)
+    if (d >  1.8) return(7.7)
+    if (d >  1.0) return(8.4)
+    if (d >  0.6) return(9.1)
+    return(9.8)
+  }
   
-  output$bar_top <- renderPlotly({
+  # ---------- Plotly Top 10 ----------
+  bar_plot_obj <- reactive({
     d <- base_filtrada()
     if (is.null(d) || NROW(d) == 0) return(empty_plot())
     
@@ -792,8 +736,6 @@ server <- function(input, output, session){
     x_title <- ""
     x_fmt   <- NULL
     x_range <- NULL
-    x_tick0 <- NULL
-    x_dtick <- NULL
     
     if (ind == "prop_fa") {
       txt_vals  <- fmt_pct(d1$val, acc = 0.1)
@@ -819,8 +761,6 @@ server <- function(input, output, session){
     xaxis <- list(title = x_title)
     if (!is.null(x_fmt))   xaxis$tickformat <- x_fmt
     if (!is.null(x_range)) xaxis$range      <- x_range
-    if (!is.null(x_tick0)) xaxis$tick0      <- x_tick0
-    if (!is.null(x_dtick)) xaxis$dtick      <- x_dtick
     
     plotly::plot_ly(
       d1,
@@ -833,33 +773,336 @@ server <- function(input, output, session){
       text = txt_vals,
       textposition = text_pos,
       texttemplate = "%{text}",
-      insidetextanchor = "middle",
-      insidetextfont = list(
-        family = "Inter Black, Inter, Arial, sans-serif",
-        size   = 12,
-        color  = "white"
-      ),
-      outsidetextfont = list(
-        family = "Inter SemiBold, Inter, Arial, sans-serif",
-        size   = 12,
-        color  = "#111827"
-      ),
       cliponaxis = FALSE
     ) %>%
       plotly::layout(
         xaxis = xaxis,
-        yaxis = list(
-          title = "",
-          automargin = TRUE,
-          tickmode = "array",
-          tickvals = yvals,
-          ticktext = ytext
-        ),
+        yaxis = list(title = "", automargin = TRUE, tickmode = "array", tickvals = yvals, ticktext = ytext),
         margin = list(l = 10, r = 10, b = 10, t = 10)
       ) %>%
       plotly::config(locale = "es")
   })
   
+  output$bar_top <- renderPlotly({ bar_plot_obj() })
+  
+  # ---------- Datos para mapa (reactives) ----------
+  map_mode <- reactive({
+    dep <- input$f_dep %||% "Todos"
+    if (is.null(dep) || dep == "Todos") "CO" else "DEP"
+  })
+  
+  map_data_co <- reactive({
+    d <- base_filtrada()
+    if (is.null(d) || nrow(d) == 0) return(NULL)
+    
+    ind <- input$f_ind
+    dd <- d %>%
+      mutate(COD_DPTO2 = sprintf("%02d", as.integer(substr(COD_DANE_MUNI, 1, 2)))) %>%
+      group_by(COD_DPTO2) %>%
+      summarise(
+        valor = if (ind == "area_fa_ha") sum(area_fa_ha, na.rm = TRUE)
+        else sum(area_fa_ha, na.rm = TRUE) / sum(area_mpio_ha, na.rm = TRUE),
+        .groups = "drop"
+      )
+    
+    shp <- dptos_sf %>%
+      left_join(dd, by = "COD_DPTO2") %>%
+      mutate(
+        nombre = coalesce(DEPARTAMENTO_TC, title_case_es(DEPARTAMENTO_N)),
+        valor  = as.numeric(valor)
+      )
+    
+    shp
+  })
+  
+  map_data_dep <- reactive({
+    d <- base_filtrada()
+    if (is.null(d) || nrow(d) == 0) return(NULL)
+    
+    ind <- input$f_ind
+    sel_cod <- get_cod_from_dep_name(input$f_dep)
+    if (is.na(sel_cod) || !nzchar(sel_cod)) {
+      sel_cod <- d$COD_DANE_DPTO %>% unique() %>% sprintf("%02d", as.integer(.)) %>% .[1]
+    }
+    
+    dd <- d %>%
+      mutate(COD_MUN5 = sprintf("%05d", as.integer(COD_DANE_MUNI))) %>%
+      group_by(COD_DANE_MUNI, MUNICIPIO_TC, DEPARTAMENTO_TC) %>%
+      summarise(
+        valor = if (ind == "area_fa_ha") sum(area_fa_ha, na.rm = TRUE)
+        else sum(area_fa_ha, na.rm = TRUE) / sum(area_mpio_ha, na.rm = TRUE),
+        area_fa_ha = sum(area_fa_ha, na.rm = TRUE),
+        prop_fa    = sum(area_fa_ha, na.rm = TRUE) / sum(area_mpio_ha, na.rm = TRUE),
+        pob_total  = mean(pob_total, na.rm = TRUE),
+        .groups = "drop"
+      )
+    
+    shp <- mpios_sf %>% filter(COD_DPTO2 == sel_cod)
+    idx <- match(shp$COD_MUN5, sprintf("%05d", as.integer(dd$COD_DANE_MUNI)))
+    
+    shp$valor        <- dd$valor[idx]
+    shp$MUNICIPIO_TC <- dd$MUNICIPIO_TC[idx]
+    shp$area_fa_ha   <- dd$area_fa_ha[idx]
+    shp$prop_fa      <- dd$prop_fa[idx]
+    shp$pob_total    <- dd$pob_total[idx]
+    shp$DEP_TC       <- dd$DEPARTAMENTO_TC[idx]
+    
+    shp <- shp %>% mutate(
+      MUNICIPIO_MOSTRAR = coalesce(MUNICIPIO_TC, title_case_es(MUNICIPIO_N)),
+      DEP_MOSTRAR       = coalesce(DEP_TC, "")
+    )
+    
+    shp
+  })
+  
+  # ---------- Widget Leaflet “completo” (con leyenda) ----------
+  map_widget <- reactive({
+    d <- base_filtrada()
+    if (is.null(d) || nrow(d) == 0) {
+      return(
+        leaflet(options = leafletOptions(minZoom = 4, maxZoom = 12, zoomSnap = 0.25)) %>%
+          addProviderTiles(providers$CartoDB.Positron,
+                           options = leaflet::providerTileOptions(crossOrigin = TRUE)) %>%
+          setView(lng = -74.3, lat = 5, zoom = 6.1)
+      )
+    }
+    
+    ind <- input$f_ind
+    label_txt_global <- if (ind == "prop_fa") "Porcentaje" else "Área (ha)"
+    
+    if (map_mode() == "CO") {
+      shp <- map_data_co()
+      if (is.null(shp)) return(leaflet() %>% addProviderTiles(providers$CartoDB.Positron))
+      
+      brks <- compute_breaks_quartiles(shp$valor)
+      pal  <- leaflet::colorBin(PALETA_VERDE, domain = shp$valor, bins = brks, na.color = "#f0f0f0")
+      
+      mp <- leaflet(options = leafletOptions(minZoom = 4, maxZoom = 12, zoomSnap = 0.25)) %>%
+        addProviderTiles(providers$CartoDB.Positron,
+                         options = leaflet::providerTileOptions(crossOrigin = TRUE)) %>%
+        setView(lng = -74.3, lat = 5, zoom = 6.1) %>%  # ✅ MÁS ZOOM Colombia
+        addPolygons(
+          data = shp,
+          layerId = ~COD_DPTO2,
+          fillColor = ~pal(valor),
+          color = COLOR_BORDE, weight = 0.7, fillOpacity = 0.9,
+          label = ~lapply(
+            paste0(
+              "<b>", nombre, "</b><br>", label_txt_global, ": ",
+              ifelse(is.na(valor), "NA",
+                     if (ind == "prop_fa") fmt_pct(valor, acc = 0.1) else fmt_num(valor, digs = 1))
+            ),
+            htmltools::HTML
+          ),
+          labelOptions = labelOptions(sticky = FALSE, textsize = "12px", direction = "auto"),
+          highlightOptions = highlightOptions(color = "black", weight = 2, bringToFront = TRUE)
+        )
+      
+      # ✅ Leyenda
+      if (ind == "prop_fa") {
+        labels_legend <- build_interval_labels(brks, as_percent = TRUE)
+        mids          <- (brks[-length(brks)] + brks[-1]) / 2
+        cols_legend   <- pal(mids)
+        mp <- mp %>% addLegend(position = "bottomright", colors = cols_legend, labels = labels_legend, opacity = 0.9, title = "Porcentaje")
+      } else {
+        mp <- mp %>% addLegend(
+          position = "bottomright", pal = pal, values = shp$valor, title = "Hectáreas",
+          labFormat = leaflet::labelFormat(transform = function(x) round(x), digits = 0, big.mark = ".")
+        )
+      }
+      
+      mp
+    } else {
+      shp <- map_data_dep()
+      if (is.null(shp)) return(leaflet() %>% addProviderTiles(providers$CartoDB.Positron))
+      
+      brks <- compute_breaks_quartiles(shp$valor)
+      pal  <- leaflet::colorBin(PALETA_VERDE, domain = shp$valor, bins = brks, na.color = "#f0f0f0")
+      bb   <- sf::st_bbox(shp)
+      
+      # ✅ Centro + zoom extra (en vez de fitBounds)
+      cx <- (bb["xmin"] + bb["xmax"]) / 2
+      cy <- (bb["ymin"] + bb["ymax"]) / 2
+      z  <- zoom_from_bbox(bb)
+      
+      mp <- leaflet(options = leafletOptions(minZoom = 4, maxZoom = 12, zoomSnap = 0.25)) %>%
+        addProviderTiles(providers$CartoDB.Positron,
+                         options = leaflet::providerTileOptions(crossOrigin = TRUE)) %>%
+        setView(lng = as.numeric(cx), lat = as.numeric(cy), zoom = z) %>%  # ✅ MÁS ZOOM depto
+        addPolygons(
+          data = shp,
+          layerId = ~COD_MUN5,
+          fillColor = ~pal(valor),
+          color = COLOR_BORDE, weight = 0.4, fillOpacity = 0.9,
+          label = ~lapply(
+            paste0(
+              "<b>", MUNICIPIO_MOSTRAR, " (", DEP_MOSTRAR, ")</b><br>",
+              label_txt_global, ": ",
+              ifelse(is.na(valor), "NA",
+                     if (ind == "prop_fa") fmt_pct(valor, acc = 0.1) else fmt_num(valor, digs = 1)),
+              "<br>Área apta acumulada (ha): ", fmt_num(area_fa_ha, digs = 1),
+              "<br>Porcentaje de tierras aptas: ", fmt_pct(prop_fa, acc = 0.1),
+              "<br>Población: ", fmt_num(pob_total, digs = 1)
+            ),
+            htmltools::HTML
+          ),
+          labelOptions = labelOptions(sticky = FALSE, textsize = "12px", direction = "auto"),
+          highlightOptions = highlightOptions(color = "black", weight = 2, bringToFront = TRUE)
+        )
+      
+      # ✅ Leyenda
+      if (ind == "prop_fa") {
+        labels_legend <- build_interval_labels(brks, as_percent = TRUE)
+        mids          <- (brks[-length(brks)] + brks[-1]) / 2
+        cols_legend   <- pal(mids)
+        mp <- mp %>% addLegend(position = "bottomright", colors = cols_legend, labels = labels_legend, opacity = 0.9, title = "Porcentaje")
+      } else {
+        mp <- mp %>% addLegend(
+          position = "bottomright", pal = pal, values = shp$valor, title = "Hectáreas",
+          labFormat = leaflet::labelFormat(transform = function(x) round(x), digits = 0, big.mark = ".")
+        )
+      }
+      
+      mp
+    }
+  })
+  
+  output$map_upra <- renderLeaflet({
+    map_widget() %>%
+      htmlwidgets::onRender("function(el,x){ this.zoomControl.setPosition('topright'); }")
+  })
+  
+  # ---------- Guardar widget -> PNG (helper) ----------
+  save_widget_png <- function(widget, out_png, vwidth = PNG_VWIDTH, vheight = PNG_VHEIGHT, delay = PNG_DELAY){
+    dir.create(dirname(out_png), recursive = TRUE, showWarnings = FALSE)
+    
+    tmp_dir  <- tempfile("wshot_")
+    dir.create(tmp_dir, recursive = TRUE, showWarnings = FALSE)
+    lib_dir  <- file.path(tmp_dir, "lib")
+    dir.create(lib_dir, recursive = TRUE, showWarnings = FALSE)
+    tmp_html <- file.path(tmp_dir, "widget.html")
+    
+    htmlwidgets::saveWidget(widget, file = tmp_html, selfcontained = FALSE, libdir = lib_dir)
+    
+    webshot2::webshot(
+      url     = tmp_html,
+      file    = out_png,
+      vwidth  = vwidth,
+      vheight = vheight,
+      delay   = delay
+    )
+    
+    file.exists(out_png) && file.info(out_png)$size > 0
+  }
+  
+  # -------- Descarga PNG (MAPA) --------
+  output$dl_map_png <- downloadHandler(
+    filename = function(){
+      dep_tag <- if (is.null(input$f_dep) || input$f_dep=="Todos") "Colombia" else gsub("\\s+","_", input$f_dep)
+      paste0("mapa_upra_", dep_tag, "_", input$anio, "_", input$f_ind, ".png")
+    },
+    content = function(file){
+      ok <- save_widget_png(map_widget(), file, vwidth = PNG_VWIDTH, vheight = PNG_VHEIGHT, delay = PNG_DELAY)
+      if (!ok) stop("No se pudo generar el PNG del mapa. Revisa webshot2/Chromium y acceso a tiles.")
+    }
+  )
+  
+  # -------- Descarga PNG (TOP10) --------
+  output$dl_bar_png <- downloadHandler(
+    filename = function(){
+      paste0("top10_upra_", input$anio, "_", input$f_ind, ".png")
+    },
+    content = function(file){
+      ok <- save_widget_png(bar_plot_obj(), file, vwidth = 900, vheight = 650, delay = 0.8)
+      if (!ok) stop("No se pudo generar el PNG del top10. Revisa webshot2/Chromium.")
+    }
+  )
+  
+  # -------- Informe RMarkdown (PDF) — genera PNG antes de render --------
+  output$dl_report_pdf <- downloadHandler(
+    filename = function() {
+      dep_tag <- if (is.null(input$f_dep) || input$f_dep=="Todos") "Colombia" else gsub("\\s+","_", input$f_dep)
+      mun_tag <- if (is.null(input$f_mun) || input$f_mun=="Todos") "Todos" else gsub("\\s+","_", input$f_mun)
+      ind_tag <- if (is.null(input$f_ind)) "indicador" else input$f_ind
+      paste0("Informe_UPRA_FA_", dep_tag, "_", mun_tag, "_", input$anio, "_", ind_tag, "_", Sys.Date(), ".pdf")
+    },
+    content = function(file) {
+      
+      # snapshot inputs
+      anio_now <- input$anio
+      dep_now  <- input$f_dep %||% "Todos"
+      mpio_now <- input$f_mun %||% "Todos"
+      ind_now  <- input$f_ind %||% "area_fa_ha"
+      
+      prop_min_now <- NA_real_
+      prop_max_now <- NA_real_
+      prop_txt_now <- "—"
+      if (!is.null(ind_now) && ind_now == "prop_fa") {
+        rng <- prop_range()
+        prop_min_now <- rng[1]
+        prop_max_now <- rng[2]
+        if (!is.null(input$f_prop) && length(input$f_prop) == 2) {
+          prop_txt_now <- paste0(input$f_prop[1], " — ", input$f_prop[2])
+        } else {
+          prop_txt_now <- paste0(scales::percent(prop_min_now, accuracy=0.1, decimal.mark=","), " — ",
+                                 scales::percent(prop_max_now, accuracy=0.1, decimal.mark=","))
+        }
+      }
+      
+      if (!file.exists(ruta_rmd)) {
+        stop("No encuentro Informe_descargable.Rmd en la raíz del proyecto ni en data/.")
+      }
+      
+      # Asegurar carpeta export
+      dir.create(EXPORT_DIR, recursive = TRUE, showWarnings = FALSE)
+      
+      # ✅ Generar PNG del mapa y top10 para que el RMD los consuma
+      ok_map <- save_widget_png(map_widget(), IMG_MAP_AUTO, vwidth = PNG_VWIDTH, vheight = PNG_VHEIGHT, delay = PNG_DELAY)
+      ok_top <- save_widget_png(bar_plot_obj(), IMG_TOP_AUTO, vwidth = 900, vheight = 650, delay = 0.8)
+      
+      if (!ok_map) stop("No se pudo generar Descargas/UPRA_mapa.png para el informe.")
+      if (!ok_top) stop("No se pudo generar Descargas/UPRA_top10.png para el informe.")
+      
+      ind_txt <- if (ind_now == "area_fa_ha") "Área apta (ha)" else "Porcentaje de tierras aptas"
+      filtros_tbl <- data.frame(
+        Parametro = c("Año", "Departamento", "Municipio", "Indicador", "Filtro porcentaje"),
+        Valor = c(
+          safe_chr(anio_now),
+          if (is.null(dep_now)  || dep_now=="Todos")  "Todos" else safe_chr(dep_now),
+          if (is.null(mpio_now) || mpio_now=="Todos") "Todos" else safe_chr(mpio_now),
+          ind_txt,
+          prop_txt_now
+        ),
+        stringsAsFactors = FALSE
+      )
+      
+      tmp_out <- tempfile(fileext = ".pdf")
+      rmarkdown::render(
+        input         = ruta_rmd,
+        output_file   = tmp_out,
+        params        = list(
+          app_root   = app_root,
+          data_dir   = data_dir,
+          export_dir = "Descargas",
+          filtros    = filtros_tbl,
+          anio       = anio_now,
+          dep        = dep_now,
+          mpio       = mpio_now,
+          ind        = ind_now,
+          prop_min   = prop_min_now,
+          prop_max   = prop_max_now
+        ),
+        knit_root_dir = app_root,
+        envir         = new.env(parent = globalenv()),
+        quiet         = TRUE
+      )
+      
+      file.copy(tmp_out, file, overwrite = TRUE)
+    },
+    contentType = "application/pdf"
+  )
+  
+  # Click en depto desde mapa (si estás en Colombia)
   observeEvent(input$map_upra_shape_click, {
     if (is.null(input$f_dep) || input$f_dep == "Todos") {
       click <- input$map_upra_shape_click
@@ -872,6 +1115,7 @@ server <- function(input, output, session){
       }
     }
   }, ignoreInit = TRUE)
+  
 }
 
 shinyApp(ui, server)

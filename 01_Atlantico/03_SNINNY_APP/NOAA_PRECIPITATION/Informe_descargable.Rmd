@@ -1,0 +1,177 @@
+---
+title: "Informe del análisis de lluvias en el territorio"
+subtitle: "PLATEA"
+header-includes:
+  - \usepackage{graphicx}
+  - \usepackage{fancyhdr}
+  - \pagestyle{fancy}
+  - \setlength{\headheight}{45pt}   # <-- sube a 45pt o 50pt si necesitas más
+  - \fancyhead[L]{\includegraphics[height=2cm]{C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/NOAA_PRECIPITATION/www/LOGO_PLATEA.png}}
+  - \fancyfoot[C]{\thepage}
+  - \renewcommand{\headrulewidth}{0.8pt}
+  - \renewcommand{\footrulewidth}{0.8pt}
+output:
+  pdf_document:
+    toc: true
+    number_sections: true
+params:
+  app_root: !r getwd()
+  export_dir: "Descargas"
+  filtros: NULL
+  freq: NULL
+  anio: NULL
+  mes: NULL
+  depto: NULL
+  mpio: NULL
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE, message = FALSE, warning = FALSE,
+  fig.align = "center",
+  out.width = "85%"     # <-- tamaño visual (no gigante)
+)
+
+fmt_val <- function(x){
+  if (is.null(x) || length(x) == 0 || all(is.na(x))) return("Todos")
+  if (length(x) > 1) return(paste(x, collapse = ", "))
+  as.character(x)
+}
+
+nombre_mes <- function(m){
+  m <- as.integer(m)
+  c("Enero","Febrero","Marzo","Abril","Mayo","Junio",
+    "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre")[m]
+}
+
+export_path <- file.path(params$app_root, params$export_dir)
+
+img_paths <- list(
+  mapa    = file.path(export_path, "NOAA_mapa.png"),
+  serie   = file.path(export_path, "NOAA_serie.png"),
+  ranking = file.path(export_path, "NOAA_ranking.png"),
+  anom    = file.path(export_path, "NOAA_anomalia.png")
+)
+
+# =========================
+# ✅ HACER PDF MÁS LIVIANO:
+# - Si existe 'magick', convierte PNG -> JPG reducido (ancho en px + calidad)
+# - Si NO existe, usa PNG original (igual quedará centrado y más pequeño visualmente)
+# =========================
+light_dir <- file.path(export_path, "_reporte_light")
+dir.create(light_dir, showWarnings = FALSE, recursive = TRUE)
+
+make_light_image <- function(in_path, max_width_px = 1400, quality = 65){
+  if (!file.exists(in_path)) return(NA_character_)
+
+  out_path <- file.path(
+    light_dir,
+    paste0(tools::file_path_sans_ext(basename(in_path)), ".jpg")
+  )
+
+  # Si ya existe y es más nuevo (o igual) que el original, reutiliza
+  if (file.exists(out_path)) {
+    if (file.info(out_path)$mtime >= file.info(in_path)$mtime) return(out_path)
+  }
+
+  if (requireNamespace("magick", quietly = TRUE)) {
+    img <- magick::image_read(in_path)
+    # Escala por ancho (mantiene proporción). Ej: "1400" => 1400px de ancho aprox.
+    img <- magick::image_scale(img, paste0(max_width_px))
+    magick::image_write(img, path = out_path, format = "jpeg", quality = quality)
+    return(out_path)
+  } else {
+    return(in_path)
+  }
+}
+
+img_use <- list(
+  mapa    = make_light_image(img_paths$mapa,    max_width_px = 1400, quality = 60),
+  serie   = make_light_image(img_paths$serie,   max_width_px = 1600, quality = 60),
+  ranking = make_light_image(img_paths$ranking, max_width_px = 1400, quality = 60),
+  anom    = make_light_image(img_paths$anom,    max_width_px = 1600, quality = 60)
+)
+
+img_exists <- vapply(img_use, function(p) !is.na(p) && file.exists(p), logical(1))
+
+if (!is.null(params$filtros) && is.data.frame(params$filtros)) {
+  filtros_tbl <- params$filtros
+} else {
+  freq_txt  <- fmt_val(params$freq)
+  anio_txt  <- fmt_val(params$anio)
+  mes_txt   <- if (!is.null(params$freq) && params$freq == "Mensual") nombre_mes(params$mes) else "NA"
+  depto_txt <- fmt_val(params$depto)
+  mpio_txt  <- fmt_val(params$mpio)
+
+  filtros_tbl <- data.frame(
+    Filtro = c("Frecuencia", "Año", "Mes", "Departamento (cód.)", "Municipio"),
+    Valor  = c(freq_txt, anio_txt, mes_txt, depto_txt, mpio_txt),
+    stringsAsFactors = FALSE
+  )
+
+  if (freq_txt != "Mensual") filtros_tbl <- filtros_tbl[filtros_tbl$Filtro != "Mes", , drop = FALSE]
+}
+```
+
+# Resumen del reporte
+Este informe analiza la precipitación como un determinante clave del desempeño de los sistemas agroalimentarios en **Atlántico**. La lluvia afecta simultáneamente la oferta agrícola (rendimientos, pérdidas por exceso o déficit hídrico), la estabilidad de la producción (variabilidad intra e interanual), y la logística de abastecimiento (condiciones viales, tiempos de transporte, riesgo de interrupciones). En consecuencia, este reporte se usa como insumo para anticipar presiones sobre disponibilidad, acceso, precios y continuidad del suministro.
+
+## Objetivo del reporte
+
+**Objetivo.** Identificar patrones espaciales y temporales de precipitación para apoyar la toma de decisiones en el sistema agroalimentario:
+
+1. **Producción:** detectar periodos con riesgo de estrés hídrico o excesos de humedad que impacten rendimientos y calidad.
+2. **Abastecimiento y logística:** ubicar zonas donde la lluvia puede aumentar costos de transporte, deteriorar vías o generar cuellos de botella.
+3. **Gestión del riesgo y resiliencia:** reconocer episodios anómalos que justifiquen alertas tempranas, planificación de cosecha, drenajes/irrigación y preparación institucional.
+
+
+## Filtros usados
+```{r}
+knitr::kable(filtros_tbl, align = c("l","l"))
+```
+
+# Resultados
+
+## ¿Qué territorios tienen el mayor volumen de lluvias?
+Este indicador sirve para ubicar territorialmente dónde se concentra la precipitación en el periodo seleccionado y, con ello, identificar municipios con mayor exposición a afectaciones agroalimentarias. En un sistema agroalimentario, un municipio que presenta acumulados altos de forma recurrente suele enfrentar mayor probabilidad de saturación de suelos, problemas sanitarios en cultivos, dificultades de secado y pérdidas en poscosecha. Además, el exceso de lluvia incrementa el riesgo de interrupciones logísticas por deterioro de vías y eventos como inundaciones o deslizamientos, lo que puede frenar la salida de producto y encarecer el transporte. En consecuencia, el mapa no se interpreta solo como “dónde llueve más”, sino como una herramienta para focalizar monitoreo, asistencia técnica y preparación logística en los territorios donde el sistema podría tensionarse.
+
+```{r, out.width="75%"}
+if (img_exists["mapa"]) {
+  knitr::include_graphics(img_use$mapa)
+} else {
+  cat("No se encontró la imagen del mapa en: ", img_paths$mapa)
+}
+```
+
+## ¿Cómo ha evolucionado el volumen de lluvias en el tiempo?
+Este indicador sirve para reconocer cuándo el comportamiento de la lluvia puede alterar el funcionamiento del sistema agroalimentario en el tiempo. La serie temporal permite identificar rachas húmedas o secas y compararlas con años previos para entender si el periodo reciente está dentro de lo esperable o si se está configurando una condición de riesgo. Cuando se observan picos prolongados, aumentan las probabilidades de afectaciones a cosecha y poscosecha, así como interrupciones de rutas y mayores costos de movilización; cuando se observan caídas persistentes, se vuelve más probable una reducción de rendimientos, mayores necesidades de riego o ajustes de calendario agrícola. En términos de gestión, esta vista permite anticipar presiones sobre oferta y planear medidas de coordinación territorial antes de que el impacto aparezca en volúmenes comercializados o en precios.
+```{r, out.width="75%"}
+if (img_exists["serie"]) {
+  knitr::include_graphics(img_use$serie)
+} else {
+  cat("No se encontró la imagen de la serie en: ", img_paths$serie)
+}
+```
+
+## Top 10 municipios con mayor volumen de lluvias
+Este indicador sirve para focalizar prioridades dentro del territorio, especialmente cuando los recursos de seguimiento e intervención son limitados. Al identificar los municipios con mayores acumulados de precipitación en el periodo, el ranking ayuda a definir dónde conviene intensificar la vigilancia y la preparación: desde acciones agronómicas preventivas (manejo sanitario, drenajes, programación de cosecha) hasta medidas de logística (rutas alternas, preparación de centros de acopio, coordinación con gestión del riesgo). En un enfoque agroalimentario, el valor del Top-10 es operativo: permite pasar de un diagnóstico general a una lista concreta de territorios donde es más probable que aparezcan disrupciones en producción o en abastecimiento.
+
+```{r, out.width="75%"}
+if (img_exists["ranking"]) {
+  knitr::include_graphics(img_use$ranking)
+} else {
+  cat("No se encontró la imagen del ranking en: ", img_paths$ranking)
+}
+```
+
+## Anomalía de precipitación (velas de mm³)
+Este indicador sirve para distinguir variaciones normales de comportamientos realmente relevantes para el sistema agroalimentario, porque muestra si el periodo analizado está siendo más húmedo o más seco que una referencia. Una anomalía sostenida es particularmente útil como señal temprana: si se acumulan anomalías positivas durante varios periodos, se incrementa la probabilidad de pérdidas asociadas a exceso de humedad y fallas logísticas; si la anomalía es negativa y persistente, aumenta el riesgo de estrés hídrico, caída de oferta y presión sobre los precios por menor disponibilidad. En otras palabras, la anomalía permite decir con claridad si el sistema está operando bajo una condición climática “fuera de lo usual”, lo cual justifica activar seguimiento, coordinación institucional y medidas preventivas.
+```{r, out.width="75%"}
+if (img_exists["anom"]) {
+  knitr::include_graphics(img_use$anom)
+} else {
+  cat("No se encontró la imagen de anomalía en: ", img_paths$anom)
+}
+```
+

@@ -373,7 +373,7 @@ ui <- fluidPage(
         ),
         div(class="viz-body", leafletOutput("map_eva", height = "100%")),
         div(class = "map-note",
-            "Nota: El mapa clasifica los valores del indicador en cuartiles (cuatro grupos con igual número de observaciones)."
+            "Nota: los rangos de color del mapa se construyen con cuartiles del indicador (4 clases) según el filtro actual."
         ),
         div(class="dl-under", downloadButton("dl_png_mapa","PNG — Mapa (simple)"))
       ),

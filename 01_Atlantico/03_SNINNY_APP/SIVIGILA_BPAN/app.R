@@ -346,9 +346,9 @@ ui <- fluidPage(
   ),
   div(
     class = "wrap",
-    h3("Bajo Peso al Nacer (BPAN) - Atlántico"),
+    h3(""),
     div(class = "data-note",
-        HTML("Datos de ocurrencia de bajo peso al nacer en el departamento del Atlántico")),
+        HTML("")),
     div(
       class = "filters",
       div(

@@ -1,0 +1,208 @@
+---
+title: "Planificación productiva: Ordenamiento a partir de la frontera agropecuaria con enfoque territorial"
+subtitle: "PLATEA"
+header-includes:
+  - \usepackage{graphicx}
+  - \usepackage{fancyhdr}
+  - \pagestyle{fancy}
+  - \setlength{\headheight}{45pt}   # <-- sube a 45pt o 50pt si necesitas más
+  - \fancyhead[L]{\includegraphics[height=2cm]{C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/02_Santander/03_SNINNY_APP/UPRA_FA/www/LOGO_PLATEA.png}}
+  - \fancyfoot[C]{\thepage}
+  - \renewcommand{\headrulewidth}{0.8pt}
+  - \renewcommand{\footrulewidth}{0.8pt}
+output:
+  pdf_document:
+    toc: true
+    number_sections: true
+
+params:
+  app_root: !r getwd()
+  data_dir: NULL
+  export_dir: "Descargas"
+  filtros: NULL
+  anio: NULL
+  dep: NULL
+  mpio: NULL
+  ind: NULL
+  prop_min: NULL
+  prop_max: NULL
+
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE, message = FALSE, warning = FALSE,
+  fig.align = "center",
+  out.width = "85%"
+)
+
+fmt_val <- function(x){
+  if (is.null(x) || length(x) == 0 || all(is.na(x))) return("Todos")
+  if (length(x) > 1) return(paste(x, collapse = ", "))
+  as.character(x)
+}
+
+is_prop <- function(ind) !is.null(ind) && nzchar(ind) && ind == "prop_fa"
+
+ind_label <- function(ind){
+  if (is_prop(ind)) "Porcentaje de tierras aptas (FA)" else "Área apta (ha)"
+}
+
+scope_label <- function(dep, mpio){
+  dep0  <- fmt_val(dep)
+  mpio0 <- fmt_val(mpio)
+  if (is.null(dep) || dep0 == "Todos") return("Colombia")
+  if (is.null(mpio) || mpio0 == "Todos") return(paste0(dep0))
+  paste0(mpio0, " — ", dep0)
+}
+
+rango_pct_label <- function(ind, pmin, pmax){
+  if (!is_prop(ind)) return("—")
+  if (!is.finite(pmin) || !is.finite(pmax)) return("—")
+  paste0(
+    scales::percent(pmin, accuracy = 0.1, decimal.mark = ","),
+    " — ",
+    scales::percent(pmax, accuracy = 0.1, decimal.mark = ",")
+  )
+}
+
+# Rutas
+export_path <- file.path(params$app_root, params$export_dir)
+
+img_paths <- list(
+  mapa  = file.path(export_path, "UPRA_mapa.png"),
+  top10 = file.path(export_path, "UPRA_top10.png")
+)
+
+# --------- Header con logo portable (si existe) ----------
+# (evita dependencia de rutas C:/...)
+logo_ok <- FALSE
+logo_path <- params$logo_path
+if (!is.null(logo_path) && nzchar(logo_path) && file.exists(logo_path)) {
+  logo_ok <- TRUE
+  header <- c(
+    "\\usepackage{graphicx}",
+    "\\usepackage{fancyhdr}",
+    "\\pagestyle{fancy}",
+    "\\setlength{\\headheight}{45pt}",
+    paste0("\\fancyhead[L]{\\includegraphics[height=2cm]{", gsub("\\\\","/", logo_path), "}}"),
+    "\\fancyfoot[C]{\\thepage}",
+    "\\renewcommand{\\headrulewidth}{0.8pt}",
+    "\\renewcommand{\\footrulewidth}{0.8pt}"
+  )
+  # Inserta en el preámbulo
+  knitr::knit_meta_add(list(pandoc = list(header_includes = header)))
+}
+
+# --------- Versión "light" de imágenes ----------
+light_dir <- file.path(export_path, "_reporte_light")
+dir.create(light_dir, showWarnings = FALSE, recursive = TRUE)
+
+make_light_image <- function(in_path, max_width_px = 1400, quality = 65){
+  if (!file.exists(in_path)) return(NA_character_)
+
+  out_path <- file.path(
+    light_dir,
+    paste0(tools::file_path_sans_ext(basename(in_path)), ".jpg")
+  )
+
+  if (file.exists(out_path)) {
+    if (file.info(out_path)$mtime >= file.info(in_path)$mtime) return(out_path)
+  }
+
+  if (requireNamespace("magick", quietly = TRUE)) {
+    img <- magick::image_read(in_path)
+    img <- magick::image_scale(img, paste0(max_width_px))
+    magick::image_write(img, path = out_path, format = "jpeg", quality = quality)
+    return(out_path)
+  } else {
+    return(in_path)
+  }
+}
+
+img_use <- list(
+  mapa  = make_light_image(img_paths$mapa,  max_width_px = 1500, quality = 60),
+  top10 = make_light_image(img_paths$top10, max_width_px = 1600, quality = 60)
+)
+
+img_exists <- vapply(img_use, function(p) !is.na(p) && file.exists(p), logical(1))
+
+# --------- Tabla de filtros ----------
+if (!is.null(params$filtros) && is.data.frame(params$filtros)) {
+  filtros_tbl <- params$filtros
+} else {
+  filtros_tbl <- data.frame(
+    Filtro = c("Año", "Departamento", "Municipio", "Indicador", "Filtro porcentaje"),
+    Valor  = c(
+      fmt_val(params$anio),
+      fmt_val(params$dep),
+      fmt_val(params$mpio),
+      ind_label(params$ind),
+      rango_pct_label(params$ind, params$prop_min, params$prop_max)
+    ),
+    stringsAsFactors = FALSE
+  )
+
+  if (!is_prop(params$ind)) {
+    filtros_tbl <- filtros_tbl[filtros_tbl$Filtro != "Filtro porcentaje", , drop = FALSE]
+  }
+}
+
+# --------- (Opcional) Leer CSV filtrado ----------
+csv_ok <- FALSE
+df_csv <- NULL
+if (!is.null(params$csv_filtrado) && nzchar(params$csv_filtrado) && file.exists(params$csv_filtrado)) {
+  csv_ok <- TRUE
+  df_csv <- tryCatch(
+    readr::read_csv(params$csv_filtrado, show_col_types = FALSE),
+    error = function(e) NULL
+  )
+}
+```
+
+# Resumen del reporte
+Este informe analiza el ordenamiento productivo del territorio a partir de la frontera agropecuaria empleando el indicador **`r ind_label(params$ind)`**, con el fin de identificar las áreas aptas para el desarrollo de actividades agropecuarias y su distribución espacial a nivel municipal. La delimitación de la frontera agropecuaria permite diferenciar las zonas con mayor vocación productiva de aquellas donde existen restricciones ambientales, técnicas o normativas para el uso agropecuario. En el sistema agroalimentario, este análisis es fundamental para orientar la planificación productiva, reducir conflictos por uso del suelo y promover un aprovechamiento más eficiente y sostenible del territorio, alineando la expansión o intensificación agrícola con las capacidades reales del suelo.
+
+## Objetivo del reporte
+El objetivo de este informe es identificar y caracterizar la distribución territorial de las áreas aptas para actividades agropecuarias dentro de la frontera agropecuaria como insumo para la toma de decisiones en el sistema agroalimentario.
+
+1. Identificar y analizar la distribución espacial de las hectáreas aptas para actividades agropecuarias y su peso relativo en el territorio, con enfoque de planificación productiva territorial.
+2. Apoyar la toma de decisiones en ordenamiento productivo, inversión rural y formulación de políticas agroalimentarias, a partir del reconocimiento del potencial productivo municipal.
+3. Priorizar territorios y orientar el uso del suelo, contribuyendo a reducir riesgos asociados a la expansión agropecuaria en zonas no aptas o ambientalmente sensibles.
+
+## Filtros usados
+```{r}
+knitr::kable(filtros_tbl, align = c("l","l"))
+```
+
+# Resultados
+
+## ¿Qué municipios tienen más hectáreas aptas para el desarrollo de actividades agropecuarias?
+El mapa territorial muestra la distribución espacial de las hectáreas clasificadas como áreas aptas para actividades agropecuarias, segmentadas por niveles relativos según el indicador seleccionado. Este indicador permite identificar municipios con mayor disponibilidad de suelo con vocación productiva y, por tanto, con mayor capacidad potencial para sostener o ampliar actividades agropecuarias. En el sistema agroalimentario, este mapa se interpreta como una herramienta de ordenamiento que permite reconocer dónde es técnicamente viable concentrar esfuerzos de producción, infraestructura y apoyo institucional, minimizando presiones sobre áreas no aptas y reduciendo riesgos de degradación ambiental.
+
+- Si el indicador es **área (ha)**: lectura por **magnitud absoluta** (dónde está “el volumen” de tierra apta).
+- Si el indicador es **porcentaje (FA)**: lectura por **intensidad relativa** (comparación justa entre territorios de distinto tamaño). 
+
+```{r, out.width="75%"}
+if (img_exists["mapa"]) {
+  knitr::include_graphics(img_use$mapa)
+} else {
+  cat("No se encontró la imagen del mapa en: ", img_paths$mapa)
+}
+```
+
+## Top 10 municipios con más hectáreas aptas para actividades agropecuarias
+El ranking de los diez municipios con mayor cantidad de hectáreas aptas permite focalizar territorios con alta capacidad productiva potencial dentro de la frontera agropecuaria. Desde un enfoque agroalimentario, estos municipios concentran oportunidades para fortalecer la producción primaria, desarrollar encadenamientos productivos y mejorar la eficiencia del uso del suelo. Este indicador es especialmente útil cuando los recursos para inversión y asistencia técnica son limitados, ya que facilita la priorización de municipios donde las intervenciones productivas pueden generar mayores impactos en términos de volumen, estabilidad de la oferta y seguridad alimentaria.
+
+- En **área (ha)**: concentración de “volumen” de aptitud (útil para logística, escala e inversión).
+- En **porcentaje**: territorios con alta “intensidad” relativa (útil para estrategias de intensificación y valor agregado).
+
+```{r, out.width="75%"}
+if (img_exists["top10"]) {
+  knitr::include_graphics(img_use$top10)
+} else {
+  cat("No se encontró la imagen del Top 10 en: ", img_paths$top10)
+}
+```
+

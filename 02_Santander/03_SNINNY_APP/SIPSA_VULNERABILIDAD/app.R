@@ -649,7 +649,7 @@ normalize_caps <- function(caps){
 
 dept_sf <- load_dept_sf_only_safe(data_dir)
 gpkg_files <- list_gpkgs(data_dir)
-prefer_name <- "rutas_ORS_barranquilla_capitales_con_contexto.gpkg"
+prefer_name <- "rutas_ORS_santander_capitales_con_contexto.gpkg"
 gpkg_default <- gpkg_files[basename(gpkg_files) == prefer_name][1]
 if (is.na(gpkg_default) && length(gpkg_files)) gpkg_default <- gpkg_files[1]
 

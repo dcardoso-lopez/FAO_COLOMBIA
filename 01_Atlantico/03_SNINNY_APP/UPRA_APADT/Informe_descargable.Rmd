@@ -1,0 +1,231 @@
+---
+title: "Planificación productiva: Ordenamiento territorial a partir de APADT"
+subtitle: "PLATEA"
+output:
+  pdf_document:
+    toc: true
+    number_sections: true
+
+params:
+  app_root: !r getwd()
+  data_dir: NULL
+  export_dir: "Descargas"
+  filtros: NULL
+  anio: NULL
+  dep: NULL
+  mpio: NULL
+  ind: NULL
+  prop_min: NULL
+  prop_max: NULL
+
+  # ✅ NUEVOS (para integrarlo con la app UPRA_APADT)
+  img_map: NULL        # p.ej. "APADT_mapa.png" o "UPRA_mapa.png"
+  img_top10: NULL      # p.ej. "APADT_top10.png" o "UPRA_top10.png"
+  csv_filtrado: NULL   # ruta opcional a CSV filtrado (si lo generas desde la app)
+  logo_path: NULL      # ruta portable al logo (ideal: app_root/www/LOGO_PLATEA.png)
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE, message = FALSE, warning = FALSE,
+  fig.align = "center",
+  out.width = "85%"
+)
+
+fmt_val <- function(x){
+  if (is.null(x) || length(x) == 0 || all(is.na(x))) return("Todos")
+  if (length(x) > 1) return(paste(x, collapse = ", "))
+  as.character(x)
+}
+
+# ✅ Soporta indicadores de FA y APADT
+is_prop <- function(ind){
+  if (is.null(ind) || !nzchar(ind)) return(FALSE)
+  ind %in% c("prop_fa", "prop_apadt")
+}
+
+ind_label <- function(ind){
+  if (is.null(ind) || !nzchar(ind)) return("Indicador")
+  if (ind == "prop_fa")       return("Porcentaje de tierras aptas (FA)")
+  if (ind == "area_fa_ha")    return("Área apta (ha) (FA)")
+  if (ind == "prop_apadt")    return("Porcentaje del Área Potencial (APADT)")
+  if (ind == "area_apadt_ha") return("Área Potencial (ha) (APADT)")
+  if (is_prop(ind)) "Porcentaje" else "Área (ha)"
+}
+
+scope_label <- function(dep, mpio){
+  dep0  <- fmt_val(dep)
+  mpio0 <- fmt_val(mpio)
+  if (is.null(dep) || dep0 == "Todos") return("Colombia")
+  if (is.null(mpio) || mpio0 == "Todos") return(paste0(dep0))
+  paste0(mpio0, " — ", dep0)
+}
+
+rango_pct_label <- function(ind, pmin, pmax){
+  if (!is_prop(ind)) return("—")
+  if (!is.finite(pmin) || !is.finite(pmax)) return("—")
+  paste0(
+    scales::percent(pmin, accuracy = 0.1, decimal.mark = ","),
+    " — ",
+    scales::percent(pmax, accuracy = 0.1, decimal.mark = ",")
+  )
+}
+
+# ---------- Rutas ----------
+export_path <- file.path(params$app_root, params$export_dir)
+
+# ✅ Si la app pasa nombres de archivo, úsalos; si no, autodetecta con fallback.
+candidate_maps <- c(
+  if (!is.null(params$img_map) && nzchar(params$img_map)) file.path(export_path, params$img_map) else NA_character_,
+  file.path(export_path, "APADT_mapa.png"),
+  file.path(export_path, "UPRA_mapa.png")
+)
+candidate_top10 <- c(
+  if (!is.null(params$img_top10) && nzchar(params$img_top10)) file.path(export_path, params$img_top10) else NA_character_,
+  file.path(export_path, "APADT_top10.png"),
+  file.path(export_path, "UPRA_top10.png")
+)
+candidate_maps  <- candidate_maps[!is.na(candidate_maps)]
+candidate_top10 <- candidate_top10[!is.na(candidate_top10)]
+
+pick_first_existing <- function(paths){
+  for (p in paths) if (file.exists(p)) return(p)
+  return(NA_character_)
+}
+
+img_paths <- list(
+  mapa  = pick_first_existing(candidate_maps),
+  top10 = pick_first_existing(candidate_top10)
+)
+
+# --------- Header con logo portable (si existe) ----------
+# ✅ Evita rutas duras C:/...; pásalo por params$logo_path desde la app.
+if (!is.null(params$logo_path) && nzchar(params$logo_path) && file.exists(params$logo_path)) {
+  logo_path <- gsub("\\\\","/", params$logo_path)
+  header <- c(
+    "\\usepackage{graphicx}",
+    "\\usepackage{fancyhdr}",
+    "\\pagestyle{fancy}",
+    "\\setlength{\\headheight}{45pt}",
+    paste0("\\fancyhead[L]{\\includegraphics[height=2cm]{", logo_path, "}}"),
+    "\\fancyfoot[C]{\\thepage}",
+    "\\renewcommand{\\headrulewidth}{0.8pt}",
+    "\\renewcommand{\\footrulewidth}{0.8pt}"
+  )
+  knitr::knit_meta_add(list(pandoc = list(header_includes = header)))
+}
+
+# --------- Versión "light" de imágenes (opcional) ----------
+light_dir <- file.path(export_path, "_reporte_light")
+dir.create(light_dir, showWarnings = FALSE, recursive = TRUE)
+
+make_light_image <- function(in_path, max_width_px = 1400, quality = 65){
+  if (is.na(in_path) || !file.exists(in_path)) return(NA_character_)
+  out_path <- file.path(light_dir, paste0(tools::file_path_sans_ext(basename(in_path)), ".jpg"))
+
+  if (file.exists(out_path)) {
+    if (file.info(out_path)$mtime >= file.info(in_path)$mtime) return(out_path)
+  }
+
+  if (requireNamespace("magick", quietly = TRUE)) {
+    img <- magick::image_read(in_path)
+    img <- magick::image_scale(img, paste0(max_width_px))
+    magick::image_write(img, path = out_path, format = "jpeg", quality = quality)
+    return(out_path)
+  } else {
+    return(in_path)
+  }
+}
+
+img_use <- list(
+  mapa  = make_light_image(img_paths$mapa,  max_width_px = 1500, quality = 60),
+  top10 = make_light_image(img_paths$top10, max_width_px = 1600, quality = 60)
+)
+
+img_exists <- vapply(img_use, function(p) !is.na(p) && file.exists(p), logical(1))
+
+# --------- Tabla de filtros ----------
+if (!is.null(params$filtros) && is.data.frame(params$filtros)) {
+  filtros_tbl <- params$filtros
+} else {
+  filtros_tbl <- data.frame(
+    Filtro = c("Año", "Departamento", "Municipio", "Indicador", "Filtro porcentaje"),
+    Valor  = c(
+      fmt_val(params$anio),
+      fmt_val(params$dep),
+      fmt_val(params$mpio),
+      ind_label(params$ind),
+      rango_pct_label(params$ind, params$prop_min, params$prop_max)
+    ),
+    stringsAsFactors = FALSE
+  )
+  if (!is_prop(params$ind)) {
+    filtros_tbl <- filtros_tbl[filtros_tbl$Filtro != "Filtro porcentaje", , drop = FALSE]
+  }
+}
+
+# --------- (Opcional) Leer CSV filtrado ----------
+csv_ok <- FALSE
+df_csv <- NULL
+if (!is.null(params$csv_filtrado) && nzchar(params$csv_filtrado) && file.exists(params$csv_filtrado)) {
+  csv_ok <- TRUE
+  df_csv <- tryCatch(
+    readr::read_csv(params$csv_filtrado, show_col_types = FALSE),
+    error = function(e) NULL
+  )
+}
+```
+
+# Resumen del reporte
+Este informe analiza la planificación productiva del territorio a partir del indicador **`r ind_label(params$ind)`**, con el fin de identificar la distribución espacial del **Área Potencial de Adecuación de Tierras (APADT)** (o su proporción relativa). En el sistema agroalimentario, este análisis apoya la toma de decisiones al orientar la focalización territorial, la priorización de inversión rural y la asignación de asistencia técnica, alineando los esfuerzos productivos con el potencial real del territorio.
+
+## Objetivo del reporte
+El objetivo de este informe es identificar y caracterizar la distribución territorial del indicador seleccionado como insumo para la toma de decisiones en planificación productiva y ordenamiento territorial.
+
+1. Identificar la distribución espacial y la concentración territorial del indicador (área o porcentaje).
+2. Apoyar decisiones de ordenamiento productivo, inversión rural y focalización institucional.
+3. Priorizar territorios con mayor potencial relativo o absoluto, según el indicador.
+
+## Filtros usados
+```{r}
+knitr::kable(filtros_tbl, align = c("l","l"))
+```
+
+# Resultados
+
+## Distribución territorial del indicador
+El mapa territorial muestra la distribución espacial del indicador seleccionado, segmentada por niveles relativos (clasificación por grupos). Permite identificar territorios con mayor potencial productivo y orientar decisiones de planificación.
+
+- Si el indicador es **área (ha)**: lectura por **magnitud absoluta** (dónde está el “volumen” de área potencial).
+- Si el indicador es **porcentaje**: lectura por **intensidad relativa** (comparación justa entre territorios de distinto tamaño).
+
+```{r, out.width="75%"}
+if (img_exists["mapa"]) {
+  knitr::include_graphics(img_use$mapa)
+} else {
+  cat("No se encontró la imagen del mapa. Busqué en:\n- ",
+      paste(candidate_maps, collapse = "\n- "), "\n")
+}
+```
+
+## Top 10 territorios
+El ranking permite focalizar territorios con mayor potencial según el indicador. Es útil para priorización cuando los recursos son limitados y para identificar nodos territoriales con oportunidades de fortalecimiento productivo.
+
+```{r, out.width="75%"}
+if (img_exists["top10"]) {
+  knitr::include_graphics(img_use$top10)
+} else {
+  cat("No se encontró la imagen del Top 10. Busqué en:\n- ",
+      paste(candidate_top10, collapse = "\n- "), "\n")
+}
+```
+
+## (Opcional) Vista rápida del CSV filtrado
+```{r}
+if (csv_ok && !is.null(df_csv)) {
+  cat("Se leyó CSV filtrado con", nrow(df_csv), "filas y", ncol(df_csv), "columnas.\n\n")
+  knitr::kable(utils::head(df_csv, 12))
+} else {
+  cat("No se proporcionó un CSV filtrado (params$csv_filtrado) o no existe.\n")
+}
+```

@@ -144,7 +144,7 @@ if (img_exists["mapa"]) {
 }
 ```
 
-## Serie temporal (mm3)
+## ¿Cómo ha evolucionado el volumen de lluvias en el tiempo?
 Este indicador sirve para reconocer cuándo el comportamiento de la lluvia puede alterar el funcionamiento del sistema agroalimentario en el tiempo. La serie temporal permite identificar rachas húmedas o secas y compararlas con años previos para entender si el periodo reciente está dentro de lo esperable o si se está configurando una condición de riesgo. Cuando se observan picos prolongados, aumentan las probabilidades de afectaciones a cosecha y poscosecha, así como interrupciones de rutas y mayores costos de movilización; cuando se observan caídas persistentes, se vuelve más probable una reducción de rendimientos, mayores necesidades de riego o ajustes de calendario agrícola. En términos de gestión, esta vista permite anticipar presiones sobre oferta y planear medidas de coordinación territorial antes de que el impacto aparezca en volúmenes comercializados o en precios.
 ```{r, out.width="75%"}
 if (img_exists["serie"]) {
@@ -154,7 +154,7 @@ if (img_exists["serie"]) {
 }
 ```
 
-## Ranking Top-10 (mm3)
+## Top 10 municipios con mayor volumen de lluvias
 Este indicador sirve para focalizar prioridades dentro del territorio, especialmente cuando los recursos de seguimiento e intervención son limitados. Al identificar los municipios con mayores acumulados de precipitación en el periodo, el ranking ayuda a definir dónde conviene intensificar la vigilancia y la preparación: desde acciones agronómicas preventivas (manejo sanitario, drenajes, programación de cosecha) hasta medidas de logística (rutas alternas, preparación de centros de acopio, coordinación con gestión del riesgo). En un enfoque agroalimentario, el valor del Top-10 es operativo: permite pasar de un diagnóstico general a una lista concreta de territorios donde es más probable que aparezcan disrupciones en producción o en abastecimiento.
 
 ```{r, out.width="75%"}
@@ -165,7 +165,7 @@ if (img_exists["ranking"]) {
 }
 ```
 
-## Anomalía (velas, mm3)
+## Anomalía de precipitación (velas de mm³)
 Este indicador sirve para distinguir variaciones normales de comportamientos realmente relevantes para el sistema agroalimentario, porque muestra si el periodo analizado está siendo más húmedo o más seco que una referencia. Una anomalía sostenida es particularmente útil como señal temprana: si se acumulan anomalías positivas durante varios periodos, se incrementa la probabilidad de pérdidas asociadas a exceso de humedad y fallas logísticas; si la anomalía es negativa y persistente, aumenta el riesgo de estrés hídrico, caída de oferta y presión sobre los precios por menor disponibilidad. En otras palabras, la anomalía permite decir con claridad si el sistema está operando bajo una condición climática “fuera de lo usual”, lo cual justifica activar seguimiento, coordinación institucional y medidas preventivas.
 ```{r, out.width="75%"}
 if (img_exists["anom"]) {
