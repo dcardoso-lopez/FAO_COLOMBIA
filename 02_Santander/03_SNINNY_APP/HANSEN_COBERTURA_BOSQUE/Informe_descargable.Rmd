@@ -1,0 +1,212 @@
+---
+title: "Cobertura de bosque en el territorio"
+subtitle: "PLATEA"
+header-includes:
+  - \usepackage{graphicx}
+  - \usepackage{fancyhdr}
+  - \pagestyle{fancy}
+  - \setlength{\headheight}{45pt}
+  # IMPORTANTE:
+  # - La Shiny App reemplaza __LOGO_PLATEA_PATH__ por la ruta real del logo
+  # - El logo se copia a ./Descargas/LOGO_PLATEA.png antes de renderizar
+  - \fancyhead[L]{\includegraphics[height=2cm]{C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/02_Santander/03_SNINNY_APP/HANSEN_COBERTURA_BOSQUE/www/LOGO_PLATEA.png}}
+  - \fancyfoot[C]{\thepage}
+  - \renewcommand{\headrulewidth}{0.8pt}
+  - \renewcommand{\footrulewidth}{0.8pt}
+output:
+  pdf_document:
+    toc: true
+    number_sections: true
+geometry: margin=1in
+
+params:
+  app_root: !r getwd()
+  export_dir: "Descargas"
+  filtros: NULL
+
+  # Parámetros del dashboard (Bosque)
+  anio: NULL
+  ind: NULL  # "bosque_ha" o "bosque_pct" (o el que definas)
+  
+  # Imágenes generadas por Shiny dentro de export_dir
+  img_map: NULL
+  img_serie: NULL
+  img_ranking: NULL
+
+  # CSV filtrado
+  csv_filtrado: NULL
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE, message = FALSE, warning = FALSE,
+  fig.align = "center",
+  out.width = "85%"
+)
+
+fmt_val <- function(x){
+  if (is.null(x) || length(x) == 0 || all(is.na(x))) return("Todos")
+  if (length(x) > 1) return(paste(x, collapse = ", "))
+  as.character(x)
+}
+
+# ---------- Rutas ----------
+export_path <- file.path(params$app_root, params$export_dir)
+
+pick_first_existing <- function(paths){
+  for (p in paths) if (!is.na(p) && nzchar(p) && file.exists(p)) return(p)
+  return(NA_character_)
+}
+
+# ---------- Resolver imágenes (Bosque) ----------
+candidate_map <- c(
+  if (!is.null(params$img_map) && nzchar(params$img_map)) file.path(export_path, params$img_map) else NA_character_,
+  file.path(export_path, "bosque_mapa.png"),
+  file.path(export_path, "bosque_mapa.jpg")
+)
+
+candidate_serie <- c(
+  if (!is.null(params$img_serie) && nzchar(params$img_serie)) file.path(export_path, params$img_serie) else NA_character_,
+  file.path(export_path, "bosque_serie.png"),
+  file.path(export_path, "bosque_serie.jpg")
+)
+
+candidate_ranking <- c(
+  if (!is.null(params$img_ranking) && nzchar(params$img_ranking)) file.path(export_path, params$img_ranking) else NA_character_,
+  file.path(export_path, "bosque_ranking.png"),
+  file.path(export_path, "bosque_ranking.jpg")
+)
+
+img_paths <- list(
+  map     = pick_first_existing(candidate_map),
+  serie   = pick_first_existing(candidate_serie),
+  ranking = pick_first_existing(candidate_ranking)
+)
+
+# =========================
+# PDF más liviano:
+# - Si existe 'magick', convierte PNG -> JPG reducido
+# - Si no existe, usa PNG original
+# =========================
+light_dir <- file.path(export_path, "_reporte_light")
+dir.create(light_dir, showWarnings = FALSE, recursive = TRUE)
+
+make_light_image <- function(in_path, max_width_px = 1600, quality = 60){
+  if (is.na(in_path) || !file.exists(in_path)) return(NA_character_)
+
+  out_path <- file.path(
+    light_dir,
+    paste0(tools::file_path_sans_ext(basename(in_path)), ".jpg")
+  )
+
+  if (file.exists(out_path)) {
+    if (file.info(out_path)$mtime >= file.info(in_path)$mtime) return(out_path)
+  }
+
+  if (requireNamespace("magick", quietly = TRUE)) {
+    img <- magick::image_read(in_path)
+    img <- magick::image_scale(img, paste0(max_width_px))
+    magick::image_write(img, path = out_path, format = "jpeg", quality = quality)
+    return(out_path)
+  } else {
+    return(in_path)
+  }
+}
+
+img_use <- list(
+  map     = make_light_image(img_paths$map,     max_width_px = 1800, quality = 60),
+  serie   = make_light_image(img_paths$serie,   max_width_px = 1800, quality = 60),
+  ranking = make_light_image(img_paths$ranking, max_width_px = 1800, quality = 60)
+)
+
+img_exists <- vapply(img_use, function(p) !is.na(p) && file.exists(p), logical(1))
+
+# ---------- Tabla de filtros ----------
+if (!is.null(params$filtros) && is.data.frame(params$filtros)) {
+  filtros_tbl <- params$filtros
+} else {
+  filtros_tbl <- data.frame(
+    Filtro = c("Año", "Indicador"),
+    Valor  = c(fmt_val(params$anio), fmt_val(params$ind)),
+    stringsAsFactors = FALSE
+  )
+}
+
+# ---------- (Opcional) Leer CSV filtrado ----------
+csv_ok <- FALSE
+df_csv <- NULL
+if (!is.null(params$csv_filtrado) && nzchar(params$csv_filtrado) && file.exists(params$csv_filtrado)) {
+  csv_ok <- TRUE
+  df_csv <- tryCatch(
+    readr::read_csv(params$csv_filtrado, show_col_types = FALSE),
+    error = function(e) NULL
+  )
+}
+
+ind_label <- function(ind){
+  if (is.null(ind) || !nzchar(ind)) return("Cobertura neta de bosque")
+  if (ind == "bosque_ha")  return("Cobertura neta de bosque (Ha)")
+  if (ind == "bosque_pct") return("Cobertura neta de bosque (%)")
+  ind
+}
+```
+
+# Resumen del reporte
+Este módulo analiza la cobertura de bosque en el territorio como un componente clave del sistema agroalimentario, en la medida en que los ecosistemas forestales influyen sobre la regulación hídrica, la fertilidad de los suelos, la estabilidad climática local y la provisión de servicios ecosistémicos necesarios para la producción agrícola. La evolución espacial y temporal de la cobertura boscosa permite identificar presiones estructurales sobre el territorio que pueden afectar la sostenibilidad y resiliencia ambiental del sistema agroalimentario. 
+
+
+## Objetivos del reporte
+El objetivo de este informe es identificar y caracterizar los patrones de la cobertura de bosque del territorio que resultan relevantes para la toma de decisiones en el sistema agroalimentario.
+
+1. Identificar y comparar las diferencias territoriales en la cobertura de bosque, así como su evolución espacial y temporal, para reconocer zonas con mayor presión sobre los ecosistemas forestales.
+
+2. Detectar territorios en riesgo por pérdida de cobertura boscosa y de servicios ecosistémicos que inciden en la producción agroalimentaria.
+
+3. Apoyar la focalización de políticas públicas, la planificación territorial y el diseño de estrategias agroambientales orientadas a la sostenibilidad y resiliencia ambiental del sistema agroalimentario.
+
+
+## Filtros usados
+```{r}
+knitr::kable(filtros_tbl, align = c("l","l"))
+```
+
+# Resultados
+
+## ¿Dónde se concentra la mayor cobertura neta de bosque?
+El mapa territorial muestra la distribución espacial del porcentaje o hectáreas de cobertura neta de bosque, clasificando los territorios en grupos según su nivel relativo de cobertura. Este indicador permite identificar áreas donde los ecosistemas forestales mantienen una mayor presencia y aquellas donde la presión antrópica ha reducido significativamente la cobertura vegetal. En el sistema agroalimentario, este mapa permite reconocer territorios con mayor capacidad de regulación hídrica, protección de suelos y estabilidad ambiental, condiciones que favorecen la sostenibilidad de la producción agrícola.
+
+
+```{r, out.width="80%"}
+if (img_exists["map"]) {
+  knitr::include_graphics(img_use$map)
+} else {
+  cat("No se encontró la imagen del mapa. Busqué en:\n- ",
+      paste(candidate_map[!is.na(candidate_map)], collapse = "\n- "), "\n")
+}
+```
+
+## ¿Cómo ha evolucionado el indicador en el tiempo?
+La serie temporal muestra cómo ha evolucionado el porcentaje o hectáreas de cobertura boscosa a lo largo del tiempo. Este indicador permite identificar tendencias de pérdida de bosque, o procesos de estabilización o recuperación. Desde una perspectiva agroalimentaria, una reducción sostenida de la cobertura de bosque señala un aumento de la presión sobre los recursos naturales que sustentan la producción agropecuaria y de los servicios ecosistémicos. La pérdida de bosque puede intensificar problemas de escasez hídrica, degradación del suelo y variabilidad climática local, generando presiones adicionales sobre la productividad y la estabilidad del sistema agroalimentario.
+
+
+```{r, out.width="80%"}
+if (img_exists["serie"]) {
+  knitr::include_graphics(img_use$serie)
+} else {
+  cat("No se encontró la imagen de la serie. Busqué en:\n- ",
+      paste(candidate_serie[!is.na(candidate_serie)], collapse = "\n- "), "\n")
+}
+```
+
+## Top 10 territorios (municipios) según el indicador
+El ranking de los diez municipios con mayor porcentaje o hectáreas de cobertura boscosa permite focalizar territorios que conservan una alta proporción de ecosistemas forestales. En un enfoque agroalimentario, estos municipios cuentan con mayores reservas de servicios ecosistémicos que contribuyen a la sostenibilidad productiva, y se enfrentan el desafío de compatibilizar conservación ambiental y desarrollo productivo agropecuario. Este indicador es operativo para priorizar territorios donde las políticas agroambientales, los esquemas de producción sostenible y los mecanismos de conservación pueden desempeñar un especial rol el fortalecimiento del sistema agroalimentario y la reducción de riesgos de largo plazo.
+
+
+```{r, out.width="80%"}
+if (img_exists["ranking"]) {
+  knitr::include_graphics(img_use$ranking)
+} else {
+  cat("No se encontró la imagen del ranking. Busqué en:\n- ",
+      paste(candidate_ranking[!is.na(candidate_ranking)], collapse = "\n- "), "\n")
+}
+```

@@ -1,0 +1,264 @@
+---
+title: "Transición demográfica territorial"
+subtitle: "PLATEA"
+header-includes:
+  - \usepackage{graphicx}
+  - \usepackage{fancyhdr}
+  - \pagestyle{fancy}
+  - \setlength{\headheight}{45pt}
+  - \fancyhead[L]{\includegraphics[height=2cm]{C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/02_Santander/03_SNINNY_APP/DANE_POPULATION/www/LOGO_PLATEA.png}}
+  - \fancyfoot[C]{\thepage}
+  - \renewcommand{\headrulewidth}{0.8pt}
+  - \renewcommand{\footrulewidth}{0.8pt}
+output:
+  pdf_document:
+    toc: true
+    number_sections: true
+geometry: margin=1in
+
+params:
+  app_root: !r getwd()
+  data_dir: NULL
+  export_dir: "Descargas"
+  filtros: NULL
+
+  # Filtros del dashboard (población)
+  anio: NULL
+  dep: NULL
+  mpio: NULL
+  clase: NULL
+  sexo: NULL
+
+  # Indicador (opcional, para compatibilidad)
+  ind: NULL
+  prop_min: NULL
+  prop_max: NULL
+
+  # Imágenes generadas por Shiny dentro de export_dir
+  img_hist: NULL
+  img_piramide: NULL
+  img_cagr30: NULL
+
+  # Alias compatibilidad (si vienes de plantilla anterior)
+  img_map: NULL
+  img_top10: NULL
+
+  csv_filtrado: NULL
+  logo_path: NULL
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE, message = FALSE, warning = FALSE,
+  fig.align = "center",
+  out.width = "85%"
+)
+
+fmt_val <- function(x){
+  if (is.null(x) || length(x) == 0 || all(is.na(x))) return("Todos")
+  if (length(x) > 1) return(paste(x, collapse = ", "))
+  as.character(x)
+}
+
+# --------- Etiquetas ----------
+ind_label <- function(ind){
+  if (is.null(ind) || !nzchar(ind)) return("Proyecciones de población (DANE)")
+  if (ind == "poblacion") return("Población total")
+  if (ind == "pct_jovenes") return("% Jóvenes (0–14)")
+  if (ind == "pct_mayores") return("% Adultos mayores (65+)")
+  if (ind == "razon_dependencia") return("Razón de dependencia")
+  ind
+}
+
+scope_label <- function(dep, mpio){
+  dep0  <- fmt_val(dep)
+  mpio0 <- fmt_val(mpio)
+  if (is.null(dep) || dep0 == "Todos") return("Colombia")
+  if (is.null(mpio) || mpio0 == "Todos") return(paste0(dep0))
+  paste0(mpio0, " — ", dep0)
+}
+
+# Compatibilidad con estructura APADT (rango porcentaje)
+is_prop <- function(ind){
+  if (is.null(ind) || !nzchar(ind)) return(FALSE)
+  ind %in% c("pct_jovenes", "pct_mayores")
+}
+
+rango_pct_label <- function(ind, pmin, pmax){
+  if (!is_prop(ind)) return("—")
+  if (!is.finite(pmin) || !is.finite(pmax)) return("—")
+  paste0(
+    scales::percent(pmin, accuracy = 0.1, decimal.mark = ","),
+    " — ",
+    scales::percent(pmax, accuracy = 0.1, decimal.mark = ",")
+  )
+}
+
+# ---------- Rutas ----------
+export_path <- file.path(params$app_root, params$export_dir)
+
+# ---------- Resolver imágenes (autodetección + fallback) ----------
+# Alias: si te pasan img_map/img_top10, se usan como hist/pirámide
+img_hist_name     <- if (!is.null(params$img_hist) && nzchar(params$img_hist)) params$img_hist else params$img_map
+img_piramide_name <- if (!is.null(params$img_piramide) && nzchar(params$img_piramide)) params$img_piramide else params$img_top10
+img_cagr30_name   <- params$img_cagr30
+
+candidate_hist <- c(
+  if (!is.null(img_hist_name) && nzchar(img_hist_name)) file.path(export_path, img_hist_name) else NA_character_,
+  file.path(export_path, "hist.png"),
+  file.path(export_path, "HIST.png")
+)
+
+candidate_piramide <- c(
+  if (!is.null(img_piramide_name) && nzchar(img_piramide_name)) file.path(export_path, img_piramide_name) else NA_character_,
+  file.path(export_path, "piramide.png"),
+  file.path(export_path, "PIRAMIDE.png")
+)
+
+candidate_cagr30 <- c(
+  if (!is.null(img_cagr30_name) && nzchar(img_cagr30_name)) file.path(export_path, img_cagr30_name) else NA_character_,
+  file.path(export_path, "cagr30.png"),
+  file.path(export_path, "CAGR30.png")
+)
+
+candidate_hist     <- candidate_hist[!is.na(candidate_hist)]
+candidate_piramide <- candidate_piramide[!is.na(candidate_piramide)]
+candidate_cagr30   <- candidate_cagr30[!is.na(candidate_cagr30)]
+
+pick_first_existing <- function(paths){
+  for (p in paths) if (file.exists(p)) return(p)
+  return(NA_character_)
+}
+
+img_paths <- list(
+  hist     = pick_first_existing(candidate_hist),
+  piramide = pick_first_existing(candidate_piramide),
+  cagr30   = pick_first_existing(candidate_cagr30)
+)
+
+# =========================
+# PDF más liviano:
+# - Si existe 'magick', convierte PNG -> JPG reducido
+# - Si no existe, usa PNG original
+# =========================
+light_dir <- file.path(export_path, "_reporte_light")
+dir.create(light_dir, showWarnings = FALSE, recursive = TRUE)
+
+make_light_image <- function(in_path, max_width_px = 1400, quality = 65){
+  if (is.na(in_path) || !file.exists(in_path)) return(NA_character_)
+
+  out_path <- file.path(
+    light_dir,
+    paste0(tools::file_path_sans_ext(basename(in_path)), ".jpg")
+  )
+
+  if (file.exists(out_path)) {
+    if (file.info(out_path)$mtime >= file.info(in_path)$mtime) return(out_path)
+  }
+
+  if (requireNamespace("magick", quietly = TRUE)) {
+    img <- magick::image_read(in_path)
+    img <- magick::image_scale(img, paste0(max_width_px))
+    magick::image_write(img, path = out_path, format = "jpeg", quality = quality)
+    return(out_path)
+  } else {
+    return(in_path)
+  }
+}
+
+img_use <- list(
+  hist     = make_light_image(img_paths$hist,     max_width_px = 1600, quality = 60),
+  piramide = make_light_image(img_paths$piramide, max_width_px = 1600, quality = 60),
+  cagr30   = make_light_image(img_paths$cagr30,   max_width_px = 1600, quality = 60)
+)
+
+img_exists <- vapply(img_use, function(p) !is.na(p) && file.exists(p), logical(1))
+
+# ---------- Tabla de filtros ----------
+if (!is.null(params$filtros) && is.data.frame(params$filtros)) {
+  filtros_tbl <- params$filtros
+} else {
+  filtros_tbl <- data.frame(
+    Filtro = c("Año", "Departamento", "Municipio", "Clase", "Sexo", "Indicador", "Filtro porcentaje"),
+    Valor  = c(
+      fmt_val(params$anio),
+      fmt_val(params$dep),
+      fmt_val(params$mpio),
+      fmt_val(params$clase),
+      fmt_val(params$sexo),
+      ind_label(params$ind),
+      rango_pct_label(params$ind, params$prop_min, params$prop_max)
+    ),
+    stringsAsFactors = FALSE
+  )
+  if (!is_prop(params$ind)) {
+    filtros_tbl <- filtros_tbl[filtros_tbl$Filtro != "Filtro porcentaje", , drop = FALSE]
+  }
+}
+
+# ---------- (Opcional) Leer CSV filtrado ----------
+csv_ok <- FALSE
+df_csv <- NULL
+if (!is.null(params$csv_filtrado) && nzchar(params$csv_filtrado) && file.exists(params$csv_filtrado)) {
+  csv_ok <- TRUE
+  df_csv <- tryCatch(
+    readr::read_csv(params$csv_filtrado, show_col_types = FALSE),
+    error = function(e) NULL
+  )
+}
+```
+
+# Resumen del reporte
+Este informe analiza la transición demográfica territorial como un determinante estructural del sistema agroalimentario, al mostrar los cambios en el tamaño de la población, su composición por edad y sexo y la relación entre población dependiente y en edad productiva pueden afectar la mano de obra y la escala de la demanda de alimentos; dado que estas dinámicas operan de forma gradual pero persistente, el análisis reconocer presiones de mediano y largo plazo (como problemas de relevo generacional, y la disponibilidad de mano de obra para el desarrollo de actividades agropecuarias) y constituye un insumo para la planificación y el diseño de políticas públicas.
+
+## Objetivo del reporte
+
+El objetivo de este informe es identificar y caracterizar los patrones de transición demográfica del territorio que resultan relevantes para la toma de decisiones en el sistema agroalimentario.
+1. Exponer el crecimiento poblacional, la estructura por edades y la razón de dependencia para evaluar su efecto sobre la oferta de mano de obra, la demanda de alimentos y la sostenibilidad social de los sistemas productivos y de abastecimiento.
+2. Anticipar los efectos del envejecimiento poblacional, la reducción de la población joven y la desaceleración del crecimiento demográfico sobre la capacidad productiva rural y la organización del sistema agroalimentario.
+
+## Filtros usados
+```{r}
+knitr::kable(filtros_tbl, align = c("l","l"))
+```
+
+# Resultados
+
+## ¿Cómo ha cambiado el número de habitantes a lo largo del tiempo?
+
+La serie temporal de población permite reconstruir y analizar la trayectoria demográfica de largo plazo del territorio, ofreciendo un marco para interpretar la transición demográfica y sus efectos estructurales sobre el sistema agroalimentario. Esta visualización no solo muestra la magnitud del crecimiento o la contracción poblacional, sino también la velocidad y persistencia de estos cambios, lo que permite identificar si el territorio se encuentra en una fase de expansión sostenida, desaceleración progresiva o estancamiento demográfico. En contextos de crecimiento poblacional continuo, el sistema agroalimentario suele enfrentar presiones crecientes sobre la producción primaria, la infraestructura de almacenamiento, el transporte y los canales de distribución, exigiendo ampliaciones de capacidad y ajustes logísticos. 
+
+```{r, out.width="75%"}
+if (img_exists["hist"]) {
+  knitr::include_graphics(img_use$hist)
+} else {
+  cat("No se encontró la imagen de evolución histórica. Busqué en:\n- ",
+      paste(candidate_hist, collapse = "\n- "), "\n")
+}
+```
+
+## ¿Cómo se distribuye la población del territorio por grupos de edad y sexo?
+La pirámide poblacional muestra la estructura interna de la población y permite identificar desbalances por edad y sexo. En el sistema agroalimentario, esta visualización es particularmente útil para detectar procesos de envejecimiento acelerado, migración  o pérdida de población en edades productivas y por sexo. Desbalances marcados pueden afectar la disponibilidad de mano de obra y la sostenibilidad de las actividades productivas. 
+
+
+```{r, out.width="75%"}
+if (img_exists["piramide"]) {
+  knitr::include_graphics(img_use$piramide)
+} else {
+  cat("No se encontró la imagen de pirámide. Busqué en:\n- ",
+      paste(candidate_piramide, collapse = "\n- "), "\n")
+}
+```
+
+## ¿Cómo ha variado la población, en promedio anual, durante los últimos 30 años?
+
+El crecimiento promedio anual resume la velocidad reciente de la dinámica demográfica y permite evaluar si el territorio se encuentra en una senda de expansión sostenida, desaceleración o estancamiento poblacional. Este indicador evidencia la necesidad de generación de políticas públicas y estrategias territoriales dirigidas al relevo generacional y buscar la adaptación para favorecer las capacidades productivas y de generación de ingresos por parte de la población rural.
+
+```{r, out.width="75%"}
+if (img_exists["cagr30"]) {
+  knitr::include_graphics(img_use$cagr30)
+} else {
+  cat("No se encontró la imagen de crecimiento promedio anual. Busqué en:\n- ",
+      paste(candidate_cagr30, collapse = "\n- "), "\n")
+}
+```

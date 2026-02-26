@@ -1,0 +1,200 @@
+---
+title: "Capacidad institucional del territorio - Índice de Desempeño Municipal"
+subtitle: "PLATEA"
+header-includes:
+  - \usepackage{graphicx}
+  - \usepackage{fancyhdr}
+  - \pagestyle{fancy}
+  - \setlength{\headheight}{45pt}
+  - \fancyhead[L]{\includegraphics[height=2cm]{C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/DNP-IDM/www/LOGO_PLATEA.png}}
+  - \fancyfoot[C]{\thepage}
+  - \renewcommand{\headrulewidth}{0.8pt}
+  - \renewcommand{\footrulewidth}{0.8pt}
+output:
+  pdf_document:
+    toc: true
+    number_sections: true
+geometry: margin=1in
+
+params:
+  app_root: !r getwd()
+  export_dir: "Descargas"
+  filtros: NULL
+
+  # Filtros del dashboard (IDM)
+  anio: NULL
+  dep: NULL
+  mpio: NULL
+  ind: "idm"
+
+  # Imágenes generadas por Shiny dentro de export_dir
+  img_map: NULL
+  img_top10: NULL
+  img_dep: NULL
+
+  # CSV filtrado
+  csv_filtrado: NULL
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE, message = FALSE, warning = FALSE,
+  fig.align = "center",
+  out.width = "85%"
+)
+
+fmt_val <- function(x){
+  if (is.null(x) || length(x) == 0 || all(is.na(x))) return("Todos")
+  if (length(x) > 1) return(paste(x, collapse = ", "))
+  as.character(x)
+}
+
+# ---------- Rutas ----------
+export_path <- file.path(params$app_root, params$export_dir)
+
+pick_first_existing <- function(paths){
+  for (p in paths) if (!is.na(p) && nzchar(p) && file.exists(p)) return(p)
+  return(NA_character_)
+}
+
+# ---------- Resolver imágenes IDM ----------
+candidate_map <- c(
+  if (!is.null(params$img_map)   && nzchar(params$img_map))   file.path(export_path, params$img_map)   else NA_character_,
+  file.path(export_path, "idm_mapa.png"),
+  file.path(export_path, "idm_mapa.jpg"),
+  file.path(export_path, "IDM_mapa.png"),
+  file.path(export_path, "UPRA_mapa.png")
+)
+
+candidate_top10 <- c(
+  if (!is.null(params$img_top10) && nzchar(params$img_top10)) file.path(export_path, params$img_top10) else NA_character_,
+  file.path(export_path, "idm_top10.png"),
+  file.path(export_path, "idm_top10.jpg"),
+  file.path(export_path, "UPRA_top10.png")
+)
+
+candidate_dep <- c(
+  if (!is.null(params$img_dep)   && nzchar(params$img_dep))   file.path(export_path, params$img_dep)   else NA_character_,
+  file.path(export_path, "idm_prom_depto.png"),
+  file.path(export_path, "idm_prom_depto.jpg")
+)
+
+img_paths <- list(
+  map   = pick_first_existing(candidate_map),
+  top10 = pick_first_existing(candidate_top10),
+  dep   = pick_first_existing(candidate_dep)
+)
+
+# =========================
+# PDF más liviano:
+# - Si existe 'magick', convierte PNG -> JPG reducido
+# - Si no existe, usa PNG original
+# =========================
+light_dir <- file.path(export_path, "_reporte_light")
+dir.create(light_dir, showWarnings = FALSE, recursive = TRUE)
+
+make_light_image <- function(in_path, max_width_px = 1600, quality = 60){
+  if (is.na(in_path) || !file.exists(in_path)) return(NA_character_)
+
+  out_path <- file.path(
+    light_dir,
+    paste0(tools::file_path_sans_ext(basename(in_path)), ".jpg")
+  )
+
+  if (file.exists(out_path)) {
+    if (file.info(out_path)$mtime >= file.info(in_path)$mtime) return(out_path)
+  }
+
+  if (requireNamespace("magick", quietly = TRUE)) {
+    img <- magick::image_read(in_path)
+    img <- magick::image_scale(img, paste0(max_width_px))
+    magick::image_write(img, path = out_path, format = "jpeg", quality = quality)
+    return(out_path)
+  } else {
+    return(in_path)
+  }
+}
+
+img_use <- list(
+  map   = make_light_image(img_paths$map,   max_width_px = 1800, quality = 60),
+  top10 = make_light_image(img_paths$top10, max_width_px = 1800, quality = 60),
+  dep   = make_light_image(img_paths$dep,   max_width_px = 1800, quality = 60)
+)
+
+img_exists <- vapply(img_use, function(p) !is.na(p) && file.exists(p), logical(1))
+
+# ---------- Tabla de filtros ----------
+if (!is.null(params$filtros) && is.data.frame(params$filtros)) {
+  filtros_tbl <- params$filtros
+} else {
+  filtros_tbl <- data.frame(
+    Filtro = c("Año", "Departamento", "Municipio"),
+    Valor  = c(fmt_val(params$anio), fmt_val(params$dep), fmt_val(params$mpio)),
+    stringsAsFactors = FALSE
+  )
+}
+
+# ---------- (Opcional) Leer CSV filtrado ----------
+csv_ok <- FALSE
+df_csv <- NULL
+if (!is.null(params$csv_filtrado) && nzchar(params$csv_filtrado) && file.exists(params$csv_filtrado)) {
+  csv_ok <- TRUE
+  df_csv <- tryCatch(
+    readr::read_csv(params$csv_filtrado, show_col_types = FALSE),
+    error = function(e) NULL
+  )
+}
+```
+
+# Resumen del reporte
+Este infrome  evalúa la capacidad institucional del territorio a través del Índice de Desempeño Municipal (IDM) como un factor clave para el funcionamiento del sistema agroalimentario, dado que la capacidad de los gobiernos locales para planificar, ejecutar recursos, prestar servicios y coordinar acciones incide directamente en la provisión de bienes públicos, la infraestructura productiva y logística y la implementación de políticas; en este sentido, un mayor desempeño institucional no solo refleja eficiencia administrativa, sino también una mayor aptitud para sostener la producción, reducir riesgos, y articular actores.
+
+## Objetivos del reporte
+El objetivo de este informe es identificar y caracterizar los patrones del desempeño institucional del territorio que resultan relevantes para la toma de decisiones en el sistema agroalimentario.
+
+1. Identificar y comparar las diferencias territoriales en la capacidad institucional municipal mediante el Índice de Desempeño Municipal (IDM).
+2. Detectar fortalezas y limitaciones institucionales que inciden en en desarrollo de procesos en el territorio.
+
+
+## Filtros usados
+```{r}
+knitr::kable(filtros_tbl, align = c("l","l"))
+```
+
+# Resultados
+
+## ¿Cuál es el promedio departamental del Índice de Desempeño Municipal?
+El mapa departamental  permite identificar las brechas espaciales en la capacidad institucional; en el contexto del sistema agroalimentario, este indicador no se limita a una clasificación administrativa, sino que funciona como una señal estructural de la capacidad territorial para planificar y ejecutar políticas. En este sentido, los departamentos con promedios bajos tienden a enfrentar mayores restricciones para la implementación de proyectos y programas, lo que se traduce en mayor condición de vulenrabilidad institucional.
+
+```{r, out.width="80%"}
+if (img_exists["map"]) {
+  knitr::include_graphics(img_use$map)
+} else {
+  cat("No se encontró la imagen del mapa IDM. Busqué en:\n- ",
+      paste(candidate_map[!is.na(candidate_map)], collapse = "\n- "), "\n")
+}
+```
+
+## Top 10 municipios con mejor desempeño en el Índice de Desempeño Municipal
+El ranking de los diez municipios con mejor desempeño permite focalizar territorios que presentan mayores capacidades institucionales relativas. En un enfoque agroalimentario, estos municipios suelen contar con mejores condiciones para planificar intervenciones, ejecutar recursos, coordinar actores locales y sostener programas de apoyo a la producción y al abastecimiento. Este indicador es particularmente útil cuando los recursos de intervención son limitados, ya que permite identificar territorios donde las acciones públicas pueden tener mayor probabilidad de éxito y sostenibilidad. Asimismo, estos municipios pueden servir como referentes para el diseño de estrategias de fortalecimiento institucional en territorios con menor desempeño.
+
+```{r, out.width="80%"}
+if (img_exists["top10"]) {
+  knitr::include_graphics(img_use$top10)
+} else {
+  cat("No se encontró la imagen del Top 10. Busqué en:\n- ",
+      paste(candidate_top10[!is.na(candidate_top10)], collapse = "\n- "), "\n")
+}
+```
+
+## ¿Cuál es el valor promedio del Índice de Desempeño Municipal por departamento?
+Este indicador sintetiza el nivel agregado de capacidad institucional del departamento, a partir del promedio de sus municipios. Un promedio departamental bajo sugiere un entorno institucional frágil, donde la implementación de políticas pueden enfrentar mayores riesgos de ejecución,  articulación y  sostenibilidad.
+
+```{r, out.width="80%"}
+if (img_exists["dep"]) {
+  knitr::include_graphics(img_use$dep)
+} else {
+  cat("No se encontró la imagen del promedio por departamento. Busqué en:\n- ",
+      paste(candidate_dep[!is.na(candidate_dep)], collapse = "\n- "), "\n")
+}
+```
