@@ -1,0 +1,388 @@
+
+============================
+Inicio render PDF:  2026-03-09 15:45:00.73401 
+ruta_rmd:  C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+file destino shiny:  C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb027211dc1.pdf 
+
+============================
+Inicio render PDF:  2026-03-09 15:45:02.28841 
+ruta_rmd:  C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+file destino shiny:  C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb05ff442d3.pdf 
+
+============================
+Inicio render PDF:  2026-03-09 16:04:56.287915 
+ruta_rmd:  C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+file destino shiny:  C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb073e864b3.pdf 
+
+============================
+Inicio render PDF:  2026-03-09 16:04:57.802314 
+ruta_rmd:  C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+file destino shiny:  C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb020a66803.pdf 
+
+============================
+Inicio render PDF:  2026-03-09 16:05:05.034872 
+ruta_rmd:  C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+file destino shiny:  C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb06dbf20c3.pdf 
+
+============================
+Inicio render PDF:  2026-03-09 16:12:08.658851 
+ruta_rmd:  C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+file destino shiny:  C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb057fb25a9.pdf 
+
+============================
+Inicio render PDF:  2026-03-09 16:12:15.371144 
+ruta_rmd:  C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+file destino shiny:  C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb01f3bce4.pdf 
+
+============================
+Inicio render PDF:  2026-03-09 16:12:16.532793 
+ruta_rmd:  C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+file destino shiny:  C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb06e3c5eef.pdf 
+
+============================
+Inicio render PDF:  2026-03-09 16:12:17.04835 
+ruta_rmd:  C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+file destino shiny:  C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb0539252a9.pdf 
+
+============================
+Inicio render PDF:  2026-03-09 16:12:17.642012 
+ruta_rmd:  C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+file destino shiny:  C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb06ad31cb7.pdf 
+
+============================
+Inicio render PDF:  2026-03-09 16:12:18.14418 
+ruta_rmd:  C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+file destino shiny:  C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb027d13460.pdf 
+
+============================
+Inicio render PDF:  2026-03-09 16:12:19.447222 
+ruta_rmd:  C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+file destino shiny:  C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb0148d742b.pdf 
+
+============================
+Inicio render PDF:  2026-03-09 16:12:21.125354 
+ruta_rmd:  C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+file destino shiny:  C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb05fd01c96.pdf 
+
+============================
+Inicio render PDF:  2026-03-09 16:12:21.838335 
+ruta_rmd:  C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+file destino shiny:  C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb049933160.pdf 
+
+============================
+Inicio render PDF:  2026-03-09 16:12:22.392666 
+ruta_rmd:  C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+file destino shiny:  C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb0239a2e39.pdf 
+
+============================
+Inicio render PDF:  2026-03-09 16:12:23.479755 
+ruta_rmd:  C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+file destino shiny:  C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb0fec35d1.pdf 
+
+============================
+Inicio render PDF:  2026-03-09 16:12:24.958587 
+ruta_rmd:  C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+file destino shiny:  C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb0341336aa.pdf 
+
+============================
+Inicio render PDF:  2026-03-09 16:12:25.987004 
+ruta_rmd:  C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+file destino shiny:  C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb0f431b0d.pdf 
+
+============================
+Inicio render PDF:  2026-03-09 16:12:27.202743 
+ruta_rmd:  C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+file destino shiny:  C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb052de613.pdf 
+
+============================
+Inicio render PDF:  2026-03-09 16:12:27.998571 
+ruta_rmd:  C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+file destino shiny:  C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb057eb6dac.pdf 
+
+============================
+Inicio render PDF:  2026-03-09 16:12:29.05403 
+ruta_rmd:  C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+file destino shiny:  C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb0617d21fb.pdf 
+============================ 
+Inicio render PDF: 2026-03-09 16:41:01.322355 
+ruta_rmd: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+file destino shiny: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb042a12d72.pdf 
+Generando PNGs del informe... 
+============================ 
+Inicio render PDF: 2026-03-09 16:41:02.751344 
+ruta_rmd: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+file destino shiny: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb06ed52ed8.pdf 
+Generando PNGs del informe... 
+
+============================
+Inicio render PDF:  2026-03-09 17:10:25.649875 
+ruta_rmd:  C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+file destino shiny:  C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb06eae71b2.pdf 
+==================================== 
+Inicio render PDF: 2026-03-09 17:38:46.638918 
+ruta_rmd: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+archivo destino: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb058b3571a.pdf 
+Generando PNG tab1 mapa 
+Generando PNG tab1 serie 
+Generando PNG tab1 ranking 
+Generando PNG tab2 clusters 
+==================================== 
+Inicio render PDF: 2026-03-09 17:43:32.8407 
+ruta_rmd: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+archivo destino: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb06c6b574f.pdf 
+Generando PNG tab1 mapa 
+Generando PNG tab1 serie 
+Generando PNG tab1 ranking 
+Generando PNG tab2 clusters 
+==================================== 
+Inicio render PDF: 2026-03-09 18:10:10.937392 
+ruta_rmd: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+archivo destino: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb07b3834f6.pdf 
+Generando PNG tab1 mapa 
+Generando PNG tab1 serie 
+Generando PNG tab1 ranking 
+Generando PNG tab2 clusters 
+ERROR save_leaflet_png tab2:  
+==================================== 
+Inicio render PDF: 2026-03-09 18:10:30.420599 
+ruta_rmd: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+archivo destino: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb033171507.pdf 
+Generando PNG tab1 mapa 
+Generando PNG tab1 serie 
+Generando PNG tab1 ranking 
+Generando PNG tab2 clusters 
+ERROR save_leaflet_png tab2:  
+==================================== 
+Inicio render PDF: 2026-03-09 18:13:38.406118 
+ruta_rmd: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+archivo destino: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb0518b7ac2.pdf 
+Generando PNG tab1 mapa 
+Generando PNG tab1 serie 
+Generando PNG tab1 ranking 
+Generando PNG tab2 clusters 
+Generando PNG tab3 barras 
+Generando PNG tab3 serie 
+logo_src: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/www/LOGO_PLATEA.png 
+logo_tex: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/www/LOGO_PLATEA.png 
+NO se detectó placeholder __LOGO_PLATEA_PATH__ en el Rmd 
+rmd_to_render: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+Iniciando rmarkdown::render() 
+ERROR EN RENDER: LaTeX failed to compile C:/Users/Dell/AppData/Local/Temp/RtmpSSz7F3/file4fb0518b7ac2.tex. See https://yihui.org/tinytex/r/#debugging for debugging tips. See file4fb0518b7ac2.log for more info. 
+==================================== 
+Inicio render PDF: 2026-03-09 19:30:51.547376 
+ruta_rmd: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+archivo destino: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb029534958.pdf 
+Generando PNG tab1 mapa 
+Generando PNG tab1 serie 
+Generando PNG tab1 ranking 
+Generando PNG tab2 clusters 
+No se pudo generar tab2 clusters en lote; intentando reutilizar archivo existente 
+Se reutiliza eva_tab2_clusters.png existente 
+Generando PNG tab3 barras 
+Generando PNG tab3 serie 
+logo_src: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/www/LOGO_PLATEA.png 
+logo_tex: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/www/LOGO_PLATEA.png 
+NO se detectó placeholder __LOGO_PLATEA_PATH__ en el Rmd 
+rmd_to_render: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+Iniciando rmarkdown::render() 
+ERROR EN RENDER: LaTeX failed to compile C:/Users/Dell/AppData/Local/Temp/RtmpSSz7F3/file4fb029534958.tex. See https://yihui.org/tinytex/r/#debugging for debugging tips. See file4fb029534958.log for more info. 
+==================================== 
+Inicio render PDF: 2026-03-09 19:50:50.569996 
+ruta_rmd: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+archivo destino: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb0aa975bf.pdf 
+Generando PNG tab1 mapa 
+Generando PNG tab1 serie 
+Generando PNG tab1 ranking 
+Generando PNG tab2 clusters 
+No se pudo generar tab2 clusters en lote; intentando reutilizar archivo existente 
+Se reutiliza eva_tab2_clusters.png existente 
+Generando PNG tab3 barras 
+Generando PNG tab3 serie 
+logo_src: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/www/LOGO_PLATEA.png 
+logo_tex: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/www/LOGO_PLATEA.png 
+Detectado placeholder de logo 
+rmd_to_render: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\rmd_eva_4fb050831ef3/Informe_descargable_EVA_render.Rmd 
+Iniciando rmarkdown::render() 
+ERROR EN RENDER: Cannot find the file(s): "../../../../../Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Descargas/_reporte_light/eva_tab1_mapa.jpg" 
+==================================== 
+Inicio render PDF: 2026-03-09 20:00:07.989669 
+ruta_rmd: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+archivo destino: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb05fa546c5.pdf 
+Generando PNG tab1 mapa 
+Generando PNG tab1 serie 
+Generando PNG tab1 ranking 
+Generando PNG tab2 clusters 
+No se pudo generar tab2 clusters en lote; intentando reutilizar archivo existente 
+Se reutiliza eva_tab2_clusters.png existente 
+Generando PNG tab3 barras 
+Generando PNG tab3 serie 
+logo_src: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/www/LOGO_PLATEA.png 
+logo_tex: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/www/LOGO_PLATEA.png 
+Detectado placeholder de logo 
+rmd_to_render: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\rmd_eva_4fb0344e42a3/Informe_descargable_EVA_render.Rmd 
+Iniciando rmarkdown::render() 
+ERROR EN RENDER: LaTeX failed to compile C:/Users/Dell/AppData/Local/Temp/RtmpSSz7F3/file4fb05fa546c5.tex. See https://yihui.org/tinytex/r/#debugging for debugging tips. See file4fb05fa546c5.log for more info. 
+==================================== 
+Inicio render PDF: 2026-03-09 20:57:12.087386 
+ruta_rmd: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+archivo destino: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb05c1c1806.pdf 
+Generando PNG tab1 mapa 
+Generando PNG tab1 serie 
+Generando PNG tab1 ranking 
+Generando PNG tab2 clusters 
+No se pudo generar tab2 clusters en lote; intentando reutilizar archivo existente 
+Se reutiliza eva_tab2_clusters.png existente 
+Generando PNG tab3 barras 
+Generando PNG tab3 serie 
+logo_src: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/www/LOGO_PLATEA.png 
+logo_tex: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/www/LOGO_PLATEA.png 
+NO se detectó placeholder __LOGO_PLATEA_PATH__ en el Rmd 
+rmd_to_render: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+Iniciando rmarkdown::render() 
+ERROR EN RENDER: LaTeX failed to compile C:/Users/Dell/AppData/Local/Temp/RtmpSSz7F3/file4fb05c1c1806.tex. See https://yihui.org/tinytex/r/#debugging for debugging tips. See file4fb05c1c1806.log for more info. 
+==================================== 
+Inicio render PDF: 2026-03-10 08:37:44.388675 
+ruta_rmd: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+archivo destino: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb03b453629.pdf 
+Generando PNG tab1 mapa 
+Generando PNG tab1 serie 
+Generando PNG tab1 ranking 
+Generando PNG tab2 clusters 
+No se pudo generar tab2 clusters en lote; intentando reutilizar archivo existente 
+Se reutiliza eva_tab2_clusters.png existente 
+Generando PNG tab3 barras 
+Generando PNG tab3 serie 
+logo_tex: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Descargas/LOGO_PLATEA.png 
+Detectado placeholder de logo 
+rmd_to_render: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\rmd_eva_4fb07a8661a3/Informe_descargable_EVA_render.Rmd 
+Iniciando rmarkdown::render() 
+ERROR EN RENDER: Cannot find the file(s): "../../../../../Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Descargas/eva_tab1_mapa.png" 
+==================================== 
+Inicio render PDF: 2026-03-10 08:47:32.27417 
+ruta_rmd: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+archivo destino: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb076007af7.pdf 
+Generando PNG tab1 mapa 
+Generando PNG tab1 serie 
+Generando PNG tab1 ranking 
+Generando PNG tab2 clusters 
+No se pudo generar tab2 clusters en lote; intentando reutilizar archivo existente 
+Se reutiliza eva_tab2_clusters.png existente 
+Generando PNG tab3 barras 
+Generando PNG tab3 serie 
+logo_tex: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Descargas/LOGO_PLATEA.png 
+NO se detectó placeholder __LOGO_PLATEA_PATH__ en el Rmd 
+rmd_to_render: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+Iniciando rmarkdown::render() 
+ERROR EN RENDER: LaTeX failed to compile C:/Users/Dell/AppData/Local/Temp/RtmpSSz7F3/file4fb076007af7.tex. See https://yihui.org/tinytex/r/#debugging for debugging tips. See file4fb076007af7.log for more info. 
+==================================== 
+Inicio render PDF: 2026-03-10 09:22:37.715378 
+ruta_rmd: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+archivo destino: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb050646ec2.pdf 
+Generando PNG tab1 mapa 
+Generando PNG tab1 serie 
+Generando PNG tab1 ranking 
+Generando PNG tab2 clusters 
+No se pudo generar tab2 clusters en lote; intentando reutilizar archivo existente 
+Se reutiliza eva_tab2_clusters.png existente 
+Generando PNG tab3 barras 
+Generando PNG tab3 serie 
+logo_tex: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Descargas/LOGO_PLATEA.png 
+Detectado placeholder de logo 
+rmd_to_render: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\rmd_eva_4fb05469d92/Informe_descargable_EVA_render.Rmd 
+Iniciando rmarkdown::render() 
+ERROR EN RENDER: LaTeX failed to compile C:/Users/Dell/AppData/Local/Temp/RtmpSSz7F3/file4fb050646ec2.tex. See https://yihui.org/tinytex/r/#debugging for debugging tips. See file4fb050646ec2.log for more info. 
+==================================== 
+Inicio render PDF: 2026-03-10 09:24:22.152856 
+ruta_rmd: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+archivo destino: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb016f86a02.pdf 
+Generando PNG tab1 mapa 
+Generando PNG tab1 serie 
+Generando PNG tab1 ranking 
+Generando PNG tab2 clusters 
+No se pudo generar tab2 clusters en lote; intentando reutilizar archivo existente 
+Se reutiliza eva_tab2_clusters.png existente 
+Generando PNG tab3 barras 
+Generando PNG tab3 serie 
+logo_tex: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Descargas/LOGO_PLATEA.png 
+Detectado placeholder de logo 
+rmd_to_render: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\rmd_eva_4fb0558d5309/Informe_descargable_EVA_render.Rmd 
+Iniciando rmarkdown::render() 
+ERROR EN RENDER: LaTeX failed to compile C:/Users/Dell/AppData/Local/Temp/RtmpSSz7F3/file4fb016f86a02.tex. See https://yihui.org/tinytex/r/#debugging for debugging tips. See file4fb016f86a02.log for more info. 
+==================================== 
+Inicio render PDF: 2026-03-10 09:48:50.956164 
+ruta_rmd: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+archivo destino: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb0728e7fb9.pdf 
+Generando PNG tab1 mapa 
+Generando PNG tab1 serie 
+Generando PNG tab1 ranking 
+Generando PNG tab2 clusters 
+No se pudo generar tab2 clusters en lote; intentando reutilizar archivo existente 
+Se reutiliza eva_tab2_clusters.png existente 
+Generando PNG tab3 barras 
+Generando PNG tab3 serie 
+rmd_to_render: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+Iniciando rmarkdown::render() 
+Render terminado y copiado OK 
+PDF final OK: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb0728e7fb9.pdf 
+==================================== 
+Inicio render PDF: 2026-03-10 09:59:33.364593 
+ruta_rmd: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+archivo destino: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb055951c87.pdf 
+Generando PNG tab1 mapa 
+Generando PNG tab1 serie 
+Generando PNG tab1 ranking 
+Generando PNG tab2 clusters 
+No se pudo generar tab2 clusters en lote; intentando reutilizar archivo existente 
+Se reutiliza eva_tab2_clusters.png existente 
+Generando PNG tab3 barras 
+Generando PNG tab3 serie 
+rmd_to_render: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+Iniciando rmarkdown::render() 
+Render terminado y copiado OK 
+PDF final OK: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb055951c87.pdf 
+==================================== 
+Inicio render PDF: 2026-03-10 11:23:09.267327 
+ruta_rmd: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+archivo destino: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb05832cf6.pdf 
+Generando PNG tab1 mapa 
+Generando PNG tab1 serie 
+Generando PNG tab1 ranking 
+Generando PNG tab2 clusters 
+No se pudo generar tab2 clusters en lote; intentando reutilizar archivo existente 
+Se reutiliza eva_tab2_clusters.png existente 
+Generando PNG tab3 barras 
+Generando PNG tab3 serie 
+rmd_to_render: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+Iniciando rmarkdown::render() 
+Render terminado y copiado OK 
+PDF final OK: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb05832cf6.pdf 
+==================================== 
+Inicio render PDF: 2026-03-10 11:27:05.291122 
+ruta_rmd: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+archivo destino: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb068ca6547.pdf 
+Generando PNG tab1 mapa 
+Generando PNG tab1 serie 
+Generando PNG tab1 ranking 
+Generando PNG tab2 clusters 
+No se pudo generar tab2 clusters en lote; intentando reutilizar archivo existente 
+Se reutiliza eva_tab2_clusters.png existente 
+Generando PNG tab3 barras 
+Generando PNG tab3 serie 
+rmd_to_render: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+Iniciando rmarkdown::render() 
+Render terminado y copiado OK 
+PDF final OK: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb068ca6547.pdf 
+==================================== 
+Inicio render PDF: 2026-03-10 11:31:57.23504 
+ruta_rmd: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+archivo destino: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb01d35493b.pdf 
+Generando PNG tab1 mapa 
+Generando PNG tab1 serie 
+Generando PNG tab1 ranking 
+Generando PNG tab2 clusters 
+Generando PNG tab3 barras 
+Generando PNG tab3 serie 
+rmd_to_render: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+Iniciando rmarkdown::render() 
+Render terminado y copiado OK 
+PDF final OK: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb01d35493b.pdf 
