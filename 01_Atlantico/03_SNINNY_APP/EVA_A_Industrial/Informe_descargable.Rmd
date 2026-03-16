@@ -1,0 +1,183 @@
+---
+title: "Condiciones productivas de los productos agroindustriales"
+subtitle: "PLATEA"
+header-includes:
+  - \usepackage{graphicx}
+  - \usepackage{float}
+  - \usepackage{placeins}
+  - \usepackage{fancyhdr}
+  - \usepackage{array}
+  - \usepackage{longtable}
+  - \usepackage{booktabs}
+  - \usepackage{caption}
+  - \pagestyle{fancy}
+  - \setlength{\headheight}{40pt}
+  - \fancyfoot[C]{\thepage}
+  - \renewcommand{\headrulewidth}{0.6pt}
+  - \renewcommand{\footrulewidth}{0.6pt}
+  - \fancyhead[L]{\includegraphics[height=1.4cm]{Descargas/LOGO_PLATEA.png}}
+  - \raggedbottom
+  - \sloppy
+output:
+  pdf_document:
+    toc: true
+    number_sections: true
+    latex_engine: xelatex
+geometry: margin=1in
+
+params:
+  app_root: !r getwd()
+  export_dir: "Descargas"
+  filtros: NULL
+
+  img_tab1_map: "eva_tab1_mapa.png"
+  img_tab1_ser: "eva_tab1_serie.png"
+  img_tab1_rank: "eva_tab1_ranking.png"
+  img_tab2_map: "eva_tab2_clusters.png"
+  img_tab3_bar: "eva_tab3_barras.png"
+  img_tab3_ser: "eva_tab3_serie.png"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center",
+  out.width = "95%",
+  dpi = 150
+)
+
+`%||%` <- function(x, y) if (is.null(x) || length(x) == 0) y else x
+
+app_root   <- params$app_root %||% getwd()
+export_dir <- params$export_dir %||% "Descargas"
+light_dir  <- export_dir
+
+safe_path <- function(fname){
+  if (is.null(fname) || is.na(fname) || !nzchar(fname)) return(NA_character_)
+  p <- file.path(light_dir, fname)
+  if (!file.exists(file.path(app_root, p))) return(NA_character_)
+  p
+}
+
+img_use <- list(
+  tab1_map  = safe_path(params$img_tab1_map),
+  tab1_ser  = safe_path(params$img_tab1_ser),
+  tab1_rank = safe_path(params$img_tab1_rank),
+  tab2_map  = safe_path(params$img_tab2_map),
+  tab3_bar  = safe_path(params$img_tab3_bar),
+  tab3_ser  = safe_path(params$img_tab3_ser)
+)
+
+safe_include <- function(p, txt = "No se encontró la imagen correspondiente."){
+  if (is.na(p) || !nzchar(p) || !file.exists(file.path(app_root, p))) {
+    cat(txt, "\n")
+  } else {
+    knitr::include_graphics(p)
+  }
+}
+
+if (!is.null(params$filtros) &&
+    is.data.frame(params$filtros) &&
+    all(c("Parametro","Valor") %in% names(params$filtros))) {
+  filtros_tbl <- params$filtros
+} else {
+  filtros_tbl <- data.frame(
+    Parametro = c("Filtro", "Valor"),
+    Valor     = c("Sin información", "Sin información"),
+    stringsAsFactors = FALSE
+  )
+}
+
+filtros_tbl[] <- lapply(filtros_tbl, function(x) {
+  x <- as.character(x)
+  x[is.na(x)] <- ""
+  x
+})
+```
+
+
+# Resumen del reporte
+Este módulo analiza las condiciones productivas de los productos agroindustriales a partir de tres dimensiones complementarias: la distribución territorial del área sembrada, los patrones de aglomeración productiva entre municipios y el nivel de diversificación de cultivos. Estas dimensiones permiten caracterizar cómo se organiza la producción agrícola en el territorio y cómo dicha organización condiciona la estabilidad, resiliencia y eficiencia del sistema agroalimentario. Desde una perspectiva agroalimentaria, no solo importa cuánto se produce, sino dónde, cómo se concentra la producción y el nivel de diversificación de la base productiva. La combinación de estos elementos permite identificar territorios con alta dependencia de pocos cultivos, zonas con fuerte especialización productiva y municipios con estructuras más diversificadas y potencialmente más resilientes.
+
+
+## Objetivo
+El objetivo de este informe es examinar la estructura productiva agrícola del territorio.
+
+1. Examinar y describir los patrones territoriales del área sembrada, la aglomeración productiva y la diversificación de cultivos, así como su incidencia en la estabilidad de la oferta agrícola.
+
+2. Generar insumos para la planificación productiva y la formulación de políticas agrícolas y estrategias dirigidas a fortalecer la sostenibilidad económica y ambiental del sistema agroalimentario.
+
+
+## Filtros usados
+
+```{r}
+knitr::kable(
+  filtros_tbl,
+  format = "latex",
+  booktabs = TRUE,
+  longtable = FALSE,
+  align = c("p{0.38\\textwidth}", "p{0.52\\textwidth}"),
+  escape = TRUE,
+  caption = "Filtros aplicados al momento de generar el informe"
+)
+```
+\clearpage
+
+# Resultados
+
+## Explorador territorial de indicadores productivos
+
+### ¿En qué territorios se concentra el indicador seleccionado?
+El mapa territorial muestra la distribución espacial del indicador seleccionado por municipio para el periodo seleccionado. Este indicador permite identificar dónde se concentra la superficie agrícola y cuáles municipios sostienen la mayor parte de la base productiva del territorio. En el sistema agroalimentario, esta visualización permite reconocer territorios clave para la producción y anticipar riesgos asociados a la concentración espacial. Municipios con grandes extensiones sembradas tienen un peso significativo en la oferta agregada, por lo que cualquier choque productivo en estos territorios puede generar impactos relevantes sobre la disponibilidad y los precios de los alimentos.
+
+
+```{r}
+safe_include(img_use$tab1_map, "No se encontró la imagen del mapa de la pestaña 1.")
+```
+
+### ¿Cómo ha evolucionado el indicador a lo largo del tiempo?
+
+La serie temporal muestra cómo ha evolucionado la cantidad del indicador seleccionado a lo largo del tiempo. Este indicador permite identificar expansiones, contracciones o fluctuaciones en la base productiva agrícola. Desde un enfoque agroalimentario, variaciones persistentes en el área sembrada pueden reflejar cambios en la estructura productiva, efectos climáticos o transformaciones en las decisiones productivas. La tendencia observada permite anticipar presiones futuras sobre la oferta y orientar medidas de acompañamiento productivo antes de que los efectos se materialicen en menores volúmenes disponibles.
+
+```{r}
+safe_include(img_use$tab1_ser, "No se encontró la imagen de la serie temporal de la pestaña 1.")
+```
+
+### ¿Qué municipios lideran el indicador?
+
+El ranking de los municipios con mayor área sembrada permite focalizar los principales polos productivos del territorio. En territorios altamente concentrados, la dependencia de unos pocos municipios aumenta la vulnerabilidad del sistema ante choques localizados, lo que refuerza la necesidad de estrategias de gestión del riesgo y diversificación territorial.
+
+```{r}
+safe_include(img_use$tab1_rank, "No se encontró la imagen del ranking de la pestaña 1.")
+```
+
+## Análisis de aglomeración y productos representativos
+
+### ¿Cómo se agrupan los municipios según sus niveles del indicador y los de sus vecinos?
+El análisis de aglomeración muestra cómo se agrupan los municipios según sus niveles de producción, área sembrada o cosechada y la relación con sus vecinos. Este indicador permite identificar clústeres productivos donde la actividad agrícola se concentra espacialmente. En el sistema agroalimentario, la aglomeración productiva puede generar economías de escala, facilitar encadenamientos productivos y mejorar la eficiencia logística. Sin embargo, también puede amplificar riesgos sistémicos si los clústeres dependen de pocos cultivos o están expuestos a los mismos choques climáticos o sanitarios.
+
+
+```{r}
+safe_include(img_use$tab2_map, "No se encontró la imagen del mapa de clusters de la pestaña 2.")
+```
+
+## Diversificación de cultivos
+
+### ¿Qué territorios presentan mayor diversificación productiva?
+
+El ranking de diversificación productiva muestra qué territorios presentan una estructura agrícola más diversificada, medida a partir del índice de diversificación de cultivos. Valores altos indican una distribución más equilibrada entre cultivos, mientras que valores bajos reflejan alta concentración productiva. En el sistema agroalimentario, una mayor diversificación suele asociarse a mayor resiliencia frente a choques climáticos, sanitarios o de precios, mientras que la concentración productiva puede aumentar la vulnerabilidad del territorio ante eventos adversos específicos.
+
+
+```{r}
+safe_include(img_use$tab3_bar, "No se encontró la imagen de barras de la pestaña 3.")
+```
+
+### ¿Cómo ha evolucionado la diversificación en el tiempo?
+
+La serie temporal de diversificación permite analizar si el territorio avanza hacia una estructura productiva más diversificada o más concentrada. Este indicador es clave para evaluar cambios estructurales en el sistema productivo agrícola.
+
+```{r}
+safe_include(img_use$tab3_ser, "No se encontró la imagen de serie de la pestaña 3.")
+```

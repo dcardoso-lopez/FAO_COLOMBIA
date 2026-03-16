@@ -341,11 +341,112 @@ Iniciando rmarkdown::render()
 Render terminado y copiado OK 
 PDF final OK: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb055951c87.pdf 
 ==================================== 
-Inicio render PDF: 2026-03-10 14:46:02.629126 
-ruta_rmd: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/02_Santander/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
-archivo destino: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb0473b6d88.pdf 
+Inicio render PDF: 2026-03-10 11:23:09.267327 
+ruta_rmd: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+archivo destino: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb05832cf6.pdf 
 Generando PNG tab1 mapa 
 Generando PNG tab1 serie 
 Generando PNG tab1 ranking 
 Generando PNG tab2 clusters 
 No se pudo generar tab2 clusters en lote; intentando reutilizar archivo existente 
+Se reutiliza eva_tab2_clusters.png existente 
+Generando PNG tab3 barras 
+Generando PNG tab3 serie 
+rmd_to_render: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+Iniciando rmarkdown::render() 
+Render terminado y copiado OK 
+PDF final OK: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb05832cf6.pdf 
+==================================== 
+Inicio render PDF: 2026-03-10 11:27:05.291122 
+ruta_rmd: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+archivo destino: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb068ca6547.pdf 
+Generando PNG tab1 mapa 
+Generando PNG tab1 serie 
+Generando PNG tab1 ranking 
+Generando PNG tab2 clusters 
+No se pudo generar tab2 clusters en lote; intentando reutilizar archivo existente 
+Se reutiliza eva_tab2_clusters.png existente 
+Generando PNG tab3 barras 
+Generando PNG tab3 serie 
+rmd_to_render: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+Iniciando rmarkdown::render() 
+Render terminado y copiado OK 
+PDF final OK: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb068ca6547.pdf 
+==================================== 
+Inicio render PDF: 2026-03-10 11:31:57.23504 
+ruta_rmd: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+archivo destino: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb01d35493b.pdf 
+Generando PNG tab1 mapa 
+Generando PNG tab1 serie 
+Generando PNG tab1 ranking 
+Generando PNG tab2 clusters 
+Generando PNG tab3 barras 
+Generando PNG tab3 serie 
+rmd_to_render: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A/Informe_descargable.Rmd 
+Iniciando rmarkdown::render() 
+Render terminado y copiado OK 
+PDF final OK: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb01d35493b.pdf 
+==================================== 
+Inicio render PDF: 2026-03-10 14:48:18.386247 
+ruta_rmd: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A_Industrial/Informe_descargable.Rmd 
+archivo destino: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb02512215b.pdf 
+Generando PNG tab1 mapa 
+Generando PNG tab1 serie 
+Generando PNG tab1 ranking 
+Generando PNG tab2 clusters 
+No se pudo generar tab2 clusters en lote; intentando reutilizar archivo existente 
+==================================== 
+Inicio render PDF: 2026-03-10 14:49:05.583838 
+ruta_rmd: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A_Industrial/Informe_descargable.Rmd 
+archivo destino: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb025eb366c.pdf 
+Generando PNG tab1 mapa 
+Generando PNG tab1 serie 
+Generando PNG tab1 ranking 
+Generando PNG tab2 clusters 
+No se pudo generar tab2 clusters en lote; intentando reutilizar archivo existente 
+==================================== 
+Inicio render PDF: 2026-03-10 15:00:19.006241 
+ruta_rmd: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A_Industrial/Informe_descargable.Rmd 
+archivo destino: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb09d631cf.pdf 
+Generando PNG tab1 mapa 
+Generando PNG tab1 serie 
+Generando PNG tab1 ranking 
+Generando PNG tab2 clusters 
+No se pudo generar tab2 clusters en lote; intentando reutilizar archivo existente 
+==================================== 
+Inicio render PDF: 2026-03-10 15:07:25.104534 
+ruta_rmd: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A_Industrial/Informe_descargable.Rmd 
+archivo destino: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb057c37ec7.pdf 
+Generando PNG tab1 mapa 
+Generando PNG tab1 serie 
+Generando PNG tab1 ranking 
+Generando PNG tab2 clusters 
+No se pudo generar tab2 clusters en lote; intentando reutilizar archivo existente 
+==================================== 
+Inicio render PDF: 2026-03-10 15:08:17.456772 
+ruta_rmd: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A_Industrial/Informe_descargable.Rmd 
+archivo destino: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb0401c358d.pdf 
+Generando PNG tab1 mapa 
+Generando PNG tab1 serie 
+Generando PNG tab1 ranking 
+Generando PNG tab2 clusters 
+Generando PNG tab3 barras 
+Generando PNG tab3 serie 
+rmd_to_render: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A_Industrial/Informe_descargable.Rmd 
+Iniciando rmarkdown::render() 
+Render terminado y copiado OK 
+PDF final OK: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb0401c358d.pdf 
+==================================== 
+Inicio render PDF: 2026-03-10 15:19:55.81569 
+ruta_rmd: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A_Industrial/Informe_descargable.Rmd 
+archivo destino: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb0707c50a.pdf 
+Generando PNG tab1 mapa 
+Generando PNG tab1 serie 
+Generando PNG tab1 ranking 
+Generando PNG tab2 clusters 
+Generando PNG tab3 barras 
+Generando PNG tab3 serie 
+rmd_to_render: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/EVA_A_Industrial/Informe_descargable.Rmd 
+Iniciando rmarkdown::render() 
+Render terminado y copiado OK 
+PDF final OK: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb0707c50a.pdf 

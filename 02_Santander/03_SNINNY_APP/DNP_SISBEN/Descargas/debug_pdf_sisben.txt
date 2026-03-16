@@ -1,0 +1,97 @@
+==================================== 
+Inicio render PDF: 2026-03-10 16:17:06.870033 
+ruta_rmd: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/DNP_SISBEN/data/Informe_descargable.Rmd 
+archivo destino: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb0c59273.pdf 
+ERROR: No existe Informe_descargable.Rmd 
+==================================== 
+Inicio render PDF: 2026-03-10 16:17:09.034917 
+ruta_rmd: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/DNP_SISBEN/data/Informe_descargable.Rmd 
+archivo destino: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb02d9b3c70.pdf 
+ERROR: No existe Informe_descargable.Rmd 
+==================================== 
+Inicio render PDF: 2026-03-10 16:20:35.976008 
+ruta_rmd: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/DNP_SISBEN/data/Informe_descargable.Rmd 
+archivo destino: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb0793e17e2.pdf 
+ERROR: No existe Informe_descargable.Rmd 
+==================================== 
+Inicio render PDF: 2026-03-10 16:43:34.840204 
+ruta_rmd: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/DNP_SISBEN/data/Informe_descargable.Rmd 
+archivo destino: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb0855a10.pdf 
+ERROR: No existe Informe_descargable.Rmd 
+==================================== 
+Inicio render PDF: 2026-03-10 17:23:21.479338 
+ruta_rmd: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/DNP_SISBEN/Informe_descargable.Rmd 
+archivo destino: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb043cb3111.pdf 
+Generando PNG grupos 
+Generando PNG privaciones 
+Generando PNG pobreza 
+rmd_to_render: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/DNP_SISBEN/Informe_descargable.Rmd 
+Iniciando rmarkdown::render() 
+ERROR EN RENDER: LaTeX failed to compile C:/Users/Dell/AppData/Local/Temp/RtmpSSz7F3/file4fb0397fda0.tex. See https://yihui.org/tinytex/r/#debugging for debugging tips. See file4fb0397fda0.log for more info. 
+==================================== 
+Inicio render PDF: 2026-03-10 17:30:16.242504 
+ruta_rmd: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/DNP_SISBEN/Informe_descargable.Rmd 
+archivo destino: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb0564944b1.pdf 
+Generando PNG grupos 
+Generando PNG privaciones 
+Generando PNG pobreza 
+rmd_to_render: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/DNP_SISBEN/Informe_descargable.Rmd 
+Iniciando rmarkdown::render() 
+ERROR EN RENDER: LaTeX failed to compile C:/Users/Dell/AppData/Local/Temp/RtmpSSz7F3/file4fb0415741fb.tex. See https://yihui.org/tinytex/r/#debugging for debugging tips. See file4fb0415741fb.log for more info. 
+==================================== 
+Inicio render PDF: 2026-03-10 17:30:52.029816 
+ruta_rmd: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/DNP_SISBEN/Informe_descargable.Rmd 
+archivo destino: C:\Users\Dell\AppData\Local\Temp\RtmpSSz7F3\file4fb0599c3aed.pdf 
+Generando PNG grupos 
+Generando PNG privaciones 
+Generando PNG pobreza 
+rmd_to_render: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/DNP_SISBEN/Informe_descargable.Rmd 
+Iniciando rmarkdown::render() 
+ERROR EN RENDER: LaTeX failed to compile C:/Users/Dell/AppData/Local/Temp/RtmpSSz7F3/file4fb033606d84.tex. See https://yihui.org/tinytex/r/#debugging for debugging tips. See file4fb033606d84.log for more info. 
+==================================== 
+Inicio render PDF: 2026-03-11 09:09:10.827483 
+ruta_rmd: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/DNP_SISBEN/Informe_descargable.Rmd 
+archivo destino: C:\Users\Dell\AppData\Local\Temp\RtmpUNdX6H\file6ea42ab35b0d.pdf 
+Generando PNG grupos 
+Generando PNG privaciones 
+Generando PNG pobreza 
+rmd_to_render: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/DNP_SISBEN/Informe_descargable.Rmd 
+Iniciando rmarkdown::render() 
+ERROR EN RENDER: LaTeX failed to compile C:/Users/Dell/AppData/Local/Temp/RtmpUNdX6H/file6ea49833583.tex. See https://yihui.org/tinytex/r/#debugging for debugging tips. See file6ea49833583.log for more info. 
+==================================== 
+Inicio render PDF: 2026-03-11 09:21:32.386735 
+ruta_rmd: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/DNP_SISBEN/Informe_descargable.Rmd 
+archivo destino downloadHandler: C:\Users\Dell\AppData\Local\Temp\RtmpUNdX6H\file6ea46ec61072.pdf 
+Generando PNG grupos 
+Generando PNG privaciones 
+Generando PNG pobreza 
+Iniciando rmarkdown::render() 
+ERROR EN RENDER: LaTeX failed to compile C:\Users\Dell\AppData\Local\Temp\RtmpUNdX6H\file6ea46ec61072.tex. See https://yihui.org/tinytex/r/#debugging for debugging tips. See file6ea46ec61072.log for more info. 
+==================================== 
+Inicio render PDF: 2026-03-11 10:04:18.133652 
+app_root: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/DNP_SISBEN 
+ruta_rmd (pre): C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/DNP_SISBEN/Informe_descargable.Rmd 
+archivo destino downloadHandler: C:\Users\Dell\AppData\Local\Temp\RtmpUNdX6H\file6ea42010348e.pdf 
+ruta_rmd (norm): C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/DNP_SISBEN/Informe_descargable.Rmd 
+Generando PNG grupos: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/DNP_SISBEN/Descargas/sisben_grupos.png 
+Generando PNG privaciones: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/DNP_SISBEN/Descargas/sisben_privaciones.png 
+Generando PNG pobreza: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/DNP_SISBEN/Descargas/sisben_pobreza_ab.png 
+out_dir: C:\Users\Dell\AppData\Local\Temp\RtmpUNdX6H 
+out_pdf: C:\Users\Dell\AppData\Local\Temp\RtmpUNdX6H\Informe_SISBEN_6ea438313fe1.pdf 
+intermediates_dir: C:\Users\Dell\AppData\Local\Temp\RtmpUNdX6H/knit_28324_20260311_100419 
+Iniciando rmarkdown::render()... 
+ERROR EN RENDER: render params not declared in YAML: ano, dep, mun, grupo 
+==================================== 
+Inicio render PDF: 2026-03-11 10:45:41.810778 
+app_root: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/DNP_SISBEN 
+ruta_rmd (pre): C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/DNP_SISBEN/Informe_descargable.Rmd 
+archivo destino downloadHandler: C:\Users\Dell\AppData\Local\Temp\RtmpUNdX6H\file6ea4358a2ae0.pdf 
+ruta_rmd (norm): C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/DNP_SISBEN/Informe_descargable.Rmd 
+Generando PNG grupos: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/DNP_SISBEN/Descargas/sisben_grupos.png 
+Generando PNG privaciones: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/DNP_SISBEN/Descargas/sisben_privaciones.png 
+Generando PNG pobreza: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/DNP_SISBEN/Descargas/sisben_pobreza_ab.png 
+out_dir: C:\Users\Dell\AppData\Local\Temp\RtmpUNdX6H 
+out_pdf: C:\Users\Dell\AppData\Local\Temp\RtmpUNdX6H\Informe_SISBEN_6ea42e415ae3.pdf 
+intermediates_dir: C:\Users\Dell\AppData\Local\Temp\RtmpUNdX6H/knit_28324_20260311_104542 
+Iniciando rmarkdown::render()... 
+ERROR EN RENDER: LaTeX failed to compile C:/Users/Dell/AppData/Local/Temp/RtmpUNdX6H/Informe_SISBEN_6ea42e415ae3.tex. See https://yihui.org/tinytex/r/#debugging for debugging tips. See Informe_SISBEN_6ea42e415ae3.log for more info. 

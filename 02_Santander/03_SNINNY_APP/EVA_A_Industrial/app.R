@@ -1,6 +1,12 @@
 # =========================================================
 # Shiny App: EVA — Explorador territorial + Clusters espaciales (municipal)
-# (MODIFICADA: Tabla debajo de visuales en Tab 1 + incluye Cultivo)
+# (CORREGIDA)
+# + Un solo botón PDF en el primer tab
+# + Renderiza DIRECTAMENTE Informe_descargable.Rmd
+# + PDF estable vía archivo temporal + copia final
+# + logo leído desde Descargas/LOGO_PLATEA.png
+# + exportación robusta de PNG para informe
+# + retry especial para mapa de clusters
 # =========================================================
 
 # ------------------------------
@@ -11,21 +17,28 @@ paquetes <- c(
   "scales","zoo","janitor","lubridate","openxlsx",
   "shiny","shinydashboard","plotly","bsicons","bslib","DT",
   "shinyWidgets","httr","jsonlite","tinytex",
-  # Espacial / mapas
   "sf","leaflet","stringi","spdep","htmltools",
-  # Descargas / gráficos / reporte
   "rmarkdown","knitr","ragg",
-  # PNG para mapas (captura widgets html)
   "webshot2","htmlwidgets","mapview",
-  # NUEVO: para armar el título dinámico
   "glue"
 )
-suppressWarnings(invisible(sapply(paquetes, require, character.only = TRUE)))
+
+paquetes <- as.character(paquetes)
+paquetes <- paquetes[!is.na(paquetes) & nzchar(paquetes)]
+
+suppressWarnings(invisible(lapply(paquetes, function(p) {
+  suppressPackageStartupMessages(require(p, character.only = TRUE))
+})))
 
 options(stringsAsFactors = FALSE)
 options(OutDec = ",")
+sf::sf_use_s2(FALSE)
 
-# Helper numérico en español (miles = ".", decimales = ",")
+# ------------------------------
+# 1.1) Helpers globales básicos
+# ------------------------------
+`%||%` <- function(x, y) if (is.null(x) || length(x) == 0) y else x
+
 comma_es <- function(x, accuracy = NULL) {
   scales::comma(
     x,
@@ -35,28 +48,170 @@ comma_es <- function(x, accuracy = NULL) {
   )
 }
 
-sf::sf_use_s2(FALSE)
+safe_chr <- function(x) {
+  if (is.null(x)) "" else as.character(x)
+}
 
-# Color de borde global
+sanitize_filename <- function(x){
+  x <- as.character(x)
+  x <- gsub("[/\\\\:*?\"<>|]", "_", x)
+  x <- gsub("\\s+", "_", x)
+  x <- gsub("__+", "_", x)
+  trimws(x)
+}
+
+plot_vacio_gg <- function(txt = "Sin datos para la selección actual") {
+  ggplot() +
+    annotate("text", x = 1, y = 1, label = txt, size = 5) +
+    xlim(0, 2) + ylim(0, 2) +
+    theme_void()
+}
+
 BORDER_COL <- "#a1d99b"
-
-# URL de tu repositorio (cámbiala)
 github_url <- "https://github.com/tu_usuario/tu_repo"
+
+# =========================================================
+# EXPORTACIÓN TIPO IDM / RMD
+# =========================================================
+get_app_root <- function(){
+  normalizePath(shiny::getShinyOption("appDir") %||% getwd(), winslash = "/", mustWork = FALSE)
+}
+
+app_root      <- get_app_root()
+EXPORT_DIR    <- file.path(app_root, "Descargas")
+dir.create(EXPORT_DIR, recursive = TRUE, showWarnings = FALSE)
+
+ruta_rmd_root <- file.path(app_root, "Informe_descargable.Rmd")
+ruta_rmd_data <- file.path(app_root, "data", "Informe_descargable.Rmd")
+ruta_rmd      <- if (file.exists(ruta_rmd_root)) ruta_rmd_root else ruta_rmd_data
+
+IMG_TAB1_MAP   <- file.path(EXPORT_DIR, "eva_tab1_mapa.png")
+IMG_TAB1_SER   <- file.path(EXPORT_DIR, "eva_tab1_serie.png")
+IMG_TAB1_RANK  <- file.path(EXPORT_DIR, "eva_tab1_ranking.png")
+IMG_TAB2_MAP   <- file.path(EXPORT_DIR, "eva_tab2_clusters.png")
+IMG_TAB3_BAR   <- file.path(EXPORT_DIR, "eva_tab3_barras.png")
+IMG_TAB3_SER   <- file.path(EXPORT_DIR, "eva_tab3_serie.png")
+
+save_widget_png <- function(widget, out_png, vwidth, vheight, delay = 1.2){
+  dir.create(dirname(out_png), recursive = TRUE, showWarnings = FALSE)
+  
+  tmp_dir  <- tempfile("wshot_")
+  dir.create(tmp_dir, recursive = TRUE, showWarnings = FALSE)
+  lib_dir  <- file.path(tmp_dir, "lib")
+  dir.create(lib_dir, recursive = TRUE, showWarnings = FALSE)
+  tmp_html <- file.path(tmp_dir, "widget.html")
+  
+  htmlwidgets::saveWidget(widget, file = tmp_html, selfcontained = FALSE, libdir = lib_dir)
+  
+  webshot2::webshot(
+    url     = tmp_html,
+    file    = out_png,
+    vwidth  = vwidth,
+    vheight = vheight,
+    delay   = delay
+  )
+  
+  file.exists(out_png) && is.finite(file.info(out_png)$size) && file.info(out_png)$size > 0
+}
+
+save_widget_png_retry <- function(widget, out_png, vwidth, vheight, delay_base = 1.2){
+  delays <- c(delay_base, delay_base + 1.5, delay_base + 3)
+  for (d in delays) {
+    ok <- tryCatch(
+      save_widget_png(widget, out_png, vwidth = vwidth, vheight = vheight, delay = d),
+      error = function(e) FALSE
+    )
+    if (isTRUE(ok)) return(TRUE)
+  }
+  FALSE
+}
+
+save_gg_png <- function(plot_obj, out_png, width = 1800, height = 1100, res = 150){
+  dir.create(dirname(out_png), recursive = TRUE, showWarnings = FALSE)
+  ragg::agg_png(out_png, width = width, height = height, res = res)
+  print(plot_obj)
+  grDevices::dev.off()
+  file.exists(out_png) && is.finite(file.info(out_png)$size) && file.info(out_png)$size > 0
+}
+
+save_leaflet_png <- function(widget, file, vwidth = 1800, vheight = 1200, zoom = 2, delay = 1.8) {
+  dir.create(dirname(file), recursive = TRUE, showWarnings = FALSE)
+  
+  tmp_dir  <- tempfile("leafshot_")
+  dir.create(tmp_dir, recursive = TRUE, showWarnings = FALSE)
+  tmp_html <- file.path(tmp_dir, "widget.html")
+  
+  if (is.null(widget$elementId) || !nzchar(widget$elementId)) {
+    widget$elementId <- paste0("leaflet_", as.integer(stats::runif(1, 1, 1e9)))
+  }
+  
+  htmlwidgets::saveWidget(
+    widget = widget,
+    file   = tmp_html,
+    selfcontained = TRUE,
+    title = "mapa_exportado"
+  )
+  
+  if (file.exists(file)) unlink(file, force = TRUE)
+  
+  webshot2::webshot(
+    url     = tmp_html,
+    file    = file,
+    vwidth  = vwidth,
+    vheight = vheight,
+    zoom    = zoom,
+    delay   = delay
+  )
+  
+  Sys.sleep(1.2)
+  
+  isTRUE(file.exists(file)) &&
+    is.finite(file.info(file)$size) &&
+    file.info(file)$size > 0
+}
+
+save_leaflet_png_retry <- function(widget, file, vwidth = 2200, vheight = 1500, zoom = 2, delay_base = 2) {
+  delays <- c(delay_base, delay_base + 2, delay_base + 4)
+  
+  for (d in delays) {
+    ok <- tryCatch(
+      save_leaflet_png(
+        widget  = widget,
+        file    = file,
+        vwidth  = vwidth,
+        vheight = vheight,
+        zoom    = zoom,
+        delay   = d
+      ),
+      error = function(e) FALSE
+    )
+    
+    Sys.sleep(1)
+    
+    if (isTRUE(ok) &&
+        file.exists(file) &&
+        !is.na(file.info(file)$size) &&
+        file.info(file)$size > 0) {
+      return(TRUE)
+    }
+  }
+  
+  FALSE
+}
 
 # ------------------------------
 # 2) Datos: EVA + Shapefiles
 # ------------------------------
 eva_df <- readRDS("data/011_UPRA_EVA-A.rds")
 
-# (si quieres filtrar fijo a un dpto, deja esto; si no, coméntalo)
-eva_df <- eva_df %>% dplyr::filter(DEPARTAMENTO_D == "SANTANDER") %>% dplyr::mutate(
-  cultivo = dplyr::case_when(
-    cultivo == "Caña" ~ "Caña de Azúcar",
-    TRUE              ~ cultivo
-  )
-) 
-
 eva_df <- eva_df %>%
+  dplyr::filter(DEPARTAMENTO_D == "SANTANDER") %>%
+  dplyr::mutate(
+    cultivo = dplyr::case_when(
+      cultivo == "Caña" ~ "Caña de Azúcar",
+      TRUE              ~ cultivo
+    )
+  ) %>%
   dplyr::filter(
     cultivo %in% c(
       "Cacao","Café","Caña de Azúcar","Fique","Iraca","Olivo",
@@ -71,9 +226,6 @@ ruta_shp_dptos <- "data/shp/MGN_ANM_DPTOS.shp"
 mpios_sf_raw <- sf::st_read(ruta_shp_mpios, quiet = TRUE)
 depto_sf_raw <- sf::st_read(ruta_shp_dptos, quiet = TRUE)
 
-# ------------------------------
-# 2.1) Helpers columnas shapefile
-# ------------------------------
 pick_first <- function(nms, candidates) {
   cand <- candidates[candidates %in% nms]
   if (length(cand) == 0) return(NA_character_)
@@ -97,9 +249,6 @@ if (is.na(muni_name_col))  stop("No se encontró la columna de nombre de municip
 if (is.na(muni_dpto_code)) stop("No se encontró la columna de código de departamento en mpios_sf_raw.")
 if (is.na(depto_name_col) || is.na(depto_code_col)) stop("Falta nombre o código de dpto en depto_sf_raw.")
 
-# ------------------------------
-# 2.2) Construcción de sf normalizados
-# ------------------------------
 depto_key <- depto_sf_raw |>
   sf::st_drop_geometry() |>
   dplyr::transmute(
@@ -123,11 +272,7 @@ depto_sf <- sf::st_transform(depto_sf_raw, 4326) |>
   sf::st_zm(drop = TRUE, what = "ZM") |>
   dplyr::mutate(DEPARTAMENTO_D = .data[[depto_name_col]])
 
-# Reemplaza TU definición actual de norm_txt por esta
-norm_txt <- function(x) {
-  # Quita espacios al inicio/final pero respeta acentos y ñ
-  stringi::stri_trim_both(as.character(x))
-}
+norm_txt <- function(x) stringi::stri_trim_both(as.character(x))
 
 mpios_sf <- mpios_sf |>
   dplyr::mutate(
@@ -136,9 +281,7 @@ mpios_sf <- mpios_sf |>
   )
 
 depto_sf <- depto_sf |>
-  dplyr::mutate(
-    DEPARTAMENTO_D = toupper(norm_txt(DEPARTAMENTO_D))
-  )
+  dplyr::mutate(DEPARTAMENTO_D = toupper(norm_txt(DEPARTAMENTO_D)))
 
 eva_df <- eva_df |>
   dplyr::mutate(
@@ -146,26 +289,20 @@ eva_df <- eva_df |>
     DEPARTAMENTO_D = toupper(norm_txt(DEPARTAMENTO_D))
   )
 
-# ------------------------------
-# 2.3) Title Case en español (global)
-# ------------------------------
 title_case_es <- function(x) {
   if (is.null(x)) return(x)
   
   lower_words <- c(
     "a","ante","bajo","cabe","con","contra","de","del","desde",
     "en","entre","hacia","hasta","para","por","según","sin","so",
-    "sobre","tras",
-    "el","la","los","las","un","una","unos","unas",
-    "y","e","o","u","ni",
-    "al"
+    "sobre","tras","el","la","los","las","un","una","unos","unas",
+    "y","e","o","u","ni","al"
   )
   
   vapply(as.character(x), function(s) {
     if (is.na(s)) return(NA_character_)
     s <- trimws(s)
     if (s == "") return(s)
-    
     s_low  <- tolower(s)
     parts  <- unlist(strsplit(s_low, "\\s+"))
     parts_tc <- stringi::stri_trans_totitle(parts, locale = "es")
@@ -180,11 +317,8 @@ title_case_es <- function(x) {
   }, FUN.VALUE = character(1), USE.NAMES = FALSE)
 }
 
-# ------------------------------
-# 2.4) Vectores base para combos
-# ------------------------------
-dptos_vec <- sort(unique(eva_df$DEPARTAMENTO_D))
-mpios_vec <- sort(unique(eva_df$MUNICIPIO_D))
+dptos_vec    <- sort(unique(eva_df$DEPARTAMENTO_D))
+mpios_vec    <- sort(unique(eva_df$MUNICIPIO_D))
 cultivos_vec <- sort(unique(eva_df$cultivo))
 
 # ------------------------------
@@ -208,18 +342,13 @@ ui <- fluidPage(
         margin-bottom:10px;
         font-weight:800;
       }
-      .bslib-card { margin-bottom: 14px !important; }
-      .bslib-grid { gap: 18px !important; }
-
       .eva-wrap{
         max-width:1310px;
         margin:0 auto;
         padding:16px 20px 28px;
       }
-
       .left-pane  { height: 838px; }
       .right-pane { height: 410px; margin-bottom: 20px; }
-
       .card {
         background:#ffffff;
         border:1px solid #e6e6e6;
@@ -227,131 +356,66 @@ ui <- fluidPage(
         padding:12px;
         box-shadow:0 1px 6px rgba(0,0,0,0.05);
       }
-
       .card-title {
-        font-family: 'Inter Tight', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
         font-size: 16px;
         font-weight: 700;
         color: #111827;
         margin-bottom: 8px;
       }
-
       .filter-label,
       .filters-card .control-label,
       .card .control-label {
-        font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
         font-size:14px;
         font-weight:500;
         margin-bottom:4px;
       }
-
       .top-filters .col-sm-2, .top-filters .col-sm-7 { margin-bottom:10px; }
       .filters-card { margin-bottom:18px; }
-
-      .btn-group .btn { margin-right:6px; margin-bottom:6px; }
       .dl-footer { margin-top:10px; text-align:right; }
       .dl-under  { margin-top:8px; text-align:right; }
-
       .btn, .btn-default {
         font-size:12px;
         padding:6px 10px;
         border-radius:8px;
       }
       .btn + .btn { margin-left:6px; }
-
       .viz-card {
         border:1.5px solid %s !important;
         border-radius:12px;
         box-shadow:0 1px 6px rgba(0,0,0,0.05);
       }
-
       .form-control,
-      .form-select {
-        border-color:%s !important;
-        border-width:1.5px;
-        border-radius:8px;
-      }
-      .form-control:focus,
-      .form-select:focus {
-        border-color:%s !important;
-        box-shadow:0 0 0 0.2rem rgba(161,217,155,0.15);
-      }
-
-      .selectize-control .selectize-input {
-        border-color:%s !important;
-        border-width:1.5px;
-        border-radius:8px;
-      }
-      .selectize-control .selectize-input.focus {
-        border-color:%s !important;
-        box-shadow:0 0 0 0.2rem rgba(161,217,155,0.15);
-      }
-
+      .form-select,
+      .selectize-control .selectize-input,
       .bootstrap-select .dropdown-toggle {
         border-color:%s !important;
         border-width:1.5px;
         border-radius:8px;
       }
+      .form-control:focus,
+      .form-select:focus,
+      .selectize-control .selectize-input.focus,
       .bootstrap-select .dropdown-toggle:focus,
       .bootstrap-select .dropdown-toggle:active {
         border-color:%s !important;
         box-shadow:0 0 0 0.2rem rgba(161,217,155,0.15);
       }
-
-      .irs--shiny .irs-line { background:#a1d99b22; border-color:%s; }
-      .irs--shiny .irs-bar  { background:%s; border-color:%s; }
-      .irs--shiny .irs-handle > i:first-child { background-color:%s; border-color:%s; }
-      .irs--shiny .irs-single,
-      .irs--shiny .irs-from,
-      .irs--shiny .irs-to {
-        background:%s;
-        border-color:%s;
-      }
-
-      .form-check-input:checked {
-        background-color:%s;
-        border-color:%s;
-      }
-      .form-check-input:focus {
-        border-color:%s;
-        box-shadow:0 0 0 0.2rem rgba(161,217,155,0.15);
-      }
-
       .nav-tabs .nav-link { font-weight:700; }
       .nav-tabs .nav-link.active { font-weight:800; }
-
-      .nav-panel { padding-top: 5px; }
       .viz-card { padding: 12px !important; }
-
-    ",
-                            BORDER_COL,
-                            BORDER_COL, BORDER_COL,
-                            BORDER_COL, BORDER_COL,
-                            BORDER_COL, BORDER_COL,
-                            BORDER_COL,
-                            BORDER_COL, BORDER_COL,
-                            BORDER_COL, BORDER_COL,
-                            BORDER_COL, BORDER_COL,
-                            BORDER_COL, BORDER_COL,
-                            BORDER_COL
-    )))
+    ", BORDER_COL, BORDER_COL, BORDER_COL)))
   ),
   
   div(
     class = "eva-wrap",
-    
     h2(textOutput("app_title"), id = "app-title"),
     
     bslib::navset_tab(
       id = "tabs",
       
-      # =========================
-      # === Tab 1: Explorador ===
-      # =========================
       bslib::nav_panel(
         "Explorador territorial de indicadores productivos",
         
-        # Filtros superiores
         fluidRow(
           column(
             width = 12,
@@ -369,10 +433,7 @@ ui <- fluidPage(
                   div(class = "filter-label", "¿En qué departamento?"),
                   selectInput(
                     "f_depto", NULL,
-                    choices = c(
-                      "Todos" = "Todos",
-                      stats::setNames(dptos_vec, title_case_es(dptos_vec))
-                    ),
+                    choices = c("Todos" = "Todos", stats::setNames(dptos_vec, title_case_es(dptos_vec))),
                     selected = if (length(dptos_vec)) dptos_vec[1] else "Todos"
                   )
                 ),
@@ -381,10 +442,7 @@ ui <- fluidPage(
                   div(class = "filter-label", "¿Algún municipio en particular?"),
                   selectInput(
                     "f_mpio", NULL,
-                    choices = c(
-                      "Todos" = "Todos",
-                      stats::setNames(mpios_vec, title_case_es(mpios_vec))
-                    ),
+                    choices = c("Todos" = "Todos", stats::setNames(mpios_vec, title_case_es(mpios_vec))),
                     selected = "Todos"
                   )
                 ),
@@ -393,10 +451,7 @@ ui <- fluidPage(
                   div(class = "filter-label", "¿Cuál cultivo?"),
                   selectInput(
                     "f_cultivo", NULL,
-                    choices = c(
-                      "Todos" = "Todos",
-                      stats::setNames(cultivos_vec, title_case_es(cultivos_vec))
-                    ),
+                    choices = c("Todos" = "Todos", stats::setNames(cultivos_vec, title_case_es(cultivos_vec))),
                     selected = "Todos"
                   )
                 ),
@@ -406,10 +461,10 @@ ui <- fluidPage(
                   selectInput(
                     "f_indicador", NULL,
                     choices = c(
-                      "Área sembrada (Ha)"     = "area_sembrada_ha",
-                      "Área cosechada (Ha)"    = "area_cosechada_ha",
-                      "Producción (Ton)"       = "produccion_t",
-                      "Rendimiento (Ton/Ha)"   = "rendimiento_t_ha"
+                      "Área sembrada (Ha)"   = "area_sembrada_ha",
+                      "Área cosechada (Ha)"  = "area_cosechada_ha",
+                      "Producción (Ton)"     = "produccion_t",
+                      "Rendimiento (Ton/Ha)" = "rendimiento_t_ha"
                     ),
                     selected = "area_sembrada_ha"
                   )
@@ -419,7 +474,6 @@ ui <- fluidPage(
           )
         ),
         
-        # Layout: mapa + dos gráficos
         fluidRow(
           column(
             width = 6,
@@ -432,10 +486,7 @@ ui <- fluidPage(
                 strong(textOutput("nivel_txt", inline = TRUE))
               ),
               leafletOutput("map_eva", height = 780),
-              div(
-                class = "dl-under",
-                downloadButton("dl_png_mapa", label = "PNG — Mapa (simple)")
-              )
+              div(class = "dl-under", downloadButton("dl_png_mapa", label = "PNG — Mapa (simple)"))
             )
           ),
           column(
@@ -444,24 +495,17 @@ ui <- fluidPage(
               class = "card viz-card right-pane",
               h5(class = "card-title", textOutput("titulo_serie")),
               plotlyOutput("plot_arriba", height = "290px"),
-              div(
-                class = "dl-under",
-                downloadButton("dl_png_series", label = "PNG — Serie temporal")
-              )
+              div(class = "dl-under", downloadButton("dl_png_series", label = "PNG — Serie temporal"))
             ),
             div(
               class = "card viz-card right-pane",
               h5(class = "card-title", textOutput("titulo_ranking")),
               plotlyOutput("ranking_abajo", height = "290px"),
-              div(
-                class = "dl-under",
-                downloadButton("dl_png_ranking", label = "PNG — Ranking Top-10")
-              )
+              div(class = "dl-under", downloadButton("dl_png_ranking", label = "PNG — Ranking Top-10"))
             )
           )
         ),
         
-        # ========= NUEVO: TABLA DE DETALLE (debajo de los visuales) =========
         fluidRow(
           column(
             width = 12,
@@ -474,13 +518,13 @@ ui <- fluidPage(
           )
         ),
         
-        # Pie Tab 1
         fluidRow(
           column(
             width = 12,
             div(
               class = "dl-footer",
               downloadButton("dl_csv_expl", label = "Descargar CSV"),
+              downloadButton("dl_reporte_pdf", label = "Descargar informe (PDF)"),
               tags$a(
                 href   = github_url,
                 target = "_blank",
@@ -493,9 +537,6 @@ ui <- fluidPage(
         )
       ),
       
-      # =========================
-      # === Tab 2: CLUSTERS   ===
-      # =========================
       bslib::nav_panel(
         "Análisis de aglomeración y productos representativos",
         
@@ -512,10 +553,7 @@ ui <- fluidPage(
                   width = 6,
                   selectInput(
                     "clus_depto", "¿En qué departamento?",
-                    choices  = stats::setNames(
-                      sort(unique(eva_df$DEPARTAMENTO_D)),
-                      title_case_es(sort(unique(eva_df$DEPARTAMENTO_D)))
-                    ),
+                    choices  = stats::setNames(sort(unique(eva_df$DEPARTAMENTO_D)), title_case_es(sort(unique(eva_df$DEPARTAMENTO_D)))),
                     selected = sort(unique(eva_df$DEPARTAMENTO_D))[1]
                   )
                 )
@@ -525,13 +563,7 @@ ui <- fluidPage(
                   width = 6,
                   selectInput(
                     "clus_cultivo", "¿Cuál cultivo?",
-                    choices  = c(
-                      "Todos" = "Todos",
-                      stats::setNames(
-                        sort(unique(eva_df$cultivo)),
-                        title_case_es(sort(unique(eva_df$cultivo)))
-                      )
-                    ),
+                    choices  = c("Todos" = "Todos", stats::setNames(sort(unique(eva_df$cultivo)), title_case_es(sort(unique(eva_df$cultivo))))),
                     selected = "Todos"
                   )
                 ),
@@ -582,9 +614,6 @@ ui <- fluidPage(
         )
       ),
       
-      # =========================
-      # === Tab 3: HHI / DIV  ===
-      # =========================
       bslib::nav_panel(
         "Diversificación de cultivos",
         
@@ -597,21 +626,14 @@ ui <- fluidPage(
                 column(
                   3,
                   div(class = "filter-label", "¿Qué año analizamos?"),
-                  selectInput(
-                    "hhi_anio", NULL,
-                    choices = c("2020", "2021", "2022", "2023", "2024"),
-                    selected = "2024"
-                  )
+                  selectInput("hhi_anio", NULL, choices = c("2020", "2021", "2022", "2023", "2024"), selected = "2024")
                 ),
                 column(
                   3,
                   div(class = "filter-label", "¿En qué departamento?"),
                   selectInput(
                     "hhi_depto", NULL,
-                    choices  = c(
-                      "Todos" = "Todos",
-                      stats::setNames(dptos_vec, title_case_es(dptos_vec))
-                    ),
+                    choices = c("Todos" = "Todos", stats::setNames(dptos_vec, title_case_es(dptos_vec))),
                     selected = if (length(dptos_vec)) dptos_vec[1] else "Todos"
                   )
                 ),
@@ -625,9 +647,9 @@ ui <- fluidPage(
                   selectInput(
                     "hhi_base", "Variable a considerar",
                     choices = c(
-                      "Producción (Ton)"      = "produccion_t",
-                      "Área cosechada (Ha)"   = "area_cosechada_ha",
-                      "Área sembrada (Ha)"    = "area_sembrada_ha"
+                      "Producción (Ton)"    = "produccion_t",
+                      "Área cosechada (Ha)" = "area_cosechada_ha",
+                      "Área sembrada (Ha)"  = "area_sembrada_ha"
                     ),
                     selected = "produccion_t"
                   )
@@ -639,7 +661,6 @@ ui <- fluidPage(
         
         fluidRow(
           style = "margin-top: 5px;",
-          
           column(
             width = 6,
             style = "padding-right: 10px;",
@@ -647,40 +668,31 @@ ui <- fluidPage(
               class = "card viz-card",
               style = "margin-bottom: 15px; height: 800px;",
               h5(class = "card-title", textOutput("hhi_titulo_barras")),
-              plotlyOutput("hhi_barras", height = "720px")
+              plotlyOutput("hhi_barras", height = "680px"),
+              div(class = "dl-under", downloadButton("dl_png_hhi_barras", label = "PNG — Barras"))
             )
           ),
-          
           column(
             width = 6,
             style = "padding-left: 10px;",
-            
             div(
               class = "card viz-card",
               style = "margin-bottom: 15px; height: 500px;",
               h5(class = "card-title", textOutput("hhi_titulo_serie")),
-              plotlyOutput("hhi_serie", height = "420px")
+              plotlyOutput("hhi_serie", height = "380px"),
+              div(class = "dl-under", downloadButton("dl_png_hhi_serie", label = "PNG — Serie"))
             ),
-            
             div(
               class = "card viz-card",
               style = "height: 285px;",
               h5(class = "card-title", "Índice de Diversificación de Cultivos en los territorios seleccionados"),
               div(
                 style = "margin-top: 20px; margin-bottom: 10px; display:flex; align-items:baseline; gap:10px;",
-                span(textOutput("hhi_kpi_valor"),
-                     style = "font-size: 24px; font-weight: 800; color:#08519c;"),
-                span("Diversificación productiva (1 - HHI, 0–1)",
-                     style = "font-size: 14px; color:#666;")
+                span(textOutput("hhi_kpi_valor"), style = "font-size: 24px; font-weight: 800; color:#08519c;"),
+                span("Diversificación productiva (1 - HHI, 0–1)", style = "font-size: 14px; color:#666;")
               ),
-              p(
-                "Este indicador se calcula como 1 menos el índice Herfindahl-Hirschman (HHI) de la distribución de cultivos en el ámbito seleccionado (país, departamento o municipio), para el año y la base de referencia elegidos (producción, área cosechada o área sembrada).",
-                style = "font-size: 13px; color:#555; margin-top: 5px;"
-              ),
-              p(
-                "En términos prácticos, valores cercanos a 1 indican una alta diversificación productiva: la base seleccionada está repartida entre varios cultivos con pesos relativamente similares. Valores cercanos a 0 indican una alta concentración, es decir, uno o pocos cultivos dominan la estructura productiva del territorio.",
-                style = "font-size: 13px; color:#555;"
-              )
+              p("Este indicador se calcula como 1 menos el índice Herfindahl-Hirschman (HHI) de la distribución de cultivos en el ámbito seleccionado (país, departamento o municipio), para el año y la base de referencia elegidos (producción, área cosechada o área sembrada).", style = "font-size: 13px; color:#555; margin-top: 5px;"),
+              p("En términos prácticos, valores cercanos a 1 indican una alta diversificación productiva: la base seleccionada está repartida entre varios cultivos con pesos relativamente similares. Valores cercanos a 0 indican una alta concentración, es decir, uno o pocos cultivos dominan la estructura productiva del territorio.", style = "font-size: 13px; color:#555;")
             )
           )
         ),
@@ -710,43 +722,47 @@ ui <- fluidPage(
 # ------------------------------
 # 4) Helpers globales
 # ------------------------------
-safe_chr <- function(x) { if (is.null(x)) "" else as.character(x) }
-
-xy_from_poly <- function(sfrow) {
-  if (!inherits(sfrow, "sf") || nrow(sfrow) != 1 || any(sf::st_is_empty(sfrow$geometry))) {
-    return(c(NA_real_, NA_real_))
-  }
-  sfrow <- sf::st_zm(sfrow, drop = TRUE, what = "ZM")
-  cen <- sfrow |>
-    sf::st_transform(3857) |>
-    sf::st_point_on_surface() |>
-    sf::st_transform(4326)
-  cxy <- sf::st_coordinates(cen)
-  if (nrow(cxy) < 1 || any(!is.finite(cxy[1, ]))) return(c(NA_real_, NA_real_))
-  as.numeric(c(cxy[1], cxy[2]))
+bbox_to_fitbounds <- function(map, sfobj) {
+  bb <- sf::st_bbox(sfobj)
+  leaflet::fitBounds(
+    map,
+    lng1 = unname(bb["xmin"]),
+    lat1 = unname(bb["ymin"]),
+    lng2 = unname(bb["xmax"]),
+    lat2 = unname(bb["ymax"])
+  )
 }
 
 calc_lisa_and_class <- function(sf_obj, value_col, p_thr = 0.05) {
   sf_obj <- sf::st_make_valid(sf_obj)
   sf_obj <- sf::st_cast(sf_obj, "MULTIPOLYGON", warn = FALSE)
-  v <- as.numeric(sf_obj[[value_col]]); v[is.na(v)] <- 0
+  v <- as.numeric(sf_obj[[value_col]])
+  v[is.na(v)] <- 0
   sf_obj$.__valor__ <- v
+  
   if (nrow(sf_obj) < 3) {
-    sf_obj$Ii <- NA_real_; sf_obj$pvalue <- NA_real_; sf_obj$cluster <- "No significativo"
+    sf_obj$Ii <- NA_real_
+    sf_obj$pvalue <- NA_real_
+    sf_obj$cluster <- "No significativo"
     return(sf_obj)
   }
+  
   nb <- spdep::poly2nb(sf_obj, queen = TRUE)
   empty_idx <- which(spdep::card(nb) == 0)
+  
   if (length(empty_idx) > 0) {
     coords <- sf::st_coordinates(sf::st_centroid(sf::st_transform(sf_obj, 3857)))
     nb_knn <- spdep::knn2nb(spdep::knearneigh(coords, k = 1))
     for (i in empty_idx) nb[[i]] <- nb_knn[[i]]
   }
+  
   lw <- spdep::nb2listw(nb, style = "W", zero.policy = TRUE)
   lm <- suppressWarnings(spdep::localmoran(sf_obj$.__valor__, lw, zero.policy = TRUE))
+  
   sf_obj$Ii     <- lm[, 1]
   sf_obj$pvalue <- lm[, 5]
   m <- mean(sf_obj$.__valor__, na.rm = TRUE)
+  
   sf_obj$cluster <- dplyr::case_when(
     sf_obj$.__valor__ >= m & sf_obj$Ii >  0 & sf_obj$pvalue <= p_thr ~ "Alto-Alto",
     sf_obj$.__valor__ <  m & sf_obj$Ii >  0 & sf_obj$pvalue <= p_thr ~ "Bajo-Bajo",
@@ -754,10 +770,10 @@ calc_lisa_and_class <- function(sf_obj, value_col, p_thr = 0.05) {
     sf_obj$.__valor__ <  m & sf_obj$Ii <  0 & sf_obj$pvalue <= p_thr ~ "Bajo-Alto",
     TRUE ~ "No significativo"
   )
+  
   sf_obj
 }
 
-# ======== PALETA DINÁMICA POR INDICADOR (4 rangos = cuartiles) ========
 mix_hex <- function(c1, c2, t) {
   r1 <- grDevices::col2rgb(c1)[,1] / 255
   r2 <- grDevices::col2rgb(c2)[,1] / 255
@@ -786,7 +802,7 @@ make_bins4 <- function(values) {
   qs
 }
 
-fmt_bin <- function(x){ comma_es(x, accuracy = 1) }
+fmt_bin <- function(x) comma_es(x, accuracy = 1)
 
 build_bins_labels4_indicator <- function(values, base_col){
   v <- as.numeric(values)
@@ -822,54 +838,16 @@ build_bins_labels4_indicator <- function(values, base_col){
   list(bins = bins, pal = pal, labels = labs, colors = cols)
 }
 
-# ======== PALETA 5 RANGOS (si la quieres seguir usando) ========
-shades5_from_base <- function(base_col) {
-  ts <- c(0.10, 0.30, 0.55, 0.78, 1.00)
-  vapply(ts, function(tt) mix_hex("#FFFFFF", base_col, tt), character(1))
-}
-
-make_bins5 <- function(values) {
-  v <- as.numeric(values)
-  v <- v[is.finite(v)]
-  if (length(v) == 0) return(seq(0, 5))
-  qs <- quantile(v, probs = seq(0, 1, length.out = 6), na.rm = TRUE, type = 7)
-  qs <- as.numeric(unique(qs))
-  if (length(qs) < 6) {
-    r <- range(v, na.rm = TRUE)
-    if (r[1] == r[2]) r <- c(0, max(1, r[2]))
-    qs <- pretty(r, n = 5)
-  }
-  qs <- sort(unique(qs))
-  if (length(qs) < 6) qs <- seq(min(qs), max(qs), length.out = 6)
-  qs
-}
-
-palBin5_indicator <- function(values, base_col) {
-  bins <- make_bins5(values)
-  pals <- shades5_from_base(base_col)
-  leaflet::colorBin(
-    palette  = pals,
-    bins     = bins,
-    domain   = values,
-    na.color = "#f0f0f0",
-    right    = FALSE
-  )
-}
-
 # ------------------------------
 # 5) SERVER
 # ------------------------------
 server <- function(input, output, session) {
   
-  output$app_title <- renderText({
-    ""
-  })
+  output$app_title <- renderText({ "" })
   
-  # ===== Helpers indicador rendimiento calculado =====
   is_yield      <- reactive({ identical(input$f_indicador,  "rendimiento_t_ha") })
   clus_is_yield <- reactive({ identical(input$clus_indicador,"rendimiento_t_ha") })
   
-  # ===== Helper para títulos storytelling (Tab 1) =====
   build_titulo_tab1 <- function(tipo = c("mapa", "serie", "ranking"),
                                 nivel = c("depto", "mpio"),
                                 ind,
@@ -878,46 +856,29 @@ server <- function(input, output, session) {
     tipo  <- match.arg(tipo)
     nivel <- match.arg(nivel)
     
-    if (is.null(cultivo) || cultivo == "Todos" || is.na(cultivo) || cultivo == "") {
-      cult_txt <- ""
-    } else {
-      cult_txt <- paste0(" de ", title_case_es(cultivo))
-    }
-    
-    lbl_ind <- if (is.null(lbl_ind)) ind else lbl_ind
+    cult_txt <- if (is.null(cultivo) || cultivo == "Todos" || is.na(cultivo) || cultivo == "") "" else paste0(" de ", title_case_es(cultivo))
+    lbl_ind  <- if (is.null(lbl_ind)) ind else lbl_ind
     
     if (ind == "area_sembrada_ha") {
-      if (tipo == "mapa") {
-        if (nivel == "depto") return(paste0("¿En qué departamentos hay una mayor cantidad de hectáreas sembradas", cult_txt, "?"))
-        return(paste0("¿En qué municipios hay una mayor cantidad de hectáreas sembradas", cult_txt, "?"))
-      }
+      if (tipo == "mapa")    return(if (nivel == "depto") paste0("¿En qué departamentos hay una mayor cantidad de hectáreas sembradas", cult_txt, "?") else paste0("¿En qué municipios hay una mayor cantidad de hectáreas sembradas", cult_txt, "?"))
       if (tipo == "serie")   return(paste0("¿Cómo ha evolucionado en el tiempo la cantidad de hectáreas sembradas", cult_txt, "?"))
       if (tipo == "ranking") return(paste0("¿Qué municipios tienen una mayor cantidad de hectáreas sembradas", cult_txt, "?"))
     }
     
     if (ind == "area_cosechada_ha") {
-      if (tipo == "mapa") {
-        if (nivel == "depto") return(paste0("¿En qué departamentos hay una mayor cantidad de hectáreas cosechadas", cult_txt, "?"))
-        return(paste0("¿En qué municipios hay una mayor cantidad de hectáreas cosechadas", cult_txt, "?"))
-      }
+      if (tipo == "mapa")    return(if (nivel == "depto") paste0("¿En qué departamentos hay una mayor cantidad de hectáreas cosechadas", cult_txt, "?") else paste0("¿En qué municipios hay una mayor cantidad de hectáreas cosechadas", cult_txt, "?"))
       if (tipo == "serie")   return(paste0("¿Cómo ha evolucionado en el tiempo la cantidad de hectáreas cosechadas", cult_txt, "?"))
       if (tipo == "ranking") return(paste0("¿Qué municipios tienen una mayor cantidad de hectáreas cosechadas", cult_txt, "?"))
     }
     
     if (ind == "produccion_t") {
-      if (tipo == "mapa") {
-        if (nivel == "depto") return(paste0("¿En qué departamentos se concentra el mayor volumen de producción agrícola (toneladas)", cult_txt, "?"))
-        return(paste0("¿En qué municipios se concentra el mayor volumen de producción agrícola (toneladas)", cult_txt, "?"))
-      }
+      if (tipo == "mapa")    return(if (nivel == "depto") paste0("¿En qué departamentos se concentra el mayor volumen de producción agrícola (toneladas)", cult_txt, "?") else paste0("¿En qué municipios se concentra el mayor volumen de producción agrícola (toneladas)", cult_txt, "?"))
       if (tipo == "serie")   return(paste0("¿Cómo ha evolucionado en el tiempo el volumen de producción agrícola (toneladas)", cult_txt, "?"))
       if (tipo == "ranking") return(paste0("¿Qué municipios concentran el mayor volumen de producción agrícola (toneladas)", cult_txt, "?"))
     }
     
     if (ind == "rendimiento_t_ha") {
-      if (tipo == "mapa") {
-        if (nivel == "depto") return(paste0("¿En qué departamentos se observan los mayores niveles de rendimiento (ton/ha)", cult_txt, "?"))
-        return(paste0("¿En qué municipios se observan los mayores niveles de rendimiento (ton/ha)", cult_txt, "?"))
-      }
+      if (tipo == "mapa")    return(if (nivel == "depto") paste0("¿En qué departamentos se observan los mayores niveles de rendimiento (ton/ha)", cult_txt, "?") else paste0("¿En qué municipios se observan los mayores niveles de rendimiento (ton/ha)", cult_txt, "?"))
       if (tipo == "serie")   return(paste0("¿Cómo ha evolucionado en el tiempo el rendimiento promedio (ton/ha)", cult_txt, "?"))
       if (tipo == "ranking") return(paste0("¿Qué municipios presentan los mayores niveles de rendimiento (ton/ha)", cult_txt, "?"))
     }
@@ -930,20 +891,6 @@ server <- function(input, output, session) {
     if (tipo == "ranking") return(paste0("¿Qué municipios lideran el indicador ", lbl_ind, "?"))
   }
   
-  indicador_titulo <- reactive({
-    ind <- input$f_indicador
-    if (is.null(ind) || is.na(ind)) ind <- "area_sembrada_ha"
-    switch(
-      ind,
-      "area_sembrada_ha"  = "siembra (hectáreas sembradas)",
-      "area_cosechada_ha" = "cosecha (hectáreas cosechadas)",
-      "produccion_t"      = "producción (toneladas)",
-      "rendimiento_t_ha"  = "productividad (rendimiento, Ton/Ha)",
-      ind
-    )
-  })
-  
-  # Color único por indicador
   indic_color <- reactive({
     switch(
       input$f_indicador,
@@ -955,7 +902,6 @@ server <- function(input, output, session) {
     )
   })
   
-  # Cascada dpto -> mpio (Tab 1)
   observeEvent(input$f_depto, ignoreInit = TRUE, {
     if (is.null(input$f_depto) || input$f_depto == "Todos") {
       munis <- sort(unique(eva_df$MUNICIPIO_D))
@@ -969,7 +915,6 @@ server <- function(input, output, session) {
     )
   })
   
-  # Año según Indicador (Tab 1)
   year_col <- reactive({
     ind <- input$f_indicador
     if (is.null(ind)) return("ano_cosechado")
@@ -997,12 +942,11 @@ server <- function(input, output, session) {
     )
   })
   
-  # Datos filtrados (Tab 1)
   datos_filtrados <- reactive({
     df <- eva_df
-    if (!is.null(input$f_depto)   && input$f_depto   != "Todos") df <- df |> dplyr::filter(.data$DEPARTAMENTO_D == input$f_depto)
-    if (!is.null(input$f_mpio)    && input$f_mpio    != "Todos") df <- df |> dplyr::filter(.data$MUNICIPIO_D    == input$f_mpio)
-    if (!is.null(input$f_cultivo) && input$f_cultivo != "Todos") df <- df |> dplyr::filter(.data$cultivo       == input$f_cultivo)
+    if (!is.null(input$f_depto)   && input$f_depto   != "Todos") df <- df |> dplyr::filter(DEPARTAMENTO_D == input$f_depto)
+    if (!is.null(input$f_mpio)    && input$f_mpio    != "Todos") df <- df |> dplyr::filter(MUNICIPIO_D == input$f_mpio)
+    if (!is.null(input$f_cultivo) && input$f_cultivo != "Todos") df <- df |> dplyr::filter(cultivo == input$f_cultivo)
     if (!is.null(input$f_anio)) df <- df |> dplyr::filter(.data[[year_col()]] == input$f_anio)
     
     df <- df |>
@@ -1012,7 +956,9 @@ server <- function(input, output, session) {
         area_snum = suppressWarnings(as.numeric(area_sembrada_ha))
       )
     
-    ind <- input$f_indicador; req(ind)
+    ind <- input$f_indicador
+    req(ind)
+    
     if (ind == "rendimiento_t_ha") {
       df$valor <- NA_real_
     } else {
@@ -1026,7 +972,6 @@ server <- function(input, output, session) {
     df
   })
   
-  # Estado nivel mapa
   nivel_mapa <- reactiveVal("depto")
   depto_sel  <- reactiveVal(NULL)
   
@@ -1036,29 +981,30 @@ server <- function(input, output, session) {
   })
   
   output$titulo_mapa <- renderText({
-    ind  <- if (is.null(input$f_indicador) || is.na(input$f_indicador)) "area_sembrada_ha" else input$f_indicador
+    ind  <- input$f_indicador %||% "area_sembrada_ha"
     lbl  <- as.character(indicador_label())
-    cult <- if (is.null(input$f_cultivo)) "Todos" else input$f_cultivo
-    niv  <- nivel_mapa()
-    build_titulo_tab1(tipo = "mapa", nivel = niv, ind = ind, cultivo = cult, lbl_ind = lbl)
+    cult <- input$f_cultivo %||% "Todos"
+    build_titulo_tab1(tipo = "mapa", nivel = nivel_mapa(), ind = ind, cultivo = cult, lbl_ind = lbl)
   })
   
   output$titulo_serie <- renderText({
-    ind  <- if (is.null(input$f_indicador) || is.na(input$f_indicador)) "area_sembrada_ha" else input$f_indicador
+    ind  <- input$f_indicador %||% "area_sembrada_ha"
     lbl  <- as.character(indicador_label())
-    cult <- if (is.null(input$f_cultivo)) "Todos" else input$f_cultivo
+    cult <- input$f_cultivo %||% "Todos"
     build_titulo_tab1(tipo = "serie", nivel = "depto", ind = ind, cultivo = cult, lbl_ind = lbl)
   })
   
   output$titulo_ranking <- renderText({
-    ind  <- if (is.null(input$f_indicador) || is.na(input$f_indicador)) "area_sembrada_ha" else input$f_indicador
+    ind  <- input$f_indicador %||% "area_sembrada_ha"
     lbl  <- as.character(indicador_label())
-    cult <- if (is.null(input$f_cultivo)) "Todos" else input$f_cultivo
+    cult <- input$f_cultivo %||% "Todos"
     build_titulo_tab1(tipo = "ranking", nivel = "mpio", ind = ind, cultivo = cult, lbl_ind = lbl)
   })
   
   agg_depto <- reactive({
-    df <- datos_filtrados(); req(nrow(df) > 0)
+    df <- datos_filtrados()
+    req(nrow(df) > 0)
+    
     if (is_yield()) {
       df |>
         dplyr::group_by(DEPARTAMENTO_D) |>
@@ -1077,8 +1023,10 @@ server <- function(input, output, session) {
   })
   
   agg_mpio <- reactive({
-    df <- datos_filtrados(); req(nrow(df) > 0)
+    df <- datos_filtrados()
+    req(nrow(df) > 0)
     if (!is.null(depto_sel())) df <- df |> dplyr::filter(DEPARTAMENTO_D == depto_sel())
+    
     if (is_yield()) {
       df |>
         dplyr::group_by(MUNICIPIO_D) |>
@@ -1096,7 +1044,6 @@ server <- function(input, output, session) {
     }
   })
   
-  # ========== MAPA Tab 1 ==========
   output$map_eva <- leaflet::renderLeaflet({
     mdat <- depto_sf |>
       dplyr::left_join(agg_depto(), by = "DEPARTAMENTO_D") |>
@@ -1115,19 +1062,10 @@ server <- function(input, output, session) {
         fillColor = ~pal(valor),
         weight = 0.7, color = BORDER_COL, fillOpacity = 0.9,
         label = ~DEPARTAMENTO_LBL,
-        labelOptions = leaflet::labelOptions(
-          direction = "auto", textsize = "12px", sticky = TRUE,
-          opacity = 0.9, style = list("font-weight" = "600")
-        ),
+        labelOptions = leaflet::labelOptions(direction = "auto", textsize = "12px", sticky = TRUE, opacity = 0.9, style = list("font-weight" = "600")),
         highlightOptions = leaflet::highlightOptions(color = "black", weight = 2, bringToFront = TRUE)
       ) |>
-      leaflet::addLegend(
-        position = "bottomright",
-        colors   = pal_info$colors,
-        labels   = pal_info$labels,
-        title    = indicador_label(),
-        opacity  = 1
-      )
+      leaflet::addLegend(position = "bottomright", colors = pal_info$colors, labels = pal_info$labels, title = indicador_label(), opacity = 1)
   })
   
   dibujar_deptos <- function() {
@@ -1150,19 +1088,10 @@ server <- function(input, output, session) {
         fillColor = ~pal(valor),
         weight = 0.7, color = BORDER_COL, fillOpacity = 0.9,
         label = ~DEPARTAMENTO_LBL,
-        labelOptions = leaflet::labelOptions(
-          direction = "auto", textsize = "12px", sticky = TRUE,
-          opacity = 0.9, style = list("font-weight" = "600")
-        ),
+        labelOptions = leaflet::labelOptions(direction = "auto", textsize = "12px", sticky = TRUE, opacity = 0.9, style = list("font-weight" = "600")),
         highlightOptions = leaflet::highlightOptions(color = "black", weight = 2, bringToFront = TRUE)
       ) |>
-      leaflet::addLegend(
-        position = "bottomright",
-        colors   = pal_info$colors,
-        labels   = pal_info$labels,
-        title    = indicador_label(),
-        opacity  = 1
-      )
+      leaflet::addLegend(position = "bottomright", colors = pal_info$colors, labels = pal_info$labels, title = indicador_label(), opacity = 1)
   }
   
   dibujar_mpios <- function(dep) {
@@ -1194,10 +1123,7 @@ server <- function(input, output, session) {
         fillColor = ~fill_col,
         weight = 0.4, color = BORDER_COL, fillOpacity = 0.9,
         label = ~MUNICIPIO_LBL,
-        labelOptions = leaflet::labelOptions(
-          direction = "auto", textsize = "11px", sticky = TRUE,
-          opacity = 0.9, style = list("font-weight" = "600")
-        ),
+        labelOptions = leaflet::labelOptions(direction = "auto", textsize = "11px", sticky = TRUE, opacity = 0.9, style = list("font-weight" = "600")),
         highlightOptions = leaflet::highlightOptions(color = "black", weight = 2, bringToFront = TRUE)
       ) |>
       leaflet::addLegend(
@@ -1210,12 +1136,11 @@ server <- function(input, output, session) {
   }
   
   observe({
-    dep  <- input$f_depto
-    mp   <- input$f_mpio
-    ind  <- input$f_indicador
-    anio <- input$f_anio
-    cult <- input$f_cultivo
-    dummy <- list(mp, ind, anio, cult)
+    dep <- input$f_depto
+    input$f_mpio
+    input$f_indicador
+    input$f_anio
+    input$f_cultivo
     
     if (is.null(dep) || dep == "Todos") {
       nivel_mapa("depto")
@@ -1231,15 +1156,16 @@ server <- function(input, output, session) {
   observeEvent(input$btn_volver, {
     updateSelectInput(session, "f_depto", selected = "Todos")
     updateSelectInput(session, "f_mpio",  selected = "Todos")
-    nivel_mapa("depto"); depto_sel(NULL); dibujar_deptos()
+    nivel_mapa("depto")
+    depto_sel(NULL)
+    dibujar_deptos()
   })
   
-  # ======= Serie temporal (Tab 1) =======
   series_data <- reactive({
     base <- eva_df
-    if (!is.null(input$f_depto)   && input$f_depto   != "Todos") base <- base |> dplyr::filter(.data$DEPARTAMENTO_D == input$f_depto)
-    if (!is.null(input$f_mpio)    && input$f_mpio    != "Todos") base <- base |> dplyr::filter(.data$MUNICIPIO_D    == input$f_mpio)
-    if (!is.null(input$f_cultivo) && input$f_cultivo != "Todos") base <- base |> dplyr::filter(.data$cultivo       == input$f_cultivo)
+    if (!is.null(input$f_depto)   && input$f_depto   != "Todos") base <- base |> dplyr::filter(DEPARTAMENTO_D == input$f_depto)
+    if (!is.null(input$f_mpio)    && input$f_mpio    != "Todos") base <- base |> dplyr::filter(MUNICIPIO_D == input$f_mpio)
+    if (!is.null(input$f_cultivo) && input$f_cultivo != "Todos") base <- base |> dplyr::filter(cultivo == input$f_cultivo)
     
     base <- base |>
       dplyr::mutate(
@@ -1255,21 +1181,22 @@ server <- function(input, output, session) {
         dplyr::group_by(.data[[ycol]]) |>
         dplyr::summarise(
           prod        = sum(prod_num,  na.rm = TRUE),
-          area        = sum(area_cnum,  na.rm = TRUE),
+          area        = sum(area_cnum, na.rm = TRUE),
           valor_total = dplyr::if_else(area > 0, prod/area, NA_real_),
           .groups     = "drop"
         ) |>
         dplyr::rename(anio = !!ycol)
     } else {
       ind <- input$f_indicador
-      base <- base |> dplyr::mutate(
-        valor = dplyr::case_when(
-          ind == "area_sembrada_ha"  ~ area_snum,
-          ind == "area_cosechada_ha" ~ area_cnum,
-          ind == "produccion_t"      ~ prod_num,
-          TRUE ~ NA_real_
+      base <- base |>
+        dplyr::mutate(
+          valor = dplyr::case_when(
+            ind == "area_sembrada_ha"  ~ area_snum,
+            ind == "area_cosechada_ha" ~ area_cnum,
+            ind == "produccion_t"      ~ prod_num,
+            TRUE ~ NA_real_
+          )
         )
-      )
       base |>
         dplyr::group_by(.data[[ycol]]) |>
         dplyr::summarise(valor_total = sum(valor, na.rm = TRUE), .groups = "drop") |>
@@ -1280,22 +1207,22 @@ server <- function(input, output, session) {
   output$plot_arriba <- plotly::renderPlotly({
     df_year <- series_data()
     col     <- indic_color()
+    
+    if (nrow(df_year) == 0) {
+      return(plotly::plot_ly() |>
+               plotly::layout(annotations = list(text = "Sin datos para la selección actual", x = 0.5, y = 0.5, showarrow = FALSE)) |>
+               plotly::config(locale = "es"))
+    }
+    
     plotly::plot_ly(
       data = df_year, x = ~anio, y = ~valor_total,
       type = "scatter", mode = "lines+markers",
       line   = list(color = col, width = 2),
       marker = list(color = col, size = 6),
-      hovertemplate = paste0(
-        "<b>Año: %{x}</b><br>",
-        as.character(indicador_label()),
-        ": %{y:.2f}<extra></extra>"
-      )
+      hovertemplate = paste0("<b>Año: %{x}</b><br>", as.character(indicador_label()), ": %{y:.2f}<extra></extra>")
     ) |>
       plotly::layout(
-        xaxis = list(
-          title = if (year_col() == "ano_sembrado") "Año de sembrado" else "Año de cosechado",
-          tickmode = "linear", dtick = 1
-        ),
+        xaxis = list(title = if (year_col() == "ano_sembrado") "Año de sembrado" else "Año de cosechado", tickmode = "linear", dtick = 1),
         yaxis = list(title = as.character(indicador_label())),
         hovermode = "x unified",
         margin = list(l = 60, r = 20, t = 40, b = 50)
@@ -1303,16 +1230,16 @@ server <- function(input, output, session) {
       plotly::config(locale = "es")
   })
   
-  # ======= Ranking Tab 1 =======
   ranking_data <- reactive({
-    df <- datos_filtrados(); req(nrow(df) > 0)
+    df <- datos_filtrados()
+    if (nrow(df) == 0) return(data.frame())
     
     if (is_yield()) {
       df |>
         dplyr::group_by(MUNICIPIO_D, DEPARTAMENTO_D) |>
         dplyr::summarise(
           prod = sum(prod_num,  na.rm = TRUE),
-          area = sum(area_cnum,  na.rm = TRUE),
+          area = sum(area_cnum, na.rm = TRUE),
           valor_total = dplyr::if_else(area > 0, prod/area, NA_real_),
           .groups = "drop"
         ) |>
@@ -1346,11 +1273,9 @@ server <- function(input, output, session) {
     col <- indic_color()
     
     if (nrow(plot_df) == 0) {
-      return(
-        plotly::plot_ly() |>
-          plotly::layout(annotations = list(text = "Sin datos para el ranking", x = 0.5, y = 0.5, showarrow = FALSE)) |>
-          plotly::config(locale = "es")
-      )
+      return(plotly::plot_ly() |>
+               plotly::layout(annotations = list(text = "Sin datos para el ranking", x = 0.5, y = 0.5, showarrow = FALSE)) |>
+               plotly::config(locale = "es"))
     }
     
     plot_df <- plot_df |>
@@ -1382,7 +1307,7 @@ server <- function(input, output, session) {
         "<br><b>", as.character(indicador_label()), " (sin escala):</b> %{customdata[2]}",
         "<extra></extra>"
       ),
-      customdata = cbind(plot_df$MUNICIPIO_LBL, plot_df$DEPARTAMENTO_LBL, plot_df$label_txt),
+      customdata = cbind(as.character(plot_df$MUNICIPIO_LBL), plot_df$DEPARTAMENTO_LBL, plot_df$label_txt),
       showlegend = FALSE
     ) |>
       plotly::layout(
@@ -1393,21 +1318,12 @@ server <- function(input, output, session) {
       plotly::config(locale = "es")
   })
   
-  # =========================================================
-  # ============== NUEVO: TABLA DE DETALLE TAB 1 ============
-  # (Año = ano_cosechado en la columna, y ahora incluye Cultivo)
-  # =========================================================
   tabla_detalle_raw <- reactive({
     df <- eva_df
-    
-    # mismos filtros del explorador (Tab 1)
     if (!is.null(input$f_depto)   && input$f_depto   != "Todos") df <- df |> dplyr::filter(DEPARTAMENTO_D == input$f_depto)
-    if (!is.null(input$f_mpio)    && input$f_mpio    != "Todos") df <- df |> dplyr::filter(MUNICIPIO_D    == input$f_mpio)
-    if (!is.null(input$f_cultivo) && input$f_cultivo != "Todos") df <- df |> dplyr::filter(cultivo       == input$f_cultivo)
-    
-    # Consistencia con visuales: filtra por el año seleccionado (year_col()).
+    if (!is.null(input$f_mpio)    && input$f_mpio    != "Todos") df <- df |> dplyr::filter(MUNICIPIO_D == input$f_mpio)
+    if (!is.null(input$f_cultivo) && input$f_cultivo != "Todos") df <- df |> dplyr::filter(cultivo == input$f_cultivo)
     if (!is.null(input$f_anio)) df <- df |> dplyr::filter(.data[[year_col()]] == input$f_anio)
-    
     if (nrow(df) == 0) return(data.frame())
     
     df <- df |>
@@ -1417,7 +1333,7 @@ server <- function(input, output, session) {
         prod   = suppressWarnings(as.numeric(produccion_t))
       )
     
-    out <- df |>
+    df |>
       dplyr::group_by(ano_cosechado, DEPARTAMENTO_D, MUNICIPIO_D, cultivo) |>
       dplyr::summarise(
         `Hectáreas sembradas`  = sum(area_s, na.rm = TRUE),
@@ -1437,52 +1353,30 @@ server <- function(input, output, session) {
         Cultivo      = title_case_es(Cultivo)
       ) |>
       dplyr::arrange(Departamento, Municipio, Cultivo, `Año`)
-    
-    out
   })
   
   output$tabla_detalle <- DT::renderDataTable({
     tb <- tabla_detalle_raw()
     
     if (nrow(tb) == 0) {
-      return(
-        DT::datatable(
-          data.frame(Mensaje = "Sin datos para la selección actual."),
-          rownames = FALSE,
-          options  = list(dom = "t")
-        )
-      )
+      return(DT::datatable(data.frame(Mensaje = "Sin datos para la selección actual."), rownames = FALSE, options = list(dom = "t")))
     }
     
     tb_show <- tb |>
       dplyr::mutate(
         `Hectáreas sembradas`  = comma_es(`Hectáreas sembradas`,  accuracy = 1),
         `Hectáreas cosechadas` = comma_es(`Hectáreas cosechadas`, accuracy = 1),
-        `Producción`           = comma_es(`Producción`,           accuracy = 1)
+        `Producción`           = comma_es(`Producción`, accuracy = 1)
       )
     
-    DT::datatable(
-      tb_show,
-      rownames = FALSE,
-      options  = list(pageLength = 12, scrollX = TRUE, dom = "tip"),
-      escape   = TRUE
-    )
+    DT::datatable(tb_show, rownames = FALSE, options = list(pageLength = 12, scrollX = TRUE, dom = "tip"), escape = TRUE)
   })
   
-  # CSV Tab 1 (exporta la tabla)
   output$dl_csv_expl <- downloadHandler(
-    filename = function() {
-      paste0("eva_tabla_detalle_", Sys.Date(), ".csv")
-    },
-    content = function(file) {
-      tb <- tabla_detalle_raw()
-      utils::write.csv(tb, file, row.names = FALSE, fileEncoding = "UTF-8")
-    }
+    filename = function() paste0("eva_tabla_detalle_", Sys.Date(), ".csv"),
+    content = function(file) utils::write.csv(tabla_detalle_raw(), file, row.names = FALSE, fileEncoding = "UTF-8")
   )
   
-  # =========================
-  # === CLUSTERS (Tab 2)  ===
-  # =========================
   clus_year_col <- reactive({
     ind <- input$clus_indicador
     if (is.null(ind)) return("ano_cosechado")
@@ -1510,21 +1404,16 @@ server <- function(input, output, session) {
     )
   })
   
-  output$clus_titulo_mapa <- renderText({
-    ind_lab <- as.character(clus_indicador_label())
-    glue::glue("¿Cómo se agrupan los municipios según sus niveles de {tolower(ind_lab)} y los de sus vecinos?")
-  })
-  
-  output$clus_titulo_tabla <- renderText({
-    "¿Qué municipios y valores corresponden a cada tipo de clúster?"
-  })
+  output$clus_titulo_mapa  <- renderText({ glue::glue("¿Cómo se agrupan los municipios según sus niveles de {tolower(as.character(clus_indicador_label()))} y los de sus vecinos?") })
+  output$clus_titulo_tabla <- renderText({ "¿Qué municipios y valores corresponden a cada tipo de clúster?" })
   
   datos_cluster <- reactive({
     req(input$clus_depto, input$clus_indicador, input$clus_anio)
     df <- eva_df %>% dplyr::filter(DEPARTAMENTO_D == input$clus_depto)
-    if (!is.null(input$clus_cultivo) && input$clus_cultivo != "Todos")
+    if (!is.null(input$clus_cultivo) && input$clus_cultivo != "Todos") {
       df <- df %>% dplyr::filter(cultivo == input$clus_cultivo)
-    df <- df |> dplyr::filter(.data[[clus_year_col()]] == input$clus_anio)
+    }
+    df <- df %>% dplyr::filter(.data[[clus_year_col()]] == input$clus_anio)
     
     df <- df |>
       dplyr::mutate(
@@ -1548,15 +1437,16 @@ server <- function(input, output, session) {
   })
   
   output$map_clusters <- leaflet::renderLeaflet({
-    df <- datos_cluster(); req(nrow(df) > 0)
+    df <- datos_cluster()
+    req(nrow(df) > 0)
     
     if (clus_is_yield()) {
       agg_mun <- df %>%
         dplyr::group_by(MUNICIPIO_D, DEPARTAMENTO_D) %>%
         dplyr::summarise(
-          prod  = sum(prod_num,  na.rm = TRUE),
-          area  = sum(area_cnum,  na.rm = TRUE),
-          valor = dplyr::if_else(area > 0, prod/area, NA_real_),
+          prod  = sum(prod_num, na.rm = TRUE),
+          area  = sum(area_cnum, na.rm = TRUE),
+          valor = dplyr::if_else(area > 0, prod / area, NA_real_),
           .groups = "drop"
         ) %>%
         dplyr::select(MUNICIPIO_D, DEPARTAMENTO_D, valor)
@@ -1577,49 +1467,10 @@ server <- function(input, output, session) {
     
     mmun <- sf::st_make_valid(mmun)
     mmun <- sf::st_zm(mmun, drop = TRUE, what = "ZM")
-    if (!inherits(mmun, "sf")) mmun <- sf::st_as_sf(mmun)
-    
     mmun <- calc_lisa_and_class(mmun, "valor", p_thr = 0.50)
+    
     niveles <- c("Alto-Alto","Bajo-Bajo","Alto-Bajo","Bajo-Alto","No significativo")
     mmun$cluster <- factor(as.character(mmun$cluster), levels = niveles)
-    p_thr <- 0.50
-    
-    exp_map <- c(
-      "Alto-Alto"        = "Municipio con indicador alto rodeado de vecinos altos. Concentración de buen desempeño.",
-      "Bajo-Bajo"        = "Municipio con indicador bajo rodeado de vecinos bajos. Concentración de rezagos.",
-      "Alto-Bajo"        = "Municipio destacado (alto) rodeado de rezagos. Posible polo local.",
-      "Bajo-Alto"        = "Municipio rezagado rodeado de vecinos con buen desempeño. Brecha relativa.",
-      "No significativo" = "No se detecta un patrón espacial claro con el umbral actual."
-    )
-    accion_map <- c(
-      "Alto-Alto"        = "Consolidar: proteger capacidades, invertir en infraestructura y logística, escalar encadenamientos.",
-      "Bajo-Bajo"        = "Focalizar: asistencia técnica, infraestructura básica y acceso a financiamiento; intervenciones integrales.",
-      "Alto-Bajo"        = "Difundir: programas de extensión para vecinos, articulación regional y cuidado de cuellos de botella.",
-      "Bajo-Alto"        = "Cerrar brecha: apoyo específico (tecnología/insumos), conexión a mercados de los centros vecinos.",
-      "No significativo" = "Monitorear: revisar datos y contexto; no priorizar intervención territorial solo por patrón spatial."
-    )
-    
-    ind_lab  <- as.character(clus_indicador_label())[1]
-    anio_lab <- as.character(input$clus_anio)
-    
-    mmun$popup_txt <- sprintf(
-      "<div style='font-size:13px; line-height:1.25'>
-       <b>%s</b><br/>
-       <b>Tipo de clúster:</b> %s<br/>
-       <b>%s (año %s):</b> %s<br/>
-       <hr style='margin:6px 6px'/>
-       <b>¿Qué significa?</b><br/>%s<br/>
-       <b>Acción sugerida:</b><br/>%s<br/>
-       <span style='color:#666'><small>Nota: clústeres definidos con p ≤ %s (LISA: asociación espacial, no causalidad).</small></span>
-     </div>",
-      title_case_es(mmun$MUNICIPIO_D),
-      as.character(mmun$cluster),
-      ind_lab, anio_lab, comma_es(round(as.numeric(mmun$valor), 2)),
-      exp_map[as.character(mmun$cluster)],
-      accion_map[as.character(mmun$cluster)],
-      format(p_thr, nsmall = 2)
-    )
-    mmun$popup_txt <- as.character(mmun$popup_txt)
     
     pal <- leaflet::colorFactor(
       c("#1B7837", "#762A83", "#A6DBA0", "#C2A5CF", "#D9D9D9"),
@@ -1631,34 +1482,35 @@ server <- function(input, output, session) {
       leaflet::addPolygons(
         data = mmun,
         fillColor = ~pal(cluster),
-        color = BORDER_COL, weight = 0.4, fillOpacity = 0.85,
-        popup = ~as.character(popup_txt),
+        color = BORDER_COL,
+        weight = 0.4,
+        fillOpacity = 0.85,
         highlightOptions = leaflet::highlightOptions(color = "black", weight = 2, bringToFront = TRUE)
       )
   })
   
   output$clus_resumen <- DT::renderDataTable({
-    df <- datos_cluster(); req(nrow(df) > 0)
+    df <- datos_cluster()
+    req(nrow(df) > 0)
     
     if (clus_is_yield()) {
       agg_mun <- df %>%
         dplyr::group_by(MUNICIPIO_D, DEPARTAMENTO_D) %>%
         dplyr::summarise(
-          prod  = sum(prod_num,  na.rm = TRUE),
-          area  = sum(area_cnum,  na.rm = TRUE),
-          valor = dplyr::if_else(area > 0, prod/area, NA_real_),
+          prod  = sum(prod_num, na.rm = TRUE),
+          area  = sum(area_cnum, na.rm = TRUE),
+          valor = dplyr::if_else(area > 0, prod / area, NA_real_),
           .groups = "drop"
         ) %>%
         dplyr::select(MUNICIPIO_D, DEPARTAMENTO_D, valor)
-      mmun <- mpios_sf %>% dplyr::filter(DEPARTAMENTO_D == input$clus_depto)
     } else {
       agg_mun <- df %>%
         dplyr::group_by(MUNICIPIO_D, DEPARTAMENTO_D) %>%
         dplyr::summarise(valor = sum(valor, na.rm = TRUE), .groups = "drop")
-      mmun <- mpios_sf %>% dplyr::filter(DEPARTAMENTO_D == input$clus_depto)
     }
     
-    mmun <- mmun %>%
+    mmun <- mpios_sf %>%
+      dplyr::filter(DEPARTAMENTO_D == input$clus_depto) %>%
       dplyr::left_join(agg_mun, by = c("MUNICIPIO_D","DEPARTAMENTO_D")) %>%
       dplyr::mutate(
         valor          = ifelse(is.na(valor), 0, valor),
@@ -1668,19 +1520,8 @@ server <- function(input, output, session) {
     
     req(nrow(mmun) >= 3)
     
-    mmun <- calc_lisa_and_class(mmun, "valor", p_thr = 0.50)
-    clus_chr <- as.character(mmun$cluster)
-    
     total_depto <- sum(mmun$valor, na.rm = TRUE)
     valor_num   <- as.numeric(mmun$valor)
-    
-    accion_map <- c(
-      "Alto-Alto"        = "Consolidar",
-      "Bajo-Bajo"        = "Focalizar",
-      "Alto-Bajo"        = "Difundir",
-      "Bajo-Alto"        = "Cerrar brecha",
-      "No significativo" = "Monitorear"
-    )
     
     out <- data.frame(
       Municipio               = title_case_es(mmun$MUNICIPIO_D),
@@ -1688,85 +1529,72 @@ server <- function(input, output, session) {
       Valor                   = comma_es(round(valor_num, 2)),
       `Participación dpto`    = if (total_depto > 0) paste0(round(100 * valor_num / total_depto, 1), "%") else "0,0%",
       `Ranking departamental` = rank(-valor_num, ties.method = "min"),
-      `Acción sugerida`       = unname(accion_map[clus_chr]),
       check.names = FALSE,
       stringsAsFactors = FALSE
     )
     
     out <- out[order(out$`Ranking departamental`), ]
-    
     DT::datatable(out, rownames = FALSE, options = list(pageLength = 14, scrollX = TRUE, dom = "tip"), escape = TRUE)
   })
   
-  # CSV Tab 2
   output$dl_csv_clus <- downloadHandler(
     filename = function() paste0("eva_clusters_resumen_", Sys.Date(), ".csv"),
-    content = function(file) {
-      # exporta la tabla visible (sin formatos)
-      df <- datos_cluster()
-      utils::write.csv(df, file, row.names = FALSE, fileEncoding = "UTF-8")
-    }
+    content = function(file) utils::write.csv(datos_cluster(), file, row.names = FALSE, fileEncoding = "UTF-8")
   )
   
-  # =========================
-  # === MAPAS SIMPLE (PNG) ==
-  # =========================
   map_widget_simple <- reactive({
     if (nivel_mapa() == "depto") {
       mdat <- depto_sf |>
         dplyr::left_join(agg_depto(), by = "DEPARTAMENTO_D") |>
-        dplyr::mutate(valor = ifelse(is.na(valor), 0, valor))
+        dplyr::mutate(valor = ifelse(is.na(valor), 0, valor), DEPARTAMENTO_LBL = title_case_es(DEPARTAMENTO_D))
       
       pal_info <- build_bins_labels4_indicator(mdat$valor, indic_color())
-      pal      <- pal_info$pal
+      pal <- pal_info$pal
       
-      leaflet::leaflet(mdat, options = leaflet::leafletOptions(zoomControl = FALSE)) |>
+      m <- leaflet::leaflet(mdat, options = leaflet::leafletOptions(zoomControl = FALSE, attributionControl = FALSE)) |>
         leaflet::addProviderTiles(leaflet::providers$CartoDB.Positron) |>
-        leaflet::addPolygons(fillColor = ~pal(valor), weight = 0.5, color = BORDER_COL, fillOpacity = 0.9) |>
-        leaflet::addControl(
-          html = htmltools::HTML(sprintf(
-            "<div style='font-weight:600;font-size:14px;background:#fff;padding:6px 8px;border-radius:8px;border:1px solid %s'>
-              %s por departamento — %s
-            </div>",
-            BORDER_COL, as.character(indicador_label()), safe_chr(input$f_anio)
-          )),
-          position = "topleft"
-        )
+        leaflet::addPolygons(fillColor = ~pal(valor), weight = 0.9, color = BORDER_COL, fillOpacity = 0.95, smoothFactor = 0.2, label = ~DEPARTAMENTO_LBL) |>
+        leaflet::addLegend(position = "bottomright", colors = pal_info$colors, labels = pal_info$labels, title = as.character(indicador_label()), opacity = 1)
+      
+      bbox_to_fitbounds(m, mdat)
     } else {
-      dep  <- depto_sel()
+      dep      <- depto_sel()
+      sel_mpio <- input$f_mpio
+      
       mdat <- mpios_sf |>
         dplyr::filter(DEPARTAMENTO_D == dep) |>
         dplyr::left_join(agg_mpio(), by = "MUNICIPIO_D") |>
-        dplyr::mutate(valor = ifelse(is.na(valor), 0, valor))
+        dplyr::mutate(valor = ifelse(is.na(valor), 0, valor), MUNICIPIO_LBL = title_case_es(MUNICIPIO_D))
       
       pal_info <- build_bins_labels4_indicator(mdat$valor, indic_color())
-      pal      <- pal_info$pal
+      pal <- pal_info$pal
       
-      leaflet::leaflet(mdat, options = leaflet::leafletOptions(zoomControl = FALSE)) |>
-        leaflet::addProviderTiles(leaflet::providers$CartoDB.Positron) |>
-        leaflet::addPolygons(fillColor = ~pal(valor), weight = 0.4, color = BORDER_COL, fillOpacity = 0.9) |>
-        leaflet::addControl(
-          html = htmltools::HTML(sprintf(
-            "<div style='font-weight:600;font-size:14px;background:#fff;padding:6px 8px;border-radius:8px;border:1px solid %s'>
-              %s por municipios — %s
-            </div>",
-            BORDER_COL, as.character(indicador_label()), safe_chr(input$f_anio)
-          )),
-          position = "topleft"
+      mdat <- mdat |>
+        dplyr::mutate(
+          es_sel   = !is.null(sel_mpio) & sel_mpio != "Todos" & MUNICIPIO_D == sel_mpio,
+          fill_col = dplyr::if_else(es_sel, "#252525", pal(valor))
         )
+      
+      m <- leaflet::leaflet(mdat, options = leaflet::leafletOptions(zoomControl = FALSE, attributionControl = FALSE)) |>
+        leaflet::addProviderTiles(leaflet::providers$CartoDB.Positron) |>
+        leaflet::addPolygons(fillColor = ~fill_col, weight = 0.7, color = BORDER_COL, fillOpacity = 0.95, smoothFactor = 0.2, label = ~MUNICIPIO_LBL) |>
+        leaflet::addLegend(position = "bottomright", colors = pal_info$colors, labels = pal_info$labels, title = paste0(as.character(indicador_label()), " — ", title_case_es(dep)), opacity = 1)
+      
+      bbox_to_fitbounds(m, mdat)
     }
   })
   
   map_clusters_simple <- reactive({
-    df <- datos_cluster(); req(nrow(df) > 0)
+    df <- datos_cluster()
+    req(nrow(df) > 0)
     
     if (clus_is_yield()) {
       agg_mun <- df %>%
         dplyr::group_by(MUNICIPIO_D, DEPARTAMENTO_D) %>%
         dplyr::summarise(
-          prod  = sum(prod_num,  na.rm = TRUE),
-          area  = sum(area_cnum,  na.rm = TRUE),
-          valor = dplyr::if_else(area > 0, prod/area, NA_real_),
+          prod  = sum(prod_num, na.rm = TRUE),
+          area  = sum(area_cnum, na.rm = TRUE),
+          valor = dplyr::if_else(area > 0, prod / area, NA_real_),
           .groups = "drop"
         ) %>%
         dplyr::select(MUNICIPIO_D, DEPARTAMENTO_D, valor)
@@ -1784,47 +1612,28 @@ server <- function(input, output, session) {
     mmun <- calc_lisa_and_class(mmun, "valor", p_thr = 0.50)
     
     niveles <- c("Alto-Alto","Bajo-Bajo","Alto-Bajo","Bajo-Alto","No significativo")
-    pal <- leaflet::colorFactor(
-      c("#1B7837", "#762A83", "#A6DBA0", "#C2A5CF", "#D9D9D9"),
-      levels = niveles
-    )
+    pal <- leaflet::colorFactor(c("#1B7837", "#762A83", "#A6DBA0", "#C2A5CF", "#D9D9D9"), levels = niveles)
     
-    leaflet::leaflet(options = leaflet::leafletOptions(zoomControl = FALSE)) %>%
+    m <- leaflet::leaflet(mmun, options = leaflet::leafletOptions(zoomControl = FALSE, attributionControl = FALSE)) %>%
       leaflet::addProviderTiles(leaflet::providers$CartoDB.Positron) %>%
-      leaflet::addPolygons(
-        data = mmun,
-        fillColor = ~pal(cluster),
-        color = BORDER_COL, weight = 0.4, fillOpacity = 0.85
-      ) %>%
-      leaflet::addControl(
-        html = htmltools::HTML(sprintf(
-          "<div style='font-weight:600;font-size:14px;background:#fff;padding:6px 8px;border-radius:8px;border:1px solid %s'>
-            Clusters LISA — %s (%s)
-          </div>",
-          BORDER_COL, as.character(clus_indicador_label()), safe_chr(input$clus_anio)
-        )),
-        position = "topleft"
-      )
+      leaflet::addPolygons(fillColor = ~pal(cluster), color = BORDER_COL, weight = 0.6, fillOpacity = 0.9, smoothFactor = 0.2) %>%
+      leaflet::addLegend(position = "bottomright", pal = pal, values = ~cluster, title = "Clúster LISA", opacity = 1)
+    
+    bbox_to_fitbounds(m, mmun)
   })
   
-  # Utilidad para guardar leaflet como PNG
-  save_leaflet_png <- function(widget, file, vwidth = 1200, vheight = 800) {
-    tmp_html <- tempfile(fileext = ".html")
-    htmlwidgets::saveWidget(widget, tmp_html, selfcontained = TRUE)
-    # mapview::mapshot usa webshot2 por debajo
-    mapview::mapshot(url = tmp_html, file = file, vwidth = vwidth, vheight = vheight)
-  }
-  
-  # Descargas PNG
   output$dl_png_mapa <- downloadHandler(
-    filename = function() paste0("mapa_simple_", Sys.Date(), ".png"),
-    content  = function(file) save_leaflet_png(map_widget_simple(), file, vwidth = 1400, vheight = 900)
+    filename = function() paste0("mapa_con_leyenda_", Sys.Date(), ".png"),
+    content = function(file) {
+      save_leaflet_png(widget = map_widget_simple(), file = file, vwidth = 2200, vheight = 1500, zoom = 2.2)
+    }
   )
   
-  # Para serie/ranking: export sencillo con ggplot (estable)
   g_series_gg <- reactive({
     df  <- series_data()
     col <- indic_color()
+    if (nrow(df) == 0) return(plot_vacio_gg())
+    
     ggplot(df, aes(x = anio, y = valor_total)) +
       geom_line(linewidth = 0.9, color = col) +
       geom_point(size = 2.2, color = col) +
@@ -1841,11 +1650,14 @@ server <- function(input, output, session) {
   g_ranking_gg <- reactive({
     plot_df <- ranking_data()
     sc      <- ranking_scale()
+    if (nrow(plot_df) == 0) return(plot_vacio_gg("Sin datos para el ranking"))
+    
     plot_df <- plot_df |>
       dplyr::mutate(
         valor_scaled  = valor_total / sc$factor,
         MUNICIPIO_LBL = title_case_es(MUNICIPIO_D)
       )
+    
     ggplot(plot_df, aes(x = valor_scaled, y = reorder(MUNICIPIO_LBL, valor_scaled))) +
       geom_col(fill = indic_color()) +
       scale_x_continuous(labels = function(x) comma_es(x), expand = expansion(mult = c(0, 0.10))) +
@@ -1878,13 +1690,24 @@ server <- function(input, output, session) {
   )
   
   output$dl_png_clusters <- downloadHandler(
-    filename = function() paste0("clusters_simple_", Sys.Date(), ".png"),
-    content  = function(file) save_leaflet_png(map_clusters_simple(), file, vwidth = 1400, vheight = 900)
+    filename = function() paste0("clusters_con_leyenda_", Sys.Date(), ".png"),
+    content = function(file) {
+      ok <- save_leaflet_png_retry(
+        widget     = map_clusters_simple(),
+        file       = file,
+        vwidth     = 2600,
+        vheight    = 1800,
+        zoom       = 1.8,
+        delay_base = 4
+      )
+      
+      if (!isTRUE(ok)) {
+        showNotification("No se pudo exportar el mapa de clusters.", type = "error", duration = NULL)
+        stop("No se pudo exportar el mapa de clusters.")
+      }
+    }
   )
   
-  # =========================
-  # === HHI / DIVERSIFIC. ===
-  # =========================
   hhi_year_col <- reactive({
     b <- input$hhi_base
     if (is.null(b)) return("ano_cosechado")
@@ -1915,16 +1738,11 @@ server <- function(input, output, session) {
     } else {
       munis <- sort(unique(eva_df$MUNICIPIO_D[eva_df$DEPARTAMENTO_D == dep]))
     }
-    updateSelectInput(
-      session, "hhi_mpio",
-      choices  = c("Todos" = "Todos", stats::setNames(munis, title_case_es(munis))),
-      selected = "Todos"
-    )
+    updateSelectInput(session, "hhi_mpio", choices  = c("Todos" = "Todos", stats::setNames(munis, title_case_es(munis))), selected = "Todos")
   }, ignoreInit = FALSE)
   
   output$hhi_titulo_serie  <- renderText({ "¿Cómo ha evolucionado la diversificación productiva a lo largo del tiempo?" })
   output$hhi_titulo_barras <- renderText({ "¿Qué territorios presentan mayor diversificación productiva agrícola?" })
-  output$hhi_titulo_mapa   <- renderText({ "¿Cómo se distribuye geográficamente la diversificación productiva agrícola?" })
   
   hhi_series_raw <- reactive({
     req(input$hhi_base)
@@ -1962,10 +1780,7 @@ server <- function(input, output, session) {
       dplyr::group_by(anio_calc, cultivo) %>%
       dplyr::summarise(v = sum(base_val, na.rm = TRUE), .groups = "drop") %>%
       dplyr::group_by(anio_calc) %>%
-      dplyr::mutate(
-        tot = sum(v, na.rm = TRUE),
-        s   = dplyr::if_else(tot > 0, v / tot, NA_real_)
-      ) %>%
+      dplyr::mutate(tot = sum(v, na.rm = TRUE), s = dplyr::if_else(tot > 0, v / tot, NA_real_)) %>%
       dplyr::summarise(HHI = sum(s^2, na.rm = TRUE), .groups = "drop") %>%
       dplyr::rename(anio = anio_calc)
     
@@ -1984,11 +1799,9 @@ server <- function(input, output, session) {
   output$hhi_serie <- plotly::renderPlotly({
     sr <- hhi_series_raw()
     if (nrow(sr) == 0) {
-      return(
-        plotly::plot_ly() %>%
-          plotly::layout(annotations = list(text = "Sin datos para la combinación seleccionada", x = 0.5, y = 0.5, showarrow = FALSE)) %>%
-          plotly::config(locale = "es")
-      )
+      return(plotly::plot_ly() %>%
+               plotly::layout(annotations = list(text = "Sin datos para la combinación seleccionada", x = 0.5, y = 0.5, showarrow = FALSE)) %>%
+               plotly::config(locale = "es"))
     }
     
     sr <- sr %>% dplyr::mutate(Diversificacion = pmin(pmax(1 - HHI, 0), 1))
@@ -2081,11 +1894,9 @@ server <- function(input, output, session) {
   output$hhi_barras <- plotly::renderPlotly({
     md <- hhi_by_year()
     if (nrow(md) == 0) {
-      return(
-        plotly::plot_ly() %>%
-          plotly::layout(annotations = list(text = "Sin datos para la combinación seleccionada", x = 0.5, y = 0.5, showarrow = FALSE)) %>%
-          plotly::config(locale = "es")
-      )
+      return(plotly::plot_ly() %>%
+               plotly::layout(annotations = list(text = "Sin datos para la combinación seleccionada", x = 0.5, y = 0.5, showarrow = FALSE)) %>%
+               plotly::config(locale = "es"))
     }
     
     md <- md %>%
@@ -2127,6 +1938,274 @@ server <- function(input, output, session) {
       ) %>%
       plotly::config(locale = "es")
   })
+  
+  g_hhi_serie_gg <- reactive({
+    sr <- hhi_series_raw()
+    if (nrow(sr) == 0) return(plot_vacio_gg())
+    
+    sr <- sr %>% dplyr::mutate(Diversificacion = pmin(pmax(1 - HHI, 0), 1))
+    
+    ggplot(sr, aes(x = anio, y = Diversificacion)) +
+      geom_line(linewidth = 1, color = "#3182bd") +
+      geom_point(size = 2.5, color = "#08519c") +
+      scale_x_continuous(breaks = unique(sr$anio)) +
+      scale_y_continuous(limits = c(0, 1), labels = function(x) sprintf("%.2f", x)) +
+      labs(x = NULL, y = "Diversificación productiva (1 - HHI)", title = "Evolución de la diversificación productiva") +
+      theme_minimal(base_size = 12) +
+      theme(panel.grid.minor = element_blank(), panel.grid.major.x = element_blank())
+  })
+  
+  g_hhi_barras_gg <- reactive({
+    md <- hhi_by_year()
+    if (nrow(md) == 0) return(plot_vacio_gg())
+    
+    md <- md %>%
+      dplyr::mutate(div_valor = pmin(pmax(1 - valor, 0), 1), grupo_lbl = title_case_es(grupo)) %>%
+      dplyr::arrange(dplyr::desc(div_valor))
+    
+    ggplot(md, aes(x = div_valor, y = reorder(grupo_lbl, div_valor))) +
+      geom_col(fill = "#3182bd") +
+      scale_x_continuous(limits = c(0, 1), labels = function(x) sprintf("%.2f", x), expand = expansion(mult = c(0, 0.02))) +
+      labs(x = "Diversificación (1 - HHI)", y = NULL, title = paste0("Diversificación productiva — ", input$hhi_anio)) +
+      theme_minimal(base_size = 12) +
+      theme(axis.text.y = element_text(size = 9), panel.grid.minor = element_blank(), panel.grid.major.y = element_blank())
+  })
+  
+  output$dl_png_hhi_serie <- downloadHandler(
+    filename = function() paste0("hhi_serie_", Sys.Date(), ".png"),
+    content = function(file) {
+      ragg::agg_png(file, width = 1400, height = 900, res = 150)
+      print(g_hhi_serie_gg())
+      grDevices::dev.off()
+    }
+  )
+  
+  output$dl_png_hhi_barras <- downloadHandler(
+    filename = function() paste0("hhi_barras_", Sys.Date(), ".png"),
+    content = function(file) {
+      ragg::agg_png(file, width = 1400, height = 1100, res = 150)
+      print(g_hhi_barras_gg())
+      grDevices::dev.off()
+    }
+  )
+  
+  filtros_informe <- reactive({
+    data.frame(
+      Parametro = c(
+        "Tab 1 - Año","Tab 1 - Departamento","Tab 1 - Municipio","Tab 1 - Cultivo","Tab 1 - Indicador",
+        "Tab 2 - Año","Tab 2 - Departamento","Tab 2 - Cultivo","Tab 2 - Indicador",
+        "Tab 3 - Año","Tab 3 - Departamento","Tab 3 - Municipio","Tab 3 - Base"
+      ),
+      Valor = c(
+        input$f_anio %||% "",
+        ifelse(is.null(input$f_depto), "", ifelse(input$f_depto == "Todos", "Todos", title_case_es(input$f_depto))),
+        ifelse(is.null(input$f_mpio), "", ifelse(input$f_mpio == "Todos", "Todos", title_case_es(input$f_mpio))),
+        ifelse(is.null(input$f_cultivo), "", ifelse(input$f_cultivo == "Todos", "Todos", title_case_es(input$f_cultivo))),
+        indicador_label() %||% "",
+        input$clus_anio %||% "",
+        ifelse(is.null(input$clus_depto), "", title_case_es(input$clus_depto)),
+        ifelse(is.null(input$clus_cultivo), "", ifelse(input$clus_cultivo == "Todos", "Todos", title_case_es(input$clus_cultivo))),
+        clus_indicador_label() %||% "",
+        input$hhi_anio %||% "",
+        ifelse(is.null(input$hhi_depto), "", ifelse(input$hhi_depto == "Todos", "Todos", title_case_es(input$hhi_depto))),
+        ifelse(is.null(input$hhi_mpio), "", ifelse(input$hhi_mpio == "Todos", "Todos", title_case_es(input$hhi_mpio))),
+        input$hhi_base %||% ""
+      ),
+      stringsAsFactors = FALSE
+    )
+  })
+  
+  render_informe_pdf <- function(file) {
+    log_file <- file.path(EXPORT_DIR, "debug_pdf_eva.txt")
+    
+    write_log <- function(...) {
+      cat(..., "\n", file = log_file, append = TRUE)
+    }
+    
+    write_log("====================================")
+    write_log("Inicio render PDF:", as.character(Sys.time()))
+    write_log("ruta_rmd:", ruta_rmd)
+    write_log("archivo destino:", file)
+    
+    if (!file.exists(ruta_rmd)) {
+      write_log("ERROR: No existe Informe_descargable.Rmd")
+      stop("No encuentro Informe_descargable.Rmd en la raíz del proyecto ni en data/.")
+    }
+    
+    filtros_tbl <- filtros_informe()
+    
+    write_log("Generando PNG tab1 mapa")
+    ok1 <- save_leaflet_png_retry(
+      widget     = isolate(map_widget_simple()),
+      file       = IMG_TAB1_MAP,
+      vwidth     = 2200,
+      vheight    = 1500,
+      zoom       = 2.2,
+      delay_base = 2.5
+    )
+    if (!isTRUE(ok1)) stop("No se pudo generar Descargas/eva_tab1_mapa.png")
+    
+    write_log("Generando PNG tab1 serie")
+    ok2 <- save_gg_png(
+      isolate(g_series_gg()),
+      IMG_TAB1_SER,
+      width = 1800,
+      height = 1000,
+      res = 150
+    )
+    if (!isTRUE(ok2)) stop("No se pudo generar Descargas/eva_tab1_serie.png")
+    
+    write_log("Generando PNG tab1 ranking")
+    ok3 <- save_gg_png(
+      isolate(g_ranking_gg()),
+      IMG_TAB1_RANK,
+      width = 1800,
+      height = 1000,
+      res = 150
+    )
+    if (!isTRUE(ok3)) stop("No se pudo generar Descargas/eva_tab1_ranking.png")
+    
+    write_log("Generando PNG tab2 clusters")
+    ok4 <- save_leaflet_png_retry(
+      widget     = isolate(map_clusters_simple()),
+      file       = IMG_TAB2_MAP,
+      vwidth     = 2600,
+      vheight    = 1800,
+      zoom       = 1.8,
+      delay_base = 4
+    )
+    
+    if (!isTRUE(ok4)) {
+      write_log("No se pudo generar tab2 clusters en lote; intentando reutilizar archivo existente")
+      if (file.exists(IMG_TAB2_MAP) &&
+          !is.na(file.info(IMG_TAB2_MAP)$size) &&
+          file.info(IMG_TAB2_MAP)$size > 0) {
+        write_log("Se reutiliza eva_tab2_clusters.png existente")
+      } else {
+        stop("No se pudo generar Descargas/eva_tab2_clusters.png")
+      }
+    }
+    
+    write_log("Generando PNG tab3 barras")
+    ok5 <- save_gg_png(
+      isolate(g_hhi_barras_gg()),
+      IMG_TAB3_BAR,
+      width = 1800,
+      height = 1200,
+      res = 150
+    )
+    if (!isTRUE(ok5)) stop("No se pudo generar Descargas/eva_tab3_barras.png")
+    
+    write_log("Generando PNG tab3 serie")
+    ok6 <- save_gg_png(
+      isolate(g_hhi_serie_gg()),
+      IMG_TAB3_SER,
+      width = 1800,
+      height = 1000,
+      res = 150
+    )
+    if (!isTRUE(ok6)) stop("No se pudo generar Descargas/eva_tab3_serie.png")
+    
+    logo_src <- file.path(app_root, "www", "LOGO_PLATEA.png")
+    if (!file.exists(logo_src)) {
+      logo_src2 <- file.path(app_root, "WWW", "LOGO_PLATEA.png")
+      logo_src  <- if (file.exists(logo_src2)) logo_src2 else NA_character_
+    }
+    
+    logo_dst <- file.path(EXPORT_DIR, "LOGO_PLATEA.png")
+    if (!is.na(logo_src) && file.exists(logo_src)) {
+      file.copy(logo_src, logo_dst, overwrite = TRUE)
+    } else {
+      stop("No encuentro el logo en www/LOGO_PLATEA.png")
+    }
+    
+    rmd_to_render <- ruta_rmd
+    write_log("rmd_to_render:", rmd_to_render)
+    
+    tryCatch({
+      write_log("Iniciando rmarkdown::render()")
+      
+      tmp_pdf <- tempfile(fileext = ".pdf")
+      
+      rmarkdown::render(
+        input         = rmd_to_render,
+        output_format = "pdf_document",
+        output_file   = basename(tmp_pdf),
+        output_dir    = dirname(tmp_pdf),
+        quiet         = TRUE,
+        params        = list(
+          app_root      = app_root,
+          export_dir    = "Descargas",
+          filtros       = filtros_tbl,
+          img_tab1_map  = basename(IMG_TAB1_MAP),
+          img_tab1_ser  = basename(IMG_TAB1_SER),
+          img_tab1_rank = basename(IMG_TAB1_RANK),
+          img_tab2_map  = basename(IMG_TAB2_MAP),
+          img_tab3_bar  = basename(IMG_TAB3_BAR),
+          img_tab3_ser  = basename(IMG_TAB3_SER)
+        ),
+        knit_root_dir = app_root,
+        envir         = new.env(parent = globalenv())
+      )
+      
+      if (!file.exists(tmp_pdf) || is.na(file.info(tmp_pdf)$size) || file.info(tmp_pdf)$size <= 0) {
+        write_log("ERROR: el PDF temporal no se generó correctamente")
+        stop("El PDF temporal no se generó correctamente.")
+      }
+      
+      ok_copy <- file.copy(tmp_pdf, file, overwrite = TRUE)
+      
+      if (!isTRUE(ok_copy) || !file.exists(file) || is.na(file.info(file)$size) || file.info(file)$size <= 0) {
+        write_log("ERROR: no se pudo copiar el PDF final")
+        stop("No se pudo copiar el PDF final al archivo de descarga.")
+      }
+      
+      write_log("Render terminado y copiado OK")
+      
+    }, error = function(e) {
+      write_log("ERROR EN RENDER:", conditionMessage(e))
+      stop(e)
+    })
+    
+    if (!file.exists(file) || is.na(file.info(file)$size) || file.info(file)$size <= 0) {
+      write_log("ERROR: el archivo PDF final no existe o quedó vacío")
+      stop("El archivo final PDF no se generó correctamente.")
+    }
+    
+    write_log("PDF final OK:", file)
+  }
+  
+  output$dl_reporte_pdf <- downloadHandler(
+    filename = function() {
+      anio_tag <- input$f_anio %||% Sys.Date()
+      dep_tag  <- if (is.null(input$f_depto) || input$f_depto == "Todos") {
+        "Atlantico"
+      } else {
+        sanitize_filename(title_case_es(input$f_depto))
+      }
+      mpio_tag <- if (is.null(input$f_mpio) || input$f_mpio == "Todos") {
+        "Todos"
+      } else {
+        sanitize_filename(title_case_es(input$f_mpio))
+      }
+      
+      paste0("Informe_EVA_", dep_tag, "_", mpio_tag, "_", anio_tag, "_", Sys.Date(), ".pdf")
+    },
+    content = function(file) {
+      tryCatch(
+        render_informe_pdf(file),
+        error = function(e) {
+          showNotification(
+            paste("Error al generar PDF:", conditionMessage(e)),
+            type = "error",
+            duration = NULL
+          )
+          stop(e)
+        }
+      )
+    },
+    contentType = "application/pdf"
+  )
   
   hhi_kpi_val <- reactive({
     req(input$hhi_anio, input$hhi_base)
@@ -2174,17 +2253,12 @@ server <- function(input, output, session) {
   output$hhi_kpi_valor <- renderText({
     v_hhi <- hhi_kpi_val()
     if (is.na(v_hhi) || !is.finite(v_hhi)) return("—")
-    v_div <- pmin(pmax(1 - v_hhi, 0), 1)
-    sprintf("%.3f", v_div)
+    sprintf("%.3f", pmin(pmax(1 - v_hhi, 0), 1))
   })
   
-  # CSV Tab 3 (exporta base filtrada HHI)
   output$dl_csv_hhi <- downloadHandler(
     filename = function() paste0("eva_hhi_base_", Sys.Date(), ".csv"),
-    content = function(file) {
-      df <- eva_hhi()
-      utils::write.csv(df, file, row.names = FALSE, fileEncoding = "UTF-8")
-    }
+    content = function(file) utils::write.csv(eva_hhi(), file, row.names = FALSE, fileEncoding = "UTF-8")
   )
 }
 
@@ -2192,4 +2266,3 @@ server <- function(input, output, session) {
 # 6) Lanzar App
 # ------------------------------
 shinyApp(ui = ui, server = server)
-

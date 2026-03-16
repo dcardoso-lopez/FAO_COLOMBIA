@@ -1,0 +1,166 @@
+---
+title: "Condiciones socio-económicas de la población"
+subtitle: "PLATEA"
+output:
+  pdf_document:
+    toc: true
+    toc_depth: 2
+    number_sections: true
+    latex_engine: xelatex
+geometry: margin=1in
+fontsize: 11pt
+header-includes:
+  - \usepackage{fancyhdr}
+  - \usepackage{graphicx}
+  - \pagestyle{fancy}
+  - \fancyhf{} 
+  - \fancyhead[L]{\includegraphics[height=1.5cm]{"C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/DNP_SISBEN/www/LOGO_PLATEA.png"}}
+  - \fancyfoot[C]{\thepage}
+  - \setlength{\headheight}{45pt}
+params:
+  app_root: "."
+  export_dir: "Descargas"
+  filtros: !r data.frame(Parametro=character(), Valor=character())
+  img_grupos: "sisben_grupos.png"
+  img_priv: "sisben_privaciones.png"
+  img_pobreza: "sisben_pobreza_ab.png"
+  ano: NULL
+  dep: NULL
+  mun: NULL
+  grupo: NULL
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  warning = FALSE,
+  message = FALSE,
+  fig.align = "center",
+  out.width = "95%"
+)
+
+`%||%` <- function(x, y) {
+  if (is.null(x) || length(x) == 0 || all(is.na(x))) y else x
+}
+
+safe_text <- function(x) {
+  x <- as.character(x)
+  x[is.na(x)] <- ""
+  x
+}
+
+app_root   <- params$app_root %||% "."
+export_dir <- params$export_dir %||% "Descargas"
+
+img_grupos_path <- normalizePath(
+  file.path(app_root, export_dir, params$img_grupos %||% "sisben_grupos.png"),
+  winslash = "/",
+  mustWork = FALSE
+)
+
+img_priv_path <- normalizePath(
+  file.path(app_root, export_dir, params$img_priv %||% "sisben_privaciones.png"),
+  winslash = "/",
+  mustWork = FALSE
+)
+
+img_pobreza_path <- normalizePath(
+  file.path(app_root, export_dir, params$img_pobreza %||% "sisben_pobreza_ab.png"),
+  winslash = "/",
+  mustWork = FALSE
+)
+
+filtros_tbl <- params$filtros
+
+if (is.null(filtros_tbl) || !is.data.frame(filtros_tbl) || nrow(filtros_tbl) == 0) {
+  filtros_tbl <- data.frame(
+    Parametro = c("Año", "Departamento", "Municipio", "Grupo"),
+    Valor = c(
+      safe_text(params$ano %||% ""),
+      safe_text(params$dep %||% ""),
+      safe_text(params$mun %||% ""),
+      safe_text(params$grupo %||% "")
+    ),
+    stringsAsFactors = FALSE
+  )
+}
+
+valor_filtro <- function(nombre) {
+  idx <- which(filtros_tbl$Parametro == nombre)
+  if (length(idx) == 0) return("")
+  safe_text(filtros_tbl$Valor[idx[1]])
+}
+
+ano_sel   <- valor_filtro("Año")
+dep_sel   <- valor_filtro("Departamento")
+mun_sel   <- valor_filtro("Municipio")
+grupo_sel <- valor_filtro("Grupo")
+
+ambito_txt <- if (nzchar(mun_sel) && mun_sel != "Todos") {
+  paste0(mun_sel, ", ", dep_sel)
+} else if (nzchar(dep_sel) && dep_sel != "Todos") {
+  dep_sel
+} else {
+  "Colombia"
+}
+
+incluir_imagen <- function(path) {
+  if (file.exists(path)) {
+    knitr::include_graphics(path)
+  } else {
+    stop(paste("No se encontró la imagen:", path))
+  }
+}
+```
+
+# Resumen del reporte
+
+Este módulo analiza las condiciones socio-económicas de la población a partir de la clasificación de hogares según grupos del Sisbén IV y del Índice de Pobreza Multidimensional (IPM). Estos indicadores permiten caracterizar las privaciones estructurales que enfrentan los hogares. Desde una perspectiva agroalimentaria, las condiciones socio-económicas determinan no solo la capacidad de compra de los hogares, sino también sus estrategias de consumo, la calidad de la dieta y la dependencia de mecanismos informales o de emergencia para garantizar la alimentación.
+
+## Objetivo del reporte
+
+El objetivo de este informe es examinar la magnitud, distribución y dinámica de la pobreza (monetaria - proxy Sisbén IV y multidimensional) en los hogares como un factor estructural del acceso a los alimentos y la seguridad alimentaria.
+
+1. Describir y contrastar las condiciones de pobreza según la clasificación del Sisbén IV y multidimensional a partir del IPM, para reconocer territorios y grupos poblacionales con mayor vulnerabilidad socioeconómica.
+
+2. Contribuir a la orientación estratégica de políticas de seguridad alimentaria, la priorización de programas sociales y el diseño de intervenciones agroalimentarias con enfoque territorial y poblacional.
+
+
+## Filtro usados
+```{r}
+knitr::kable(
+  filtros_tbl,
+  col.names = c("Parámetro", "Valor"),
+  align = c("l", "l"),
+  booktabs = TRUE,
+  caption = "Filtros aplicados en la generación del informe"
+)
+```
+
+# Resultados
+
+## ¿Cómo se distribuye la población según el grupo de Sisbén IV?
+
+La distribución de hogares por grupos del Sisbén IV permite identificar la estructura socio-económica de la población y su grado de vulnerabilidad. Los grupos con mayor concentración de hogares en condiciones de pobreza reflejan una base poblacional con menor capacidad de absorción de choques y mayor dependencia de transferencias y apoyos institucionales. Desde el enfoque agroalimentario, esta distribución contribuye a comprender las limitaciones que enfrentan los hogares para acceder a los recursos necesarios para una canasta básica de consumo y servicios.
+. 
+
+```{r, out.width="85%"}
+incluir_imagen(img_grupos_path)
+```
+
+## ¿Qué privaciones del IPM son más frecuentes en el territorio?
+El ranking de privaciones del IPM muestra cuáles carencias socio-económicas son más comunes entre los hogares, como el trabajo informal, el bajo logro educativo o el desempleo de larga duración. Estas privaciones afectan de manera directa la estabilidad del ingreso y, por ende, la capacidad de los hogares para garantizar el consumo regular de alimentos. En el sistema agroalimentario, la prevalencia de ciertas privaciones permite identificar canales estructurales de vulnerabilidad, donde la inseguridad alimentaria no responde únicamente a la disponibilidad de alimentos, sino a limitaciones persistentes en ingreso, empleo y acceso a servicios básicos.
+
+```{r, out.width="85%"}
+incluir_imagen(img_priv_path)
+```
+
+## ¿Cómo ha evolucionado el porcentaje de hogares en condición de pobreza entre 2021 y 2024?
+
+La serie temporal del porcentaje de hogares en condición de pobreza multidimensional permite analizar la evolución reciente de la vulnerabilidad socio-económica. Cambios en esta tendencia pueden reflejar tanto choques coyunturales como transformaciones estructurales en el territorio. Desde una perspectiva agroalimentaria, aumentos sostenidos en la pobreza suelen anticipar mayores tensiones sobre el acceso a los alimentos, ajustes en patrones de consumo y una mayor demanda de mecanismos de protección social. Por el contrario, reducciones persistentes pueden indicar mejoras en las condiciones de acceso y estabilidad del consumo alimentario.
+
+```{r, out.width="85%"}
+incluir_imagen(img_pobreza_path)
+```
+
+
