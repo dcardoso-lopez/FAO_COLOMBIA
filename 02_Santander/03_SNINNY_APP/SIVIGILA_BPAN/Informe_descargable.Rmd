@@ -1,0 +1,157 @@
+---
+title: "Bajo peso al nacer"
+subtitle: "PLATEA"
+header-includes:
+  - \usepackage{graphicx}
+  - \usepackage{float}
+  - \usepackage{placeins}
+  - \usepackage{fancyhdr}
+  - \usepackage{array}
+  - \usepackage{longtable}
+  - \usepackage{booktabs}
+  - \usepackage{caption}
+  - \pagestyle{fancy}
+  - \setlength{\headheight}{40pt}
+  - \fancyfoot[C]{\thepage}
+  - \renewcommand{\headrulewidth}{0.6pt}
+  - \renewcommand{\footrulewidth}{0.6pt}
+  - \fancyhead[L]{\includegraphics[height=1.4cm]{Descargas/LOGO_PLATEA.png}}
+  - \raggedbottom
+  - \sloppy
+output:
+  pdf_document:
+    toc: true
+    number_sections: true
+    latex_engine: xelatex
+geometry: margin=1in
+
+params:
+  app_root: !r getwd()
+  export_dir: "Descargas"
+  filtros: NULL
+
+  anio: NULL
+  especie: "BPAN"
+  departamento: NULL
+  municipio: NULL
+  ind: "bpan"
+
+  img_map: NULL
+  img_serie: NULL
+  img_ranking: NULL
+
+  csv_filtrado: NULL
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center",
+  out.width = "95%",
+  dpi = 150
+)
+
+`%||%` <- function(x, y) if (is.null(x) || length(x) == 0) y else x
+
+app_root   <- params$app_root %||% getwd()
+export_dir <- params$export_dir %||% "Descargas"
+
+safe_path <- function(fname){
+  if (is.null(fname) || is.na(fname) || !nzchar(fname)) return(NA_character_)
+  p <- file.path(export_dir, fname)
+  if (!file.exists(file.path(app_root, p))) return(NA_character_)
+  p
+}
+
+safe_include <- function(p, txt = "No se encontró la imagen correspondiente."){
+  if (is.na(p) || !nzchar(p) || !file.exists(file.path(app_root, p))) {
+    cat(txt, "\n")
+  } else {
+    knitr::include_graphics(p)
+  }
+}
+
+img_use <- list(
+  map     = safe_path(params$img_map),
+  serie   = safe_path(params$img_serie),
+  ranking = safe_path(params$img_ranking)
+)
+
+mk_filtros_tbl <- function(x){
+  if (!is.null(x) && is.data.frame(x) && all(c("Parametro","Valor") %in% names(x))) {
+    x[] <- lapply(x, function(v){
+      v <- as.character(v)
+      v[is.na(v)] <- ""
+      v
+    })
+    return(x)
+  }
+
+  data.frame(
+    Parametro = c("Filtro", "Valor"),
+    Valor     = c("Sin información", "Sin información"),
+    stringsAsFactors = FALSE
+  )
+}
+
+filtros_tbl <- mk_filtros_tbl(params$filtros)
+```
+
+# Resumen del reporte
+
+Este módulo analiza el bajo peso al nacer (BPN) como un indicador crítico de vulnerabilidad nutricional y socioeconómica en el territorio. El BPN refleja condiciones adversas durante la gestación, asociadas a inseguridad alimentaria materna, deficiencias nutricionales, acceso limitado a servicios de salud y contextos socioeconómicos desfavorables. En consecuencia, constituye una señal temprana de tensiones estructurales en el sistema agroalimentario. Desde una perspectiva agroalimentaria, el bajo peso al nacer no es únicamente un resultado sanitario, sino un síntoma de fallas en el acceso sostenido a alimentos adecuados y de calidad, así como en la capacidad del territorio para garantizar condiciones mínimas de bienestar nutricional desde las primeras etapas de la vida.
+
+
+## Objetivo
+
+El objetivo de este módulo es identificar patrones territoriales y temporales del bajo peso al nacer para apoyar la toma de decisiones en el sistema agroalimentario. En particular, se busca:
+
+1. Acceso y calidad de la alimentación: identificar territorios donde la incidencia de BPN puede estar asociada a deficiencias en la dieta materna y a inseguridad alimentaria.
+
+2. Focalización territorial: priorizar municipios con mayor número de casos para orientar intervenciones integradas entre nutrición, salud y abastecimiento de alimentos.
+
+3. Gestión del riesgo intergeneracional: reconocer tendencias persistentes de BPN que puedan anticipar problemas futuros de desarrollo humano y productividad.
+
+
+# Resultados
+
+## 1. Filtros aplicados
+
+```{r}
+knitr::kable(
+  filtros_tbl,
+  format = "latex",
+  booktabs = TRUE,
+  longtable = FALSE,
+  align = c("p{0.38\\textwidth}", "p{0.52\\textwidth}"),
+  escape = TRUE,
+  caption = "Filtros aplicados en la app al momento de generar el informe"
+)
+```
+
+### ¿En qué territorios se concentran los casos de bajo peso al nacer?
+
+El mapa territorial muestra la distribución espacial de los casos de BPN por municipio, clasificados en rangos relativos. Este indicador permite identificar territorios donde la carga absoluta de casos es mayor y donde las condiciones estructurales de vulnerabilidad nutricional pueden ser más pronunciadas. En el sistema agroalimentario, territorios con mayor concentración de casos de BPN suelen coincidir con contextos de acceso limitado a alimentos frescos, dietas poco diversificadas y mayores restricciones socioeconómicas. El mapa funciona como una herramienta de focalización para articular acciones de producción local, abastecimiento y apoyo nutricional.
+
+
+```{r}
+safe_include(img_use$map, "No se encontró la imagen del mapa territorial.")
+```
+
+### ¿Qué municipios registran el mayor número de casos de bajo peso al nacer?
+
+El ranking de los diez municipios con mayor número de casos de BPN permite priorizar territorios cuando los recursos institucionales son limitados. Este indicador facilita pasar de un diagnóstico general a una lista concreta de municipios donde la intervención integrada del sistema agroalimentario y de salud puede tener mayor impacto. Desde un enfoque operativo, este ranking es clave para orientar programas de apoyo alimentario, fortalecimiento de mercados locales de alimentos frescos y acciones de educación nutricional dirigidas a mujeres gestantes.
+
+```{r}
+safe_include(img_use$ranking, "No se encontró la imagen del ranking Top 10.")
+```
+
+### ¿Cómo ha evolucionado en el tiempo el número de casos de bajo peso al nacer?
+
+La serie temporal muestra cómo ha evolucionado el número de casos de BPN a lo largo del tiempo. Este indicador permite identificar periodos de aumento o reducción en la incidencia, así como episodios atípicos que pueden estar asociados a choques económicos, alimentarios o institucionales. Desde una perspectiva agroalimentaria, incrementos sostenidos en los casos de BPN pueden anticipar deterioros en la seguridad alimentaria de los hogares y fallas persistentes en el acceso a dietas adecuadas durante el embarazo, mientras que reducciones pueden reflejar mejoras en políticas de nutrición, acceso a alimentos y protección social.
+
+```{r}
+safe_include(img_use$serie, "No se encontró la imagen de la serie temporal.")
+```

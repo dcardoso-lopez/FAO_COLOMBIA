@@ -1,0 +1,212 @@
+% Options for packages loaded elsewhere
+\PassOptionsToPackage{unicode}{hyperref}
+\PassOptionsToPackage{hyphens}{url}
+%
+\documentclass[
+]{article}
+\usepackage{amsmath,amssymb}
+\usepackage{iftex}
+\ifPDFTeX
+  \usepackage[T1]{fontenc}
+  \usepackage[utf8]{inputenc}
+  \usepackage{textcomp} % provide euro and other symbols
+\else % if luatex or xetex
+  \usepackage{unicode-math} % this also loads fontspec
+  \defaultfontfeatures{Scale=MatchLowercase}
+  \defaultfontfeatures[\rmfamily]{Ligatures=TeX,Scale=1}
+\fi
+\usepackage{lmodern}
+\ifPDFTeX\else
+  % xetex/luatex font selection
+\fi
+% Use upquote if available, for straight quotes in verbatim environments
+\IfFileExists{upquote.sty}{\usepackage{upquote}}{}
+\IfFileExists{microtype.sty}{% use microtype if available
+  \usepackage[]{microtype}
+  \UseMicrotypeSet[protrusion]{basicmath} % disable protrusion for tt fonts
+}{}
+\makeatletter
+\@ifundefined{KOMAClassName}{% if non-KOMA class
+  \IfFileExists{parskip.sty}{%
+    \usepackage{parskip}
+  }{% else
+    \setlength{\parindent}{0pt}
+    \setlength{\parskip}{6pt plus 2pt minus 1pt}}
+}{% if KOMA class
+  \KOMAoptions{parskip=half}}
+\makeatother
+\usepackage{xcolor}
+\usepackage[margin=1in]{geometry}
+\usepackage{graphicx}
+\makeatletter
+\def\maxwidth{\ifdim\Gin@nat@width>\linewidth\linewidth\else\Gin@nat@width\fi}
+\def\maxheight{\ifdim\Gin@nat@height>\textheight\textheight\else\Gin@nat@height\fi}
+\makeatother
+% Scale images if necessary, so that they will not overflow the page
+% margins by default, and it is still possible to overwrite the defaults
+% using explicit options in \includegraphics[width, height, ...]{}
+\setkeys{Gin}{width=\maxwidth,height=\maxheight,keepaspectratio}
+% Set default figure placement to htbp
+\makeatletter
+\def\fps@figure{htbp}
+\makeatother
+\setlength{\emergencystretch}{3em} % prevent overfull lines
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+\setcounter{secnumdepth}{5}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{placeins}
+\usepackage{fancyhdr}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{booktabs}
+\usepackage{caption}
+\pagestyle{fancy}
+\setlength{\headheight}{40pt}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.6pt}
+\renewcommand{\footrulewidth}{0.6pt}
+\fancyhead[L]{\includegraphics[height=1.4cm]{Descargas/LOGO_PLATEA.png}}
+\raggedbottom
+\sloppy
+\ifLuaTeX
+  \usepackage{selnolig}  % disable illegal ligatures
+\fi
+\usepackage{bookmark}
+\IfFileExists{xurl.sty}{\usepackage{xurl}}{} % add URL line breaks if available
+\urlstyle{same}
+\hypersetup{
+  pdftitle={Bajo peso al nacer},
+  hidelinks,
+  pdfcreator={LaTeX via pandoc}}
+
+\title{Bajo peso al nacer}
+\usepackage{etoolbox}
+\makeatletter
+\providecommand{\subtitle}[1]{% add subtitle to \maketitle
+  \apptocmd{\@title}{\par {\large #1 \par}}{}{}
+}
+\makeatother
+\subtitle{PLATEA}
+\author{}
+\date{\vspace{-2.5em}}
+
+\begin{document}
+\maketitle
+
+{
+\setcounter{tocdepth}{2}
+\tableofcontents
+}
+\section{Resumen del reporte}\label{resumen-del-reporte}
+
+Este módulo analiza el bajo peso al nacer (BPN) como un indicador
+crítico de vulnerabilidad nutricional y socioeconómica en el territorio.
+El BPN refleja condiciones adversas durante la gestación, asociadas a
+inseguridad alimentaria materna, deficiencias nutricionales, acceso
+limitado a servicios de salud y contextos socioeconómicos desfavorables.
+En consecuencia, constituye una señal temprana de tensiones
+estructurales en el sistema agroalimentario. Desde una perspectiva
+agroalimentaria, el bajo peso al nacer no es únicamente un resultado
+sanitario, sino un síntoma de fallas en el acceso sostenido a alimentos
+adecuados y de calidad, así como en la capacidad del territorio para
+garantizar condiciones mínimas de bienestar nutricional desde las
+primeras etapas de la vida.
+
+\subsection{Objetivo}\label{objetivo}
+
+El objetivo de este módulo es identificar patrones territoriales y
+temporales del bajo peso al nacer para apoyar la toma de decisiones en
+el sistema agroalimentario. En particular, se busca:
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\item
+  Acceso y calidad de la alimentación: identificar territorios donde la
+  incidencia de BPN puede estar asociada a deficiencias en la dieta
+  materna y a inseguridad alimentaria.
+\item
+  Focalización territorial: priorizar municipios con mayor número de
+  casos para orientar intervenciones integradas entre nutrición, salud y
+  abastecimiento de alimentos.
+\item
+  Gestión del riesgo intergeneracional: reconocer tendencias
+  persistentes de BPN que puedan anticipar problemas futuros de
+  desarrollo humano y productividad.
+\end{enumerate}
+
+\section{Resultados}\label{resultados}
+
+\subsection{1. Filtros aplicados}\label{filtros-aplicados}
+
+\begin{table}
+
+\caption{\label{tab:unnamed-chunk-1}Filtros aplicados en la app al momento de generar el informe}
+\centering
+\begin{tabular}[t]{p{0.38\textwidth}p{0.52\textwidth}}
+\toprule
+Parametro & Valor\\
+\midrule
+Filtro & Sin información\\
+Valor & Sin información\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{¿En qué territorios se concentran los casos de bajo peso
+al
+nacer?}\label{en-quuxe9-territorios-se-concentran-los-casos-de-bajo-peso-al-nacer}
+
+El mapa territorial muestra la distribución espacial de los casos de BPN
+por municipio, clasificados en rangos relativos. Este indicador permite
+identificar territorios donde la carga absoluta de casos es mayor y
+donde las condiciones estructurales de vulnerabilidad nutricional pueden
+ser más pronunciadas. En el sistema agroalimentario, territorios con
+mayor concentración de casos de BPN suelen coincidir con contextos de
+acceso limitado a alimentos frescos, dietas poco diversificadas y
+mayores restricciones socioeconómicas. El mapa funciona como una
+herramienta de focalización para articular acciones de producción local,
+abastecimiento y apoyo nutricional.
+
+\begin{verbatim}
+## No se encontró la imagen del mapa territorial.
+\end{verbatim}
+
+\subsubsection{¿Qué municipios registran el mayor número de casos de
+bajo peso al
+nacer?}\label{quuxe9-municipios-registran-el-mayor-nuxfamero-de-casos-de-bajo-peso-al-nacer}
+
+El ranking de los diez municipios con mayor número de casos de BPN
+permite priorizar territorios cuando los recursos institucionales son
+limitados. Este indicador facilita pasar de un diagnóstico general a una
+lista concreta de municipios donde la intervención integrada del sistema
+agroalimentario y de salud puede tener mayor impacto. Desde un enfoque
+operativo, este ranking es clave para orientar programas de apoyo
+alimentario, fortalecimiento de mercados locales de alimentos frescos y
+acciones de educación nutricional dirigidas a mujeres gestantes.
+
+\begin{verbatim}
+## No se encontró la imagen del ranking Top 10.
+\end{verbatim}
+
+\subsubsection{¿Cómo ha evolucionado en el tiempo el número de casos de
+bajo peso al
+nacer?}\label{cuxf3mo-ha-evolucionado-en-el-tiempo-el-nuxfamero-de-casos-de-bajo-peso-al-nacer}
+
+La serie temporal muestra cómo ha evolucionado el número de casos de BPN
+a lo largo del tiempo. Este indicador permite identificar periodos de
+aumento o reducción en la incidencia, así como episodios atípicos que
+pueden estar asociados a choques económicos, alimentarios o
+institucionales. Desde una perspectiva agroalimentaria, incrementos
+sostenidos en los casos de BPN pueden anticipar deterioros en la
+seguridad alimentaria de los hogares y fallas persistentes en el acceso
+a dietas adecuadas durante el embarazo, mientras que reducciones pueden
+reflejar mejoras en políticas de nutrición, acceso a alimentos y
+protección social.
+
+\begin{verbatim}
+## No se encontró la imagen de la serie temporal.
+\end{verbatim}
+
+\end{document}

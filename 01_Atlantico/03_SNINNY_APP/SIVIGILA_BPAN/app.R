@@ -1,25 +1,34 @@
 # app_bpan.R
 # =========================================================
 # BPAN — Dashboard (app exclusiva) - ATLÁNTICO
+# BOTONES TIPO ICA: PNG + CSV + PDF via Rmarkdown
+# CORREGIDO: descarga robusta del mapa PNG
 # =========================================================
 
-suppressWarnings({
-  library(shiny); library(bslib); library(shinyWidgets)
-  library(leaflet); library(sf); library(dplyr); library(tidyr)
-  library(scales); library(htmltools); library(DT); library(plotly)
-  library(stringi)
-})
+# ---------- Paquetes ----------
+pkgs <- c(
+  "shiny","bslib","shinyWidgets",
+  "leaflet","sf","dplyr","tidyr","scales","htmltools","DT","plotly",
+  "stringi","htmlwidgets","webshot2","rmarkdown","readr","ggplot2"
+)
+
+pkgs <- as.character(pkgs)
+pkgs <- pkgs[!is.na(pkgs) & nzchar(pkgs)]
+stopifnot(is.character(pkgs), length(pkgs) > 0)
+
+suppressWarnings(invisible(lapply(pkgs, function(p) {
+  suppressPackageStartupMessages(require(p, character.only = TRUE))
+})))
 
 options(stringsAsFactors = FALSE)
 sf::sf_use_s2(FALSE)
-options(shiny.maxRequestSize = 100*1024^2)
+options(shiny.maxRequestSize = 100 * 1024^2)
 
 validate <- shiny::validate
 need     <- shiny::need
 
 # ---------- Colores globales ----------
 MAP_COLORS <- c("#fff9db", "#ffe082", "#ffd54f", "#fbc02d", "#c49000")
-
 BAR_COLOR  <- "#ffd54f"
 BORDER_UI  <- "#ffb366"
 
@@ -27,21 +36,29 @@ BORDER_UI  <- "#ffb366"
 norm_txt <- function(x) stringi::stri_trans_general(trimws(as.character(x)), "Latin-ASCII")
 NUP      <- function(x) toupper(norm_txt(x))
 
-# Title Case en español, optimizado (mucho más rápido)
+`%||%` <- function(x, y) if (is.null(x) || length(x) == 0) y else x
+
+safe_utf8 <- function(x){
+  x <- as.character(x)
+  x <- iconv(x, from = "", to = "UTF-8", sub = "")
+  x <- stringi::stri_enc_toutf8(x, is_unknown_8bit = TRUE)
+  x
+}
+
 title_case_es <- function(x){
+  x <- safe_utf8(x)
   x <- trimws(as.character(x))
   is_na <- is.na(x) | x == ""
   if (all(is_na)) return(x)
   
   x_ok <- x[!is_na]
-  
-  # 1) Pasar todo a Title Case
   x_ok <- stringi::stri_trans_totitle(x_ok, locale = "es")
   
-  # 2) Bajar conectores al medio de la frase (no toco el primero)
-  conectores      <- c(" De ", " Del ", " La ", " Las ", " Los ", " Y ", " E ", " O ", " U ",
-                       " En ", " Por ", " Para ", " Con ", " Sin ", " A ", " Al ", " El ")
-  conectores_low  <- tolower(conectores)
+  conectores <- c(
+    " De ", " Del ", " La ", " Las ", " Los ", " Y ", " E ", " O ", " U ",
+    " En ", " Por ", " Para ", " Con ", " Sin ", " A ", " Al ", " El "
+  )
+  conectores_low <- tolower(conectores)
   
   for (i in seq_along(conectores)) {
     x_ok <- gsub(conectores[i], conectores_low[i], x_ok, fixed = TRUE)
@@ -56,14 +73,115 @@ get_col <- function(df, opts, stop_msg){
   if (is.na(nm) || !nzchar(nm)) stop(stop_msg) else nm
 }
 
-# ---------- Helper por si acaso ----------
-`%||%` <- function(x, y) if (is.null(x) || length(x) == 0) y else x
+fmt_num <- function(x, accuracy = 1){
+  scales::number(x, accuracy = accuracy, big.mark = ".", decimal.mark = ",")
+}
+
+fmt_km <- function(x){
+  if (is.na(x) || !is.finite(x)) return(NA_character_)
+  ax <- abs(x)
+  if (ax >= 1e6) {
+    paste0(fmt_num(x / 1e6, 0.1), " M")
+  } else if (ax >= 1e3) {
+    paste0(fmt_num(x / 1e3, 0.1), " K")
+  } else {
+    fmt_num(x, 1)
+  }
+}
+
+zoom_from_bbox <- function(bb){
+  w <- abs(as.numeric(bb["xmax"] - bb["xmin"]))
+  h <- abs(as.numeric(bb["ymax"] - bb["ymin"]))
+  span <- max(w, h)
+  if (!is.finite(span)) return(7)
+  if (span < 0.10) return(12)
+  if (span < 0.20) return(11)
+  if (span < 0.35) return(10)
+  if (span < 0.80) return(9)
+  if (span < 1.50) return(8)
+  if (span < 3.00) return(7)
+  6
+}
+
+get_app_root <- function(){
+  normalizePath(shiny::getShinyOption("appDir") %||% getwd(), winslash = "/", mustWork = FALSE)
+}
+
+# ---------- Export ----------
+app_root   <- get_app_root()
+EXPORT_DIR <- file.path(app_root, "Descargas")
+dir.create(EXPORT_DIR, recursive = TRUE, showWarnings = FALSE)
+
+ruta_rmd <- file.path(app_root, "Informe_descargable.Rmd")
+
+PNG_VWIDTH    <- 3200
+PNG_VHEIGHT   <- 2400
+PNG_DELAY_CO  <- 3.0
+PNG_DELAY_MUN <- 4.5
+
+IMG_MAP <- file.path(EXPORT_DIR, "bpan_mapa.png")
+IMG_SER <- file.path(EXPORT_DIR, "bpan_serie.png")
+IMG_TOP <- file.path(EXPORT_DIR, "bpan_top10.png")
+
+save_widget_png <- function(widget, out_png, vwidth = PNG_VWIDTH, vheight = PNG_VHEIGHT, delay = PNG_DELAY_CO){
+  dir.create(dirname(out_png), recursive = TRUE, showWarnings = FALSE)
+  
+  tmp_dir  <- tempfile("wshot_")
+  dir.create(tmp_dir, recursive = TRUE, showWarnings = FALSE)
+  tmp_html <- file.path(tmp_dir, "widget.html")
+  
+  htmlwidgets::saveWidget(
+    widget,
+    file = tmp_html,
+    selfcontained = TRUE,
+    background = "white"
+  )
+  
+  html_url <- paste0(
+    "file:///",
+    gsub("\\\\", "/", normalizePath(tmp_html, winslash = "/", mustWork = TRUE))
+  )
+  
+  if (file.exists(out_png)) unlink(out_png, force = TRUE)
+  
+  webshot2::webshot(
+    url     = html_url,
+    file    = out_png,
+    vwidth  = vwidth,
+    vheight = vheight,
+    delay   = delay
+  )
+  
+  for (i in 1:15) {
+    if (file.exists(out_png)) {
+      info <- file.info(out_png)
+      if (is.finite(info$size) && info$size > 0) return(TRUE)
+    }
+    Sys.sleep(0.4)
+  }
+  
+  FALSE
+}
+
+save_widget_png_retry <- function(widget, out_png, vwidth, vheight, delay_base){
+  delays <- c(delay_base, delay_base + 2, delay_base + 4, delay_base + 6)
+  for (d in delays){
+    ok <- tryCatch(
+      save_widget_png(widget, out_png, vwidth = vwidth, vheight = vheight, delay = d),
+      error = function(e) {
+        message("Error en save_widget_png con delay=", d, ": ", conditionMessage(e))
+        FALSE
+      }
+    )
+    if (isTRUE(ok)) return(TRUE)
+  }
+  FALSE
+}
 
 # ---------- Rutas ----------
 local_data_dir <- "data"
-app_root     <- tryCatch(normalizePath(getwd(), winslash = "/", mustWork = TRUE), error = function(e) getwd())
-rel_data_dir <- file.path(app_root, "data")
-data_dir <- if (dir.exists(rel_data_dir)) rel_data_dir else local_data_dir
+rel_data_dir   <- file.path(app_root, "data")
+data_dir       <- if (dir.exists(rel_data_dir)) rel_data_dir else local_data_dir
 
 bpan_path      <- file.path(data_dir, "021_INS_SIVIGILA-BPAN.rds")
 ruta_shp_mpios <- file.path(data_dir, "shp", "MGN_ANM_MPIOS.shp")
@@ -81,27 +199,26 @@ check_shp_parts <- function(shp){
 miss_shp <- c(check_shp_parts(ruta_shp_mpios), check_shp_parts(ruta_shp_dptos))
 if (length(miss_shp)) stop("Faltan componentes de shapefile:\n", paste("-", miss_shp, collapse = "\n"))
 
-# ---------- 1) Leer BPAN (casos = filas) ----------
+# ---------- 1) Leer BPAN ----------
 bpan_raw <- readRDS(bpan_path)
 
-# CAMBIO: Filtrar solo Atlántico
 bpan_raw <- bpan_raw %>%
   dplyr::filter(DEPARTAMENTO_O == "ATLÁNTICO" | DEPARTAMENTO_O == "ATLANTICO")
 
-# SOLO año, eliminado mes
 b_year_col <- get_col(bpan_raw, c("ano","ANO","year","YEAR"), "BPAN: no 'ano'/'ANO'")
 
-# Códigos para MAPA desde OCURRENCIA (_O)
 b_mun_code_col <- get_col(
   bpan_raw,
   c("COD_DANE_MUNIC_O","COD_DANE_MUNIC_D","COD_MUN5","COD_MPIO","MPIO_CDPMP"),
   "BPAN: no 'COD_DANE_MUNIC_O' (ni columnas equivalentes) para ocurrencia"
 )
 
-# Códigos y nombres de ORIGEN (ocurrencia)
 b_dep_origen_col <- get_col(bpan_raw, c("DEPARTAMENTO_O","DEPARTAMENTO"), "BPAN: no 'DEPARTAMENTO_O'")
 b_mun_origen_col <- get_col(bpan_raw, c("MUNICIPIO_O","MUNICIPIO"), "BPAN: no 'MUNICIPIO_O'")
 b_dep_code_o_col <- get_col(bpan_raw, c("COD_DANE_DPTO_O","COD_DPTO"), "BPAN: no 'COD_DANE_DPTO_O'")
+
+edad_col    <- c("edad","EDAD")[c("edad","EDAD") %in% names(bpan_raw)][1]
+pac_hos_col <- c("pac_hos","PAC_HOS")[c("pac_hos","PAC_HOS") %in% names(bpan_raw)][1]
 
 bpan <- bpan_raw %>%
   dplyr::transmute(
@@ -110,12 +227,12 @@ bpan <- bpan_raw %>%
     COD_DPTO2 = if (!is.na(b_dep_code_o_col)) {
       sprintf("%02d", suppressWarnings(as.integer(.data[[b_dep_code_o_col]])))
     } else {
-      substr(COD_MUN5, 1, 2)
+      substr(sprintf("%05d", suppressWarnings(as.integer(.data[[b_mun_code_col]]))), 1, 2)
     },
     DEP     = title_case_es(.data[[b_dep_origen_col]]),
     MUN     = title_case_es(.data[[b_mun_origen_col]]),
-    edad      = suppressWarnings(as.numeric(edad)),     # edad materna (si existe en la base)
-    PAC_HOS   = suppressWarnings(as.integer(pac_hos))   # 1 = vivo, 2 = fallecido (si existe en la base)
+    edad    = if (!is.na(edad_col)) suppressWarnings(as.numeric(.data[[edad_col]])) else NA_real_,
+    PAC_HOS = if (!is.na(pac_hos_col)) suppressWarnings(as.integer(.data[[pac_hos_col]])) else NA_integer_
   ) %>%
   dplyr::filter(
     !is.na(ano),
@@ -125,12 +242,10 @@ bpan <- bpan_raw %>%
     !is.na(DEP)
   )
 
-# Filtrar solo Atlántico (normalizando el nombre)
 bpan <- bpan %>%
   dplyr::mutate(DEP = ifelse(toupper(DEP) %in% c("ATLÁNTICO", "ATLANTICO"), "Atlántico", DEP)) %>%
   dplyr::filter(DEP == "Atlántico")
 
-# *** Lookup de departamentos - solo Atlántico ***
 DEPS_ALL <- "Atlántico"
 ATLANTICO_DEFAULT <- "Atlántico"
 
@@ -143,7 +258,7 @@ mpios_sf <- mpios_raw %>%
     COD_MUN5 = if ("MPIO_CDPMP" %in% names(.)) sprintf("%05d", as.integer(MPIO_CDPMP))
     else if ("COD_MPIO" %in% names(.)) sprintf("%05d", as.integer(COD_MPIO))
     else stop("Shp municipios: falta MPIO_CDPMP/COD_MPIO"),
-    COD_DPTO2   = substr(COD_MUN5, 1, 2),
+    COD_DPTO2 = substr(COD_MUN5, 1, 2),
     MUNICIPIO_N = if ("MPIO_CNMBR" %in% names(.)) as.character(MPIO_CNMBR)
     else if ("NOMBRE_MPIO" %in% names(.)) as.character(NOMBRE_MPIO)
     else "MUNICIPIO"
@@ -166,7 +281,7 @@ dptos_sf <- dptos_raw %>%
   sf::st_transform(4326) %>%
   sf::st_make_valid()
 
-# ---------- Helper paleta con CUARTILES EXACTOS ----------
+# ---------- Helper paleta con cuartiles ----------
 make_quartile_pal <- function(values) {
   vals_pos <- values[values > 0 & is.finite(values)]
   
@@ -193,7 +308,7 @@ make_quartile_pal <- function(values) {
     bins <- unique(bins)
     
     if (length(bins) == 2) {
-      bins <- c(0, max_val/2, max_val)
+      bins <- c(0, max_val / 2, max_val)
       colors <- MAP_COLORS[3:5]
     } else if (length(bins) == 3) {
       colors <- MAP_COLORS[2:4]
@@ -225,8 +340,7 @@ quartile_lab_format <- function(type, cuts) {
     if (i == 1 && lower <= 0) {
       labels[i] <- paste0("0 – ", scales::comma(upper, accuracy = 1))
     } else {
-      labels[i] <- paste0(">", scales::comma(lower, accuracy = 1),
-                          " – ", scales::comma(upper, accuracy = 1))
+      labels[i] <- paste0(">", scales::comma(lower, accuracy = 1), " – ", scales::comma(upper, accuracy = 1))
     }
   }
   labels
@@ -325,13 +439,6 @@ ui <- fluidPage(
         margin-bottom: 8px;
       }
 
-      .nav-tabs .nav-link.active{
-        border-color:var(--border-col) var(--border-col) #fff !important;
-      }
-      .nav-tabs{
-        border-bottom:1.5px solid var(--border-col);
-      }
-
       .series-plot-container {
         height: 340px;
         width: 100%%;
@@ -342,13 +449,31 @@ ui <- fluidPage(
         color:#6b7280;
         margin-top:6px;
       }
+
+      .btn-unified{
+        background:#ffffff !important;
+        border:1px solid var(--border-col) !important;
+        color:#374151 !important;
+        font-weight:700 !important;
+        border-radius:12px !important;
+        padding:6px 10px !important;
+        font-size:12px !important;
+      }
+
+      .footer-actions{
+        margin-top:10px;
+        display:flex;
+        justify-content:flex-end;
+        gap:8px;
+        padding:6px 6px 0;
+        flex-wrap:wrap;
+      }
     ", BORDER_UI)))
   ),
   div(
     class = "wrap",
     h3(""),
-    div(class = "data-note",
-        HTML("")),
+    div(class = "data-note", HTML("")),
     div(
       class = "filters",
       div(
@@ -385,8 +510,9 @@ ui <- fluidPage(
         div(
           class = "card",
           div(
-            class = "card-title d-flex align-items-center",
-            textOutput("ttl_map_tab1")
+            class = "card-title d-flex justify-content-between align-items-center",
+            span(textOutput("ttl_map_tab1", inline = TRUE)),
+            downloadButton("dl_png_mapa_bpan","Descargar PNG", class = "btn-unified")
           ),
           leafletOutput("map_bpan", height = 720),
           div(
@@ -399,16 +525,29 @@ ui <- fluidPage(
         width = 6,
         div(
           class = "card",
-          div(class = "card-title", "¿Cómo ha evolucionado los casos de bajo peso al nacer (BPAN) por año?"),
+          div(
+            class = "card-title d-flex justify-content-between align-items-center",
+            span("¿Cómo ha evolucionado los casos de bajo peso al nacer (BPAN) por año?"),
+            downloadButton("dl_png_serie_bpan","Descargar PNG", class = "btn-unified")
+          ),
           div(class = "series-plot-container",
               plotlyOutput("serie_temporal", height = 330))
         ),
         div(
           class = "card",
-          div(class = "card-title", textOutput("ttl_top10_tab1")),
+          div(
+            class = "card-title d-flex justify-content-between align-items-center",
+            span(textOutput("ttl_top10_tab1", inline = TRUE)),
+            downloadButton("dl_png_top_bpan","Descargar PNG", class = "btn-unified")
+          ),
           plotlyOutput("bar_bpan", height = 350)
         )
       )
+    ),
+    div(
+      class = "footer-actions",
+      downloadButton("dl_csv_expl_bpan","Descargar CSV", class = "btn-unified"),
+      downloadButton("dl_reporte_pdf_bpan","Descargar informe (PDF)", class = "btn-unified")
     )
   )
 )
@@ -416,13 +555,11 @@ ui <- fluidPage(
 # ---------- 4) SERVER ----------
 server <- function(input, output, session){
   
-  # ================= Exploración =================
   output$anio_bpan_ui <- renderUI({
     yrs <- sort(unique(bpan$ano))
     selectInput("f_anio_bpan", NULL, choices = yrs, selected = max(yrs, na.rm = TRUE))
   })
   
-  # --- Helper central: cargar municipios según año + depto (arregla tu problema) ---
   update_mpio_choices <- function(selected = NULL) {
     req(input$f_anio_bpan, input$f_depto)
     
@@ -444,7 +581,6 @@ server <- function(input, output, session){
     )
   }
   
-  # Reset
   observeEvent(input$btn_reset_bpan, {
     yrs <- sort(unique(bpan$ano))
     ysel <- max(yrs, na.rm = TRUE)
@@ -452,13 +588,11 @@ server <- function(input, output, session){
     updateSelectInput(session, "f_anio_bpan", selected = ysel)
     updateSelectInput(session, "f_depto", selected = ATLANTICO_DEFAULT)
     
-    # Recargar municipios con esos filtros (año+depto)
     isolate({
       update_mpio_choices(selected = "Todos")
     })
   })
   
-  # Al cambiar año: actualizar depto y (CLAVE) cargar municipios
   observeEvent(input$f_anio_bpan, {
     req(input$f_anio_bpan)
     
@@ -473,19 +607,16 @@ server <- function(input, output, session){
     
     updateSelectInput(session, "f_depto", choices = deps_o, selected = sel_dep)
     
-    # IMPORTANTÍSIMO: cargar municipios (choices) del año+depto
     isolate({
       update_mpio_choices(selected = "Todos")
     })
   }, ignoreInit = FALSE)
   
-  # Al cambiar depto: recargar municipios (choices)
   observeEvent(input$f_depto, {
     req(input$f_anio_bpan, input$f_depto)
     update_mpio_choices()
   }, ignoreInit = FALSE)
   
-  # Base de datos filtrada (para mapa/top10)
   bpan_base <- reactive({
     req(input$f_anio_bpan)
     df <- bpan %>% dplyr::filter(ano == input$f_anio_bpan)
@@ -493,23 +624,22 @@ server <- function(input, output, session){
       df <- df %>% dplyr::filter(DEP == input$f_depto)
     if (!is.null(input$f_mpio) && input$f_mpio != "Todos")
       df <- df %>% dplyr::filter(MUN == input$f_mpio)
+    validate(need(nrow(df) > 0, "Sin datos para los filtros actuales"))
     df
   })
   
-  # Base completa para serie temporal (sin filtrar por año)
   bpan_serie_completa <- reactive({
     df <- bpan
     if (!is.null(input$f_depto))
       df <- df %>% dplyr::filter(DEP == input$f_depto)
     if (!is.null(input$f_mpio) && input$f_mpio != "Todos")
       df <- df %>% dplyr::filter(MUN == input$f_mpio)
+    validate(need(nrow(df) > 0, "Sin datos para los filtros actuales"))
     df
   })
   
-  # Siempre municipios (Atlántico)
   sel_cod_dep <- reactive({ "08" })
   
-  # Títulos
   output$ttl_map_tab1 <- renderText({
     if (is.null(input$f_anio_bpan)) return("")
     paste0("¿Dónde se concentran los casos de bajo peso al nacer (BPAN) en Atlántico en ", input$f_anio_bpan, "?")
@@ -520,21 +650,35 @@ server <- function(input, output, session){
     paste0("Top 10 municipios con más casos de bajo peso al nacer (BPAN) en ", input$f_anio_bpan)
   })
   
-  # Agregación municipio
   bpan_agg_mpio <- reactive({
     bpan_base() %>%
       dplyr::group_by(COD_DPTO2, COD_MUN5, MUN) %>%
       dplyr::summarise(valor = dplyr::n(), .groups = "drop")
   })
   
-  # Mapa base
+  bbox_actual <- reactive({
+    sel_cod <- sel_cod_dep()
+    
+    if (!is.null(input$f_mpio) && input$f_mpio != "Todos") {
+      cod_sel <- bpan %>%
+        dplyr::filter(DEP == input$f_depto, MUN == input$f_mpio) %>%
+        dplyr::distinct(COD_MUN5) %>%
+        dplyr::pull(COD_MUN5)
+      
+      geom <- mpios_sf %>% dplyr::filter(COD_MUN5 %in% cod_sel)
+      if (nrow(geom) > 0) return(sf::st_bbox(geom))
+    }
+    
+    shp <- mpios_sf %>% dplyr::filter(COD_DPTO2 == sel_cod)
+    sf::st_bbox(shp)
+  })
+  
   output$map_bpan <- renderLeaflet({
     leaflet::leaflet() %>%
       leaflet::addProviderTiles(leaflet::providers$CartoDB.Positron) %>%
       leaflet::setView(lng = -74.9, lat = 10.8, zoom = 9)
   })
   
-  # Actualizar mapa
   observe({
     titulo  <- "Casos"
     fmt_val <- function(x) scales::comma(x)
@@ -551,11 +695,12 @@ server <- function(input, output, session){
       )
     
     pal <- make_quartile_pal(shp$valor)
-    bb  <- sf::st_bbox(shp)
+    bb  <- bbox_actual()
     
     leaflet::leafletProxy("map_bpan", data = shp) %>%
       leaflet::clearShapes() %>%
       leaflet::clearControls() %>%
+      leaflet::addProviderTiles(leaflet::providers$CartoDB.Positron) %>%
       leaflet::addPolygons(
         layerId = ~COD_MUN5,
         fillColor = ~pal(valor),
@@ -575,9 +720,9 @@ server <- function(input, output, session){
       leaflet::fitBounds(bb["xmin"], bb["ymin"], bb["xmax"], bb["ymax"])
   })
   
-  # Click en mapa => seleccionar municipio
   observeEvent(input$map_bpan_shape_click, {
-    click <- input$map_bpan_shape_click; req(click$id)
+    click <- input$map_bpan_shape_click
+    req(click$id)
     codm <- sprintf("%05d", as.integer(click$id))
     nom_mpio <- mpios_sf$MUNICIPIO_N[match(codm, mpios_sf$COD_MUN5)]
     
@@ -588,7 +733,6 @@ server <- function(input, output, session){
     }
   }, ignoreInit = TRUE)
   
-  # Top-10 municipios
   top10_df <- reactive({
     bpan_base() %>%
       dplyr::group_by(COD_MUN5, MUN) %>%
@@ -598,20 +742,23 @@ server <- function(input, output, session){
       dplyr::slice_head(n = 10)
   })
   
-  output$bar_bpan <- renderPlotly({
+  build_top_plotly_bpan <- function(){
     df <- top10_df()
     validate(need(nrow(df) > 0, "No hay datos para el Top-10 con los filtros actuales."))
     
     df2 <- df %>%
       dplyr::arrange(valor) %>%
-      dplyr::mutate(nombre = factor(nombre, levels = nombre))
+      dplyr::mutate(
+        nombre = factor(nombre, levels = nombre),
+        valor_fmt = vapply(valor, fmt_km, character(1))
+      )
     
     plotly::plot_ly(
       data = df2,
       x = ~valor, y = ~nombre,
       type = "bar", orientation = "h",
       marker = list(color = BAR_COLOR),
-      text = ~scales::comma(valor),
+      text = ~valor_fmt,
       textposition = "inside",
       textfont = list(color = "white"),
       insidetextanchor = "middle",
@@ -631,12 +778,17 @@ server <- function(input, output, session){
           zeroline = FALSE
         ),
         margin = list(l = 10, r = 10, t = 10, b = 10),
-        showlegend = FALSE
+        showlegend = FALSE,
+        paper_bgcolor = "#ffffff",
+        plot_bgcolor  = "#ffffff"
       )
+  }
+  
+  output$bar_bpan <- renderPlotly({
+    build_top_plotly_bpan()
   })
   
-  # Serie temporal
-  output$serie_temporal <- renderPlotly({
+  build_serie_plotly_bpan <- function(){
     df <- bpan_serie_completa() %>%
       dplyr::filter(!is.na(ano)) %>%
       dplyr::group_by(ano) %>%
@@ -656,7 +808,7 @@ server <- function(input, output, session){
       line = list(color = BAR_COLOR, width = 3),
       marker = list(
         size = 10,
-        color = ~ifelse(!is.null(ano_seleccionado) & ano == ano_seleccionado, "#ffd54f", BAR_COLOR),
+        color = ifelse(df$ano == ano_seleccionado, "#fbc02d", BAR_COLOR),
         line = list(color = "white", width = 2)
       ),
       text = ~paste0("Año: ", ano, "<br>Casos: ", scales::comma(Casos)),
@@ -678,9 +830,230 @@ server <- function(input, output, session){
         ),
         margin = list(l = 60, r = 30, t = 20, b = 60),
         showlegend = FALSE,
-        hovermode = "closest"
+        hovermode = "closest",
+        paper_bgcolor = "#ffffff",
+        plot_bgcolor  = "#ffffff"
+      )
+  }
+  
+  output$serie_temporal <- renderPlotly({
+    build_serie_plotly_bpan()
+  })
+  
+  map_widget_export_bpan <- reactive({
+    req(input$f_anio_bpan)
+    
+    titulo  <- "Casos"
+    fmt_val <- function(x) scales::comma(x)
+    sel_cod <- sel_cod_dep()
+    
+    shp <- mpios_sf %>%
+      dplyr::filter(COD_DPTO2 == sel_cod) %>%
+      dplyr::left_join(bpan_agg_mpio(), by = c("COD_DPTO2","COD_MUN5")) %>%
+      dplyr::mutate(
+        valor  = tidyr::replace_na(valor, 0),
+        nombre = dplyr::coalesce(MUN, MUNICIPIO_N),
+        etq    = paste0("<b>", nombre, "</b><br>", titulo, ": ", fmt_val(valor))
+      )
+    
+    bb  <- bbox_actual()
+    pal <- make_quartile_pal(shp$valor)
+    
+    leaflet::leaflet(
+      options = leaflet::leafletOptions(
+        zoomControl = TRUE,
+        zoomSnap = 0.25
+      )
+    ) %>%
+      leaflet::addProviderTiles(
+        leaflet::providers$CartoDB.Positron,
+        options = leaflet::providerTileOptions(crossOrigin = TRUE)
+      ) %>%
+      leaflet::addPolygons(
+        data = shp,
+        layerId = ~COD_MUN5,
+        fillColor = ~pal(valor),
+        color = BORDER_UI,
+        weight = 0.4,
+        fillOpacity = 0.9,
+        label = ~lapply(etq, htmltools::HTML),
+        highlightOptions = leaflet::highlightOptions(
+          color = BORDER_UI,
+          weight = 2,
+          bringToFront = TRUE
+        )
+      ) %>%
+      leaflet::addLegend(
+        position  = "bottomright",
+        pal       = pal,
+        values    = shp$valor,
+        title     = titulo,
+        labFormat = quartile_lab_format
+      ) %>%
+      leaflet::fitBounds(
+        lng1 = as.numeric(bb["xmin"]),
+        lat1 = as.numeric(bb["ymin"]),
+        lng2 = as.numeric(bb["xmax"]),
+        lat2 = as.numeric(bb["ymax"])
+      ) %>%
+      htmlwidgets::onRender("
+        function(el, x) {
+          this.zoomControl.setPosition('topright');
+        }
+      ")
+  })
+  
+  tabla_export_bpan <- reactive({
+    bpan_base() %>%
+      dplyr::transmute(
+        anio         = ano,
+        departamento = DEP,
+        municipio    = MUN,
+        cod_dpto     = COD_DPTO2,
+        cod_mpio     = COD_MUN5,
+        edad         = edad,
+        pac_hos      = PAC_HOS
       )
   })
+  
+  output$dl_png_mapa_bpan <- downloadHandler(
+    filename = function(){
+      mun_tag <- if (is.null(input$f_mpio) || input$f_mpio == "Todos") {
+        "Todos"
+      } else {
+        gsub("[^[:alnum:]_]+", "_", input$f_mpio)
+      }
+      
+      paste0(
+        "BPAN_mapa_Atlantico_",
+        mun_tag, "_",
+        input$f_anio_bpan %||% "NA", "_",
+        Sys.Date(), ".png"
+      )
+    },
+    content = function(file){
+      dly <- if (!is.null(input$f_mpio) && input$f_mpio != "Todos") PNG_DELAY_MUN else PNG_DELAY_CO
+      
+      ok <- save_widget_png_retry(
+        widget     = map_widget_export_bpan(),
+        out_png    = file,
+        vwidth     = PNG_VWIDTH,
+        vheight    = PNG_VHEIGHT,
+        delay_base = dly
+      )
+      
+      if (!ok) stop("No se pudo generar el PNG del mapa.")
+    }
+  )
+  
+  output$dl_png_serie_bpan <- downloadHandler(
+    filename = function(){
+      mun_tag <- if (is.null(input$f_mpio) || input$f_mpio == "Todos") "Todos" else gsub("[^[:alnum:]_]+", "_", input$f_mpio)
+      paste0("BPAN_serie_Atlantico_", mun_tag, "_", Sys.Date(), ".png")
+    },
+    content = function(file){
+      ok <- save_widget_png_retry(build_serie_plotly_bpan(), file, vwidth = 1800, vheight = 900, delay_base = 0.9)
+      if (!ok) stop("No se pudo generar el PNG de la serie.")
+    }
+  )
+  
+  output$dl_png_top_bpan <- downloadHandler(
+    filename = function(){
+      mun_tag <- if (is.null(input$f_mpio) || input$f_mpio == "Todos") "Todos" else gsub("[^[:alnum:]_]+", "_", input$f_mpio)
+      paste0("BPAN_top10_Atlantico_", mun_tag, "_", input$f_anio_bpan %||% "NA", "_", Sys.Date(), ".png")
+    },
+    content = function(file){
+      ok <- save_widget_png_retry(build_top_plotly_bpan(), file, vwidth = 1800, vheight = 1000, delay_base = 0.9)
+      if (!ok) stop("No se pudo generar el PNG del Top-10.")
+    }
+  )
+  
+  output$dl_csv_expl_bpan <- downloadHandler(
+    filename = function(){
+      mun_tag <- if (is.null(input$f_mpio) || input$f_mpio == "Todos") "Todos" else gsub("[^[:alnum:]_]+", "_", input$f_mpio)
+      paste0("BPAN_base_filtrada_Atlantico_", mun_tag, "_", input$f_anio_bpan %||% "NA", "_", Sys.Date(), ".csv")
+    },
+    content = function(file){
+      readr::write_csv(tabla_export_bpan(), file, na = "")
+    }
+  )
+  
+  output$dl_reporte_pdf_bpan <- downloadHandler(
+    filename = function(){
+      mun_tag <- if (is.null(input$f_mpio) || input$f_mpio == "Todos") "Todos" else gsub("[^[:alnum:]_]+", "_", input$f_mpio)
+      paste0("Informe_descargable_BPAN_Atlantico_", mun_tag, "_", input$f_anio_bpan %||% "NA", "_", Sys.Date(), ".pdf")
+    },
+    content = function(file){
+      
+      if (!file.exists(ruta_rmd)) stop("No encuentro Informe_descargable.Rmd en la raíz del proyecto.")
+      
+      anio_now <- input$f_anio_bpan
+      dep_now  <- input$f_depto %||% "Atlántico"
+      mun_now  <- input$f_mpio %||% "Todos"
+      
+      dly_map <- if (!is.null(mun_now) && mun_now != "Todos") PNG_DELAY_MUN else PNG_DELAY_CO
+      
+      ok_map <- save_widget_png_retry(map_widget_export_bpan(), IMG_MAP, vwidth = PNG_VWIDTH, vheight = PNG_VHEIGHT, delay_base = dly_map)
+      ok_ser <- save_widget_png_retry(build_serie_plotly_bpan(), IMG_SER, vwidth = 1800, vheight = 900, delay_base = 0.9)
+      ok_top <- save_widget_png_retry(build_top_plotly_bpan(), IMG_TOP, vwidth = 1800, vheight = 1000, delay_base = 0.9)
+      
+      if (!ok_map) stop("No se pudo generar Descargas/bpan_mapa.png para el informe.")
+      if (!ok_ser) stop("No se pudo generar Descargas/bpan_serie.png para el informe.")
+      if (!ok_top) stop("No se pudo generar Descargas/bpan_top10.png para el informe.")
+      
+      filtros_tbl <- data.frame(
+        Parametro = c("Año", "Departamento", "Municipio"),
+        Valor     = c(as.character(anio_now), as.character(dep_now), as.character(mun_now)),
+        stringsAsFactors = FALSE
+      )
+      
+      logo_src <- file.path(app_root, "www", "LOGO_PLATEA.png")
+      if (!file.exists(logo_src)) {
+        logo_src2 <- file.path(app_root, "WWW", "LOGO_PLATEA.png")
+        logo_src  <- if (file.exists(logo_src2)) logo_src2 else NA_character_
+      }
+      logo_dst <- file.path(EXPORT_DIR, "LOGO_PLATEA.png")
+      if (!is.na(logo_src) && file.exists(logo_src)) file.copy(logo_src, logo_dst, overwrite = TRUE)
+      logo_tex <- gsub("\\\\", "/", normalizePath(logo_dst, winslash = "/", mustWork = FALSE))
+      
+      td <- tempfile("rmd_bpan_")
+      dir.create(td, recursive = TRUE, showWarnings = FALSE)
+      
+      rmd_to_render <- ruta_rmd
+      rmd_lines <- readLines(ruta_rmd, warn = FALSE, encoding = "UTF-8")
+      if (any(grepl("__LOGO_PLATEA_PATH__", rmd_lines, fixed = TRUE))) {
+        rmd_tmp <- file.path(td, "Informe_descargable_BPAN_render.Rmd")
+        rmd_lines <- gsub("__LOGO_PLATEA_PATH__", logo_tex, rmd_lines, fixed = TRUE)
+        writeLines(rmd_lines, rmd_tmp, useBytes = TRUE)
+        rmd_to_render <- rmd_tmp
+      }
+      
+      rmarkdown::render(
+        input         = rmd_to_render,
+        output_format = "pdf_document",
+        output_file   = basename(file),
+        output_dir    = dirname(file),
+        quiet         = TRUE,
+        params        = list(
+          app_root     = app_root,
+          export_dir   = "Descargas",
+          filtros      = filtros_tbl,
+          anio         = anio_now,
+          especie      = "BPAN",
+          departamento = dep_now,
+          municipio    = mun_now,
+          ind          = "bpan",
+          img_map      = basename(IMG_MAP),
+          img_serie    = basename(IMG_SER),
+          img_ranking  = basename(IMG_TOP),
+          csv_filtrado = NULL
+        ),
+        knit_root_dir = app_root,
+        envir         = new.env(parent = globalenv())
+      )
+    },
+    contentType = "application/pdf"
+  )
 }
 
 shinyApp(ui, server)
