@@ -1,0 +1,171 @@
+---
+title: "Financiamiento rural y agropecuario"
+subtitle: "PLATEA"
+header-includes:
+  - \usepackage{graphicx}
+  - \usepackage{float}
+  - \usepackage{placeins}
+  - \usepackage{fancyhdr}
+  - \usepackage{array}
+  - \usepackage{longtable}
+  - \usepackage{booktabs}
+  - \usepackage{caption}
+  - \pagestyle{fancy}
+  - \setlength{\headheight}{40pt}
+  - \fancyfoot[C]{\thepage}
+  - \renewcommand{\headrulewidth}{0.6pt}
+  - \renewcommand{\footrulewidth}{0.6pt}
+  - \fancyhead[L]{\includegraphics[height=1.4cm]{Descargas/LOGO_PLATEA.png}}
+  - \raggedbottom
+  - \sloppy
+output:
+  pdf_document:
+    toc: true
+    number_sections: true
+    latex_engine: xelatex
+geometry: margin=1in
+
+params:
+  app_root: !r getwd()
+  export_dir: "Descargas"
+  filtros: NULL
+
+  img_tab1_mapa: NULL
+  img_tab1_serie: NULL
+  img_tab1_top10: NULL
+
+  img_tab2_serie: NULL
+  img_tab2_lineas: NULL
+  img_tab2_sankey: NULL
+
+  csv_filtrado: NULL
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center",
+  out.width = "95%",
+  dpi = 150
+)
+
+`%||%` <- function(x, y) if (is.null(x) || length(x) == 0) y else x
+
+app_root   <- params$app_root %||% getwd()
+export_dir <- params$export_dir %||% "Descargas"
+
+safe_path <- function(fname){
+  if (is.null(fname) || is.na(fname) || !nzchar(fname)) return(NA_character_)
+  p <- file.path(export_dir, fname)
+  if (!file.exists(file.path(app_root, p))) return(NA_character_)
+  p
+}
+
+safe_include <- function(p, txt = "No se encontró la imagen correspondiente."){
+  if (is.na(p) || !nzchar(p) || !file.exists(file.path(app_root, p))) {
+    cat(txt, "\n")
+  } else {
+    knitr::include_graphics(p)
+  }
+}
+
+img_use <- list(
+  tab1_map    = safe_path(params$img_tab1_mapa),
+  tab1_serie  = safe_path(params$img_tab1_serie),
+  tab1_top    = safe_path(params$img_tab1_top10),
+
+  tab2_serie  = safe_path(params$img_tab2_serie),
+  tab2_lineas = safe_path(params$img_tab2_lineas),
+  tab2_sankey = safe_path(params$img_tab2_sankey)
+)
+
+mk_filtros_tbl <- function(x){
+  if (!is.null(x) && is.data.frame(x) && all(c("Parametro","Valor") %in% names(x))) {
+    x[] <- lapply(x, function(v){
+      v <- as.character(v)
+      v[is.na(v)] <- ""
+      v
+    })
+    return(x)
+  }
+
+  data.frame(
+    Parametro = c("Filtro", "Valor"),
+    Valor     = c("Sin información", "Sin información"),
+    stringsAsFactors = FALSE
+  )
+}
+
+filtros_tbl <- mk_filtros_tbl(params$filtros)
+```
+
+# Resumen del reporte
+
+Este módulo analiza la dinámica del financiamiento rural y agropecuario como un determinante clave del funcionamiento del sistema agroalimentario. El acceso al crédito habilita a los productores para invertir, adoptar tecnología, gestionar riesgos y sostener la producción en el tiempo. A partir del análisis del monto de crédito, el número de operaciones, su evolución temporal y la asignación por eslabón de la cadena, se identifican patrones territoriales y estructurales del financiamiento agropecuario. Desde una perspectiva agroalimentaria, el crédito habilita la producción y contribuye a una mayor estabilidad de la oferta, la integración de la cadena y la resiliencia del sistema ante choques climáticos, productivos o de mercado.
+
+
+## Objetivo
+
+El objetivo de este informe es examinar la magnitud, distribución territorial y evolución del crédito agropecuario, así como su asignación a lo largo de los distintos eslabones de la cadena productiva del sistema agroalimentario.
+
+1. Describir y contrastar los patrones territoriales y temporales del crédito agropecuario, identificando su concentración y evolución en el tiempo.
+
+2. Evidenciar la orientación del financiamiento hacia los diferentes eslabones de la cadena (producción, transformación, comercialización y servicios de apoyo) y su contribución al desempeño del sistema agroalimentario.
+
+
+# Resultados
+
+## 1. Dinámica histórica del crédito agropecuario
+
+### Filtros aplicados
+### ¿En que territorios es mayor el monto de créditos agropecuarios?
+
+El mapa territorial muestra dónde se concentra el monto total real de los créditos agropecuarios. Este indicador permite identificar territorios con mayor acceso al financiamiento y, por ende, con mayor capacidad para sostener e intensificar la producción agropecuaria. Desde un enfoque agroalimentario, una alta concentración territorial del crédito puede generar eficiencias productivas, pero también aumentar desigualdades territoriales y vulnerabilidades si el financiamiento no llega a zonas estratégicas para la seguridad alimentaria.
+
+```{r}
+safe_include(img_use$tab1_map)
+```
+
+### ¿Cómo ha evolucionado temporalmente el monto de créditos agropecuarios aprobados?
+La serie temporal del monto de créditos aprobados permite analizar la dinámica del financiamiento en el tiempo, identificando fases de expansión, contracción o volatilidad. En términos del sistema agroalimentario, expansiones del crédito suelen asociarse a mayores niveles de inversión, adopción tecnológica y crecimiento productivo, según el destino del crédito. Por el contrario, caídas abruptas o volatilidad elevada pueden anticipar restricciones de producción, menor capacidad de respuesta ante choques y tensiones sobre la oferta de alimentos.
+
+
+```{r}
+safe_include(img_use$tab1_serie)
+```
+
+### Top 10 territorios por monto total de créditos aprobados
+El ranking de los diez territorios con mayor monto de crédito permite focalizar los principales polos de financiamiento agropecuario. Este indicador es operativo para la gestión, ya que facilita la priorización territorial del seguimiento crediticio y la evaluación del impacto del financiamiento. Desde una perspectiva agroalimentaria, este ranking permite identificar territorios donde el crédito desempeña un papel estructural en la producción y, al mismo tiempo, detectar zonas con potencial subatendido.
+
+```{r}
+safe_include(img_use$tab1_top)
+```
+
+## 2. Indicadores del portafolio de crédito
+
+### Evolución mensual de créditos y monto real desembolsado
+La visualización mensual integra el número de créditos otorgados y el monto real desembolsado, permitiendo analizar la estacionalidad del financiamiento. En el sistema agroalimentario, la estacionalidad del crédito suele estar alineada con los ciclos agrícolas. Desajustes entre el calendario productivo y el desembolso de crédito pueden generar cuellos de botella financieros que afectan la siembra, la cosecha o la comercialización.
+
+```{r}
+safe_include(img_use$tab2_serie)
+```
+
+### Concentración de las principales líneas de crédito por eslabón (reales)
+Este indicador muestra cómo se distribuyen las principales líneas de crédito entre los eslabones de la cadena agroalimentaria, como producción, transformación, comercialización y servicios de apoyo. Desde una perspectiva sistémica, una concentración excesiva del crédito en un solo eslabón puede limitar el desarrollo integral de la cadena. La diversificación del financiamiento entre eslabones contribuye a mejorar la eficiencia, reducir pérdidas y fortalecer el valor agregado.
+
+
+```{r}
+safe_include(img_use$tab2_lineas)
+```
+
+### Mapa de asignación: líneas de crédito → eslabones productivos (montos reales)
+El mapa de asignación de líneas de crédito visualiza el flujo de recursos financieros desde los instrumentos crediticios hacia los distintos eslabones del sistema agroalimentario. Este objeto visual permite evaluar la coherencia entre la estructura del financiamiento y las necesidades del sistema. Una asignación equilibrada favorece la integración de la cadena y la estabilidad del abastecimiento, mientras que desbalances pueden generar cuellos de botella productivos o logísticos.
+
+
+```{r}
+safe_include(img_use$tab2_sankey)
+```
+
+

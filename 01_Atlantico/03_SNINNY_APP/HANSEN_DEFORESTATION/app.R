@@ -1,40 +1,40 @@
 # =========================================================
 # Shiny App — HANSEN Deforestación (Solo Tab 1)
-# (MODIFICADO: Serie temporal con 2do eje (acumulado) + eje X cada 2 años)
+# MODIFICADA CON LÓGICA TIPO ICA
+# - PNG robusto
+# - CSV
+# - PDF vía Rmarkdown
+# - nombres fijos en ./Descargas
+# - una sola pestaña
+# - usando filtros actuales
 # =========================================================
 
 # 1) Paquetes
 pkgs <- c(
   "shiny","bslib","dplyr","readr","stringi","sf","leaflet",
   "plotly","ggplot2","htmltools","webshot2","htmlwidgets",
-  "ragg","glue","scales"
+  "ragg","glue","scales","rmarkdown"
 )
 suppressWarnings(invisible(sapply(pkgs, require, character.only = TRUE)))
 options(stringsAsFactors = FALSE, scipen = 999)
 sf::sf_use_s2(FALSE)
 
-# 2) Rutas (CORREGIDAS - usando el directorio actual del script)
-if (interactive()) {
-  APP_DIR <- dirname(rstudioapi::getActiveDocumentContext()$path)
-} else {
-  APP_DIR <- getwd()
+# =========================================================
+# HELPERS GENERALES
+# =========================================================
+`%||%` <- function(x, y) if (is.null(x) || length(x) == 0) y else x
+
+get_app_root <- function(){
+  normalizePath(shiny::getShinyOption("appDir") %||% getwd(), winslash = "/", mustWork = FALSE)
 }
-if (is.null(APP_DIR) || APP_DIR == "") APP_DIR <- getwd()
 
-DATA_RDS <- file.path(APP_DIR, "data/141_HANSEN_DEFORESTATION.rds")
-SHP_DIR  <- file.path(APP_DIR, "data/shp")
-
-if (!file.exists(DATA_RDS)) stop("No encuentro la base RDS en: ", DATA_RDS)
-shp_files <- list.files(SHP_DIR, pattern = "\\.shp$", full.names = TRUE, recursive = TRUE)
-if (length(shp_files) == 0) stop("No encuentro archivos .shp en: ", SHP_DIR)
-
-# 3) Helpers básicos
 norm_txt <- function(x){
   x <- as.character(x)
   x <- trimws(x)
   x <- stringi::stri_trans_nfc(x)
   x
 }
+
 safe_chr <- function(x) if (is.null(x)) "" else as.character(x)
 
 title_case_es <- function(x){
@@ -106,7 +106,71 @@ legend_lab_es <- function(prefix = "", suffix = "", between = " – "){
   }
 }
 
-# Paleta / colores
+# =========================================================
+# EXPORTACIÓN TIPO ICA
+# =========================================================
+app_root   <- get_app_root()
+EXPORT_DIR <- file.path(app_root, "Descargas")
+dir.create(EXPORT_DIR, recursive = TRUE, showWarnings = FALSE)
+
+ruta_rmd <- file.path(app_root, "Informe_descargable.Rmd")
+
+PNG_VWIDTH   <- 3000
+PNG_VHEIGHT  <- 2300
+PNG_DELAY_CO <- 1.4
+PNG_DELAY_MUN <- 2.6
+
+IMG_MAP  <- file.path(EXPORT_DIR, "hansen_mapa.png")
+IMG_SER  <- file.path(EXPORT_DIR, "hansen_serie.png")
+IMG_TOP  <- file.path(EXPORT_DIR, "hansen_top10.png")
+
+save_widget_png <- function(widget, out_png, vwidth = PNG_VWIDTH, vheight = PNG_VHEIGHT, delay = PNG_DELAY_CO){
+  dir.create(dirname(out_png), recursive = TRUE, showWarnings = FALSE)
+  
+  tmp_dir  <- tempfile("wshot_")
+  dir.create(tmp_dir, recursive = TRUE, showWarnings = FALSE)
+  lib_dir  <- file.path(tmp_dir, "lib")
+  dir.create(lib_dir, recursive = TRUE, showWarnings = FALSE)
+  tmp_html <- file.path(tmp_dir, "widget.html")
+  
+  htmlwidgets::saveWidget(widget, file = tmp_html, selfcontained = FALSE, libdir = lib_dir)
+  
+  webshot2::webshot(
+    url     = tmp_html,
+    file    = out_png,
+    vwidth  = vwidth,
+    vheight = vheight,
+    delay   = delay
+  )
+  
+  file.exists(out_png) && is.finite(file.info(out_png)$size) && file.info(out_png)$size > 0
+}
+
+save_widget_png_retry <- function(widget, out_png, vwidth, vheight, delay_base){
+  delays <- c(delay_base, delay_base + 2.0, delay_base + 4.0)
+  for (d in delays){
+    ok <- tryCatch(
+      save_widget_png(widget, out_png, vwidth = vwidth, vheight = vheight, delay = d),
+      error = function(e) FALSE
+    )
+    if (isTRUE(ok)) return(TRUE)
+  }
+  FALSE
+}
+
+# =========================================================
+# 2) Rutas de datos
+# =========================================================
+DATA_RDS <- file.path(app_root, "data/141_HANSEN_DEFORESTATION.rds")
+SHP_DIR  <- file.path(app_root, "data/shp")
+
+if (!file.exists(DATA_RDS)) stop("No encuentro la base RDS en: ", DATA_RDS)
+shp_files <- list.files(SHP_DIR, pattern = "\\.shp$", full.names = TRUE, recursive = TRUE)
+if (length(shp_files) == 0) stop("No encuentro archivos .shp en: ", SHP_DIR)
+
+# =========================================================
+# 3) Paleta / colores
+# =========================================================
 SERIE_COLOR <- "#6B4F2C"
 BAR_COLOR   <- "#6B4F2C"
 
@@ -195,7 +259,7 @@ mpio_key_shp <- mpios_sf |>
 # 5) Base HANSEN (RDS)
 # =========================================================
 base_raw <- readRDS(DATA_RDS)
-base_raw <- base_raw %>% dplyr::filter(DEPARTAMENTO_D=="ATLÁNTICO")
+base_raw <- base_raw %>% dplyr::filter(DEPARTAMENTO_D == "ATLÁNTICO")
 
 year_cands  <- c("year","anio","ano","ano_evento","ano_cosechado","ano_sembrado","lossyear")
 valor_cands <- c("has")
@@ -211,12 +275,12 @@ pick_first <- function(nms, candidates){
 }
 
 bn <- names(base_raw)
-col_year     <- pick_first(bn, year_cands)
-col_val      <- pick_first(bn, valor_cands)
-col_dep_name <- pick_first(bn, depto_cands)
-col_mpio_name<- pick_first(bn, mpio_cands)
-col_dep_code <- pick_first(bn, depto_code_cands_rds)
-col_mun_code <- pick_first(bn, muni_code_cands_rds)
+col_year      <- pick_first(bn, year_cands)
+col_val       <- pick_first(bn, valor_cands)
+col_dep_name  <- pick_first(bn, depto_cands)
+col_mpio_name <- pick_first(bn, mpio_cands)
+col_dep_code  <- pick_first(bn, depto_code_cands_rds)
+col_mun_code  <- pick_first(bn, muni_code_cands_rds)
 
 if (is.na(col_year) || is.na(col_val))
   stop("No pude detectar columnas de año/valor en la base RDS.")
@@ -316,7 +380,7 @@ ui <- fluidPage(
       .selectize-input.focus{ border-color:var(--accent-border) !important; box-shadow:0 0 0 0.2rem rgba(245,124,0,0.25); }
       input[type='radio'], input[type='checkbox']{ accent-color:#F57C00; }
       .dl-under{ margin-top:8px; text-align:right; }
-      .dl-footer{ margin-top:10px; text-align:right; }
+      .dl-footer{ margin-top:10px; text-align:right; display:flex; justify-content:flex-end; gap:8px; flex-wrap:wrap; }
       .map-note{ font-size:12px; color:#4b5563; margin-top:6px; }
     "))
   ),
@@ -338,8 +402,8 @@ ui <- fluidPage(
           div(class="filter-label","¿En qué departamento?"),
           {
             dep_pairs <- distinct_pairs(eva_df, "DEPTO_KEY", "DEPTO_DISP")
-            idx_santander <- which(toupper(norm_txt(dep_pairs$DEPTO_DISP)) %in% c("SANTANDER"))
-            default_dep <- if (length(idx_santander)) dep_pairs$DEPTO_KEY[idx_santander[1]] else "Todos"
+            idx_default <- which(toupper(norm_txt(dep_pairs$DEPTO_DISP)) %in% c("ATLÁNTICO"))
+            default_dep <- if (length(idx_default)) dep_pairs$DEPTO_KEY[idx_default[1]] else "Todos"
             selectInput(
               "f_depto", NULL,
               choices  = mk_tc_from_pairs(dep_pairs$DEPTO_KEY, dep_pairs$DEPTO_DISP),
@@ -375,7 +439,7 @@ ui <- fluidPage(
         div(class = "map-note",
             "Nota: los rangos de color del mapa se construyen con cuartiles del indicador (4 clases) según el filtro actual."
         ),
-        div(class="dl-under", downloadButton("dl_png_mapa","PNG — Mapa (simple)"))
+        div(class="dl-under", downloadButton("dl_png_mapa","PNG — Mapa"))
       ),
       div(
         class = "card viz-card",
@@ -390,7 +454,11 @@ ui <- fluidPage(
         div(class="dl-under", downloadButton("dl_png_ranking","PNG — Ranking Top-10"))
       )
     ),
-    div(class="dl-footer", downloadButton("dl_csv_expl","Descargar CSV (filtro actual)"))
+    div(
+      class="dl-footer",
+      downloadButton("dl_csv_expl","Descargar CSV (filtro actual)"),
+      downloadButton("dl_reporte_pdf","Descargar informe (PDF)")
+    )
   )
 )
 
@@ -645,10 +713,10 @@ server <- function(input, output, session){
     click <- input$map_eva_shape_click
     if (is.null(click$id)) return()
     if (nivel_mapa() == "depto") {
-      depto_sel(click$id)
-      updateSelectInput(session, "f_depto", selected = click$id)
+      depto_sel(click.id <- click$id)
+      updateSelectInput(session, "f_depto", selected = click.id)
       nivel_mapa("mpio")
-      dibujar_mpios(click$id)
+      dibujar_mpios(click.id)
     }
   })
   
@@ -658,7 +726,10 @@ server <- function(input, output, session){
     nivel_mapa("depto"); depto_sel(NULL); dibujar_deptos()
   })
   
-  # -------- Serie temporal (ANUAL + ACUMULADO) --------
+  # =========================================================
+  # BUILDERS REUTILIZABLES
+  # =========================================================
+  
   series_data <- reactive({
     base <- eva_df
     if (!is.null(input$f_depto) && input$f_depto!="Todos")
@@ -676,7 +747,7 @@ server <- function(input, output, session){
       dplyr::mutate(acumulado = cumsum(valor_total))
   })
   
-  output$plot_arriba <- plotly::renderPlotly({
+  build_plot_arriba <- reactive({
     df <- series_data()
     if (!nrow(df)) return(plotly::plot_ly())
     
@@ -722,7 +793,7 @@ server <- function(input, output, session){
         xaxis=list(
           title="",
           tickmode="linear",
-          dtick=2,           # <-- CADA 2 AÑOS
+          dtick=2,
           showgrid = FALSE
         ),
         yaxis=list(
@@ -741,11 +812,16 @@ server <- function(input, output, session){
         ),
         hovermode="x unified",
         margin=list(l=60, r=70, t=30, b=50),
-        legend=list(orientation="h")
+        legend=list(orientation="h"),
+        paper_bgcolor="#ffffff",
+        plot_bgcolor ="#ffffff"
       )
   })
   
-  # -------- Ranking --------
+  output$plot_arriba <- plotly::renderPlotly({
+    build_plot_arriba()
+  })
+  
   ranking_data <- reactive({
     datos_filtrados() |>
       dplyr::group_by(MUNICIPIO_D, DEPARTAMENTO_D) |>
@@ -758,7 +834,7 @@ server <- function(input, output, session){
       )
   })
   
-  output$ranking_abajo <- plotly::renderPlotly({
+  build_ranking_plot <- reactive({
     plot_df <- ranking_data()
     if (!nrow(plot_df)) {
       return(
@@ -816,11 +892,84 @@ server <- function(input, output, session){
           categoryarray = rev(plot_df$muni_tc),
           showgrid = FALSE
         ),
-        margin = list(l = 160, r = 40, t = 20, b = 40)
+        margin = list(l = 160, r = 40, t = 20, b = 40),
+        paper_bgcolor="#ffffff",
+        plot_bgcolor ="#ffffff"
       )
   })
   
-  # -------- CSV --------
+  output$ranking_abajo <- plotly::renderPlotly({
+    build_ranking_plot()
+  })
+  
+  map_widget_export <- reactive({
+    req(input$f_anio)
+    
+    if (nivel_mapa() == "depto"){
+      mdat <- depto_sf |>
+        dplyr::left_join(agg_depto(), by = "COD_DANE_DPTO_D") |>
+        dplyr::mutate(
+          valor    = suppressWarnings(as.numeric(valor)),
+          DEPTO_TC = title_case_es(DEPARTAMENTO_D)
+        )
+      
+      pal <- palBin4(mdat$valor)
+      
+      leaflet::leaflet(mdat, options = leaflet::leafletOptions(zoomControl = FALSE)) |>
+        leaflet::addProviderTiles(leaflet::providers$CartoDB.Positron) |>
+        leaflet::addPolygons(
+          fillColor = ~pal(valor),
+          weight    = 0.7,
+          color     = "#666",
+          fillOpacity = 0.9,
+          label = ~sprintf("%s — %s ha", DEPTO_TC, fmt_num(valor, accuracy = 0.1)),
+          labelOptions = hover_label_opts
+        ) |>
+        leaflet::addLegend(
+          position   = "bottomright",
+          pal        = pal,
+          values     = ~valor,
+          title      = "Hectáreas",
+          labFormat  = legend_lab_es()
+        )
+    } else {
+      dep <- depto_sel()
+      req(dep)
+      
+      mdat <- mpios_sf |>
+        dplyr::filter(COD_DANE_DPTO_D == dep) |>
+        dplyr::left_join(agg_mpio(), by = c("COD_DANE_MPIO_D","COD_DANE_DPTO_D")) |>
+        dplyr::mutate(
+          valor    = suppressWarnings(as.numeric(valor)),
+          MPIO_TC  = title_case_es(MUNICIPIO_D),
+          DEPTO_TC = title_case_es(DEPARTAMENTO_D)
+        )
+      
+      pal <- palBin4(mdat$valor)
+      
+      leaflet::leaflet(mdat, options = leaflet::leafletOptions(zoomControl = FALSE)) |>
+        leaflet::addProviderTiles(leaflet::providers$CartoDB.Positron) |>
+        leaflet::addPolygons(
+          fillColor = ~pal(valor),
+          weight    = 0.4,
+          color     = "#666",
+          fillOpacity = 0.9,
+          label = ~sprintf("%s (%s) — %s ha", MPIO_TC, DEPTO_TC, fmt_num(valor, accuracy = 0.1)),
+          labelOptions = hover_label_opts_small
+        ) |>
+        leaflet::addLegend(
+          position   = "bottomright",
+          pal        = pal,
+          values     = ~valor,
+          title      = "Hectáreas",
+          labFormat  = legend_lab_es()
+        )
+    }
+  })
+  
+  # =========================================================
+  # CSV
+  # =========================================================
   tabla_export <- reactive({
     datos_filtrados() |>
       dplyr::transmute(
@@ -838,150 +987,139 @@ server <- function(input, output, session){
     content  = function(file) readr::write_csv(tabla_export(), file, na = "")
   )
   
-  # -------- PNG Serie (DOBLE EJE + X CADA 2 AÑOS) --------
-  output$dl_png_series <- downloadHandler(
-    filename = function() paste0("HANSEN_serie_", Sys.Date(), ".png"),
-    content  = function(file){
-      df <- series_data()
-      if (!nrow(df)) { file.create(file); return() }
-      
-      max1 <- max(df$valor_total, na.rm = TRUE)
-      max2 <- max(df$acumulado, na.rm = TRUE)
-      sfac <- if (is.finite(max1) && is.finite(max2) && max2 > 0) (max1 / max2) else 1
-      df <- df |> dplyr::mutate(acum_scaled = acumulado * sfac)
-      
-      max_val   <- max(c(df$valor_total, df$acum_scaled), na.rm = TRUE)
-      breaks_y  <- pretty(c(0, max_val), n = 5)
-      breaks_y  <- breaks_y[breaks_y >= 0]
-      
-      # X cada 2 años
-      yrs_all <- sort(unique(df$anio))
-      x_breaks <- seq(min(yrs_all, na.rm = TRUE), max(yrs_all, na.rm = TRUE), by = 2)
-      
-      g <- ggplot(df, aes(x=anio)) +
-        geom_line(aes(y=valor_total), linewidth=0.9, color=SERIE_COLOR) +
-        geom_point(aes(y=valor_total), size=2.2, color=SERIE_COLOR) +
-        geom_line(aes(y=acum_scaled), linewidth=0.9, linetype="dotted", color=SERIE_COLOR) +
-        geom_point(aes(y=acum_scaled), size=2.0, shape=21, stroke=0.6, color=SERIE_COLOR, fill="white") +
-        scale_x_continuous(breaks = x_breaks) +
-        scale_y_continuous(
-          labels = format_short,
-          breaks = breaks_y,
-          name   = "Anual (ha)",
-          sec.axis = sec_axis(~ . / sfac, name = "Acumulado (ha)")
-        ) +
-        labs(
-          x="Año",
-          title="¿Cómo viene la deforestación año a año? (anual y acumulado)"
-        ) +
-        theme_minimal(base_size=12) +
-        theme(
-          text = element_text(family="Inter"),
-          panel.grid.minor = element_blank(),
-          panel.grid.major = element_blank()
-        )
-      
-      ggsave(filename=file, plot=g, device=ragg::agg_png,
-             width=10, height=5, dpi=200, units="in")
-    }
-  )
-  
-  # -------- Mapa simple para PNG --------
-  map_widget_simple <- reactive({
-    if (nivel_mapa()=="depto"){
-      mdat <- depto_sf |>
-        dplyr::left_join(agg_depto(), by = "COD_DANE_DPTO_D") |>
-        dplyr::mutate(
-          valor    = suppressWarnings(as.numeric(valor)),
-          DEPTO_TC = title_case_es(DEPARTAMENTO_D)
-        )
-      pal  <- palBin4(mdat$valor)
-      leaflet::leaflet(mdat, options=leaflet::leafletOptions(zoomControl=FALSE)) |>
-        leaflet::addProviderTiles(leaflet::providers$CartoDB.Positron) |>
-        leaflet::addPolygons(
-          fillColor=~pal(valor), weight=0.5, color="#666", fillOpacity=0.9,
-          label = ~sprintf("%s — %s ha", DEPTO_TC, fmt_num(valor, accuracy = 0.1)),
-          labelOptions = hover_label_opts
-        ) |>
-        leaflet::addControl(html = htmltools::HTML(
-          sprintf("<div style='font-weight:600;font-size:14px;background:#fff;
-                   padding:6px 8px;border-radius:8px;border:1px solid #e6e6e6'>
-                    ¿Dónde está pegando más la deforestación en %s?
-                  </div>", safe_chr(input$f_anio))), position="topleft")
-    } else {
-      dep <- depto_sel()
-      mdat <- mpios_sf |>
-        dplyr::filter(COD_DANE_DPTO_D == dep) |>
-        dplyr::left_join(agg_mpio(), by = c("COD_DANE_MPIO_D","COD_DANE_DPTO_D")) |>
-        dplyr::mutate(
-          valor    = suppressWarnings(as.numeric(valor)),
-          MPIO_TC  = title_case_es(MUNICIPIO_D)
-        )
-      pal  <- palBin4(mdat$valor)
-      leaflet::leaflet(mdat, options=leaflet::leafletOptions(zoomControl=FALSE)) |>
-        leaflet::addProviderTiles(leaflet::providers$CartoDB.Positron) |>
-        leaflet::addPolygons(
-          fillColor=~pal(valor), weight=0.4, color="#666", fillOpacity=0.9,
-          label=~sprintf("%s — %s ha", MPIO_TC, fmt_num(valor, accuracy = 0.1)),
-          labelOptions=hover_label_opts_small
-        ) |>
-        leaflet::addControl(html = htmltools::HTML(
-          sprintf("<div style='font-weight:600;font-size:14px;background:#fff;
-                   padding:6px 8px;border-radius:8px;border:1px solid #e6e6e6'>
-                    ¿Dónde se concentra en %s?
-                  </div>", safe_chr(input$f_anio))), position="topleft")
-    }
-  })
-  
+  # =========================================================
+  # PNG MAPA
+  # =========================================================
   output$dl_png_mapa <- downloadHandler(
     filename = function() paste0("HANSEN_mapa_", Sys.Date(), ".png"),
     content  = function(file){
-      widget   <- map_widget_simple()
-      tmp_html <- tempfile(fileext=".html")
-      htmlwidgets::saveWidget(widget, tmp_html, selfcontained=TRUE)
-      webshot2::webshot(tmp_html, file=file, vwidth=1200, vheight=800, zoom=2)
+      dly <- if (nivel_mapa() == "mpio") PNG_DELAY_MUN else PNG_DELAY_CO
+      ok <- save_widget_png_retry(map_widget_export(), file, vwidth = PNG_VWIDTH, vheight = PNG_VHEIGHT, delay_base = dly)
+      if (!ok) stop("No se pudo generar el PNG del mapa.")
     }
   )
   
-  # -------- PNG Ranking --------
+  # =========================================================
+  # PNG SERIE
+  # =========================================================
+  output$dl_png_series <- downloadHandler(
+    filename = function() paste0("HANSEN_serie_", Sys.Date(), ".png"),
+    content  = function(file){
+      ok <- save_widget_png_retry(build_plot_arriba(), file, vwidth = 1800, vheight = 900, delay_base = 0.9)
+      if (!ok) stop("No se pudo generar el PNG de la serie.")
+    }
+  )
+  
+  # =========================================================
+  # PNG RANKING
+  # =========================================================
   output$dl_png_ranking <- downloadHandler(
     filename = function() paste0("HANSEN_ranking_", safe_chr(input$f_anio), "_", Sys.Date(), ".png"),
     content  = function(file){
-      plot_df <- ranking_data()
-      if (!nrow(plot_df)) { file.create(file); return() }
-      plot_df <- plot_df |>
-        dplyr::mutate(etiqueta = muni_tc)
-      max_val <- max(plot_df$valor_total, na.rm = TRUE)
-      breaks  <- pretty(c(0, max_val), n = 5)
-      breaks  <- breaks[breaks >= 0]
-      
-      g <- ggplot(plot_df,
-                  aes(x = valor_total,
-                      y = reorder(etiqueta, -valor_total))) +
-        geom_col(fill = BAR_COLOR) +
-        geom_text(
-          aes(x = valor_total / 2,
-              label = fmt_num(valor_total, accuracy = 0.1)),
-          color = "white", size = 3
-        ) +
-        scale_x_continuous(
-          labels = format_short,
-          breaks = breaks,
-          expand = expansion(mult = c(0, 0.05))
-        ) +
-        labs(x="Deforestación (ha)", y=NULL,
-             title=paste0("Los 10 municipios que más pierden bosque",
-                          if (!is.null(input$f_anio)) paste0(" en ", input$f_anio) else "")) +
-        theme_minimal(base_size=12) +
-        theme(
-          axis.text.y=element_text(size=9),
-          plot.margin=margin(r=30),
-          panel.grid.minor=element_blank(),
-          panel.grid.major=element_blank()
-        )
-      ggsave(filename=file, plot=g, device=ragg::agg_png,
-             width=10, height=6, dpi=200, units="in")
+      ok <- save_widget_png_retry(build_ranking_plot(), file, vwidth = 1800, vheight = 1000, delay_base = 0.9)
+      if (!ok) stop("No se pudo generar el PNG del ranking.")
     }
+  )
+  
+  # =========================================================
+  # PDF TIPO ICA
+  # =========================================================
+  output$dl_reporte_pdf <- downloadHandler(
+    filename = function(){
+      dep_tag <- if (is.null(input$f_depto) || input$f_depto == "Todos") "Todos" else input$f_depto
+      mun_tag <- if (is.null(input$f_mpio)  || input$f_mpio  == "Todos") "Todos" else input$f_mpio
+      paste0("Informe_descargable_HANSEN_", dep_tag, "_", mun_tag, "_", safe_chr(input$f_anio), "_", Sys.Date(), ".pdf")
+    },
+    content = function(file){
+      
+      if (!file.exists(ruta_rmd)) {
+        stop("No encuentro Informe_descargable.Rmd en la raíz del proyecto.")
+      }
+      
+      anio_now  <- input$f_anio %||% NA
+      dep_now   <- input$f_depto %||% "Todos"
+      mun_now   <- input$f_mpio %||% "Todos"
+      nivel_now <- if (nivel_mapa() == "mpio") "Municipios" else "Departamentos"
+      
+      dly_map <- if (nivel_mapa() == "mpio") PNG_DELAY_MUN else PNG_DELAY_CO
+      
+      ok_map <- save_widget_png_retry(map_widget_export(), IMG_MAP, vwidth = PNG_VWIDTH, vheight = PNG_VHEIGHT, delay_base = dly_map)
+      ok_ser <- save_widget_png_retry(build_plot_arriba(), IMG_SER, vwidth = 1800, vheight = 900, delay_base = 0.9)
+      ok_top <- save_widget_png_retry(build_ranking_plot(), IMG_TOP, vwidth = 1800, vheight = 1000, delay_base = 0.9)
+      
+      if (!ok_map) stop("No se pudo generar Descargas/hansen_mapa.png para el informe.")
+      if (!ok_ser) stop("No se pudo generar Descargas/hansen_serie.png para el informe.")
+      if (!ok_top) stop("No se pudo generar Descargas/hansen_top10.png para el informe.")
+      
+      dep_disp <- if (is.null(dep_now) || dep_now == "Todos") {
+        "Todos"
+      } else {
+        d <- depto_key |>
+          dplyr::filter(COD_DANE_DPTO_D == dep_now) |>
+          dplyr::pull(DEPARTAMENTO_D)
+        if (!length(d) || is.na(d[1])) as.character(dep_now) else title_case_es(d[1])
+      }
+      
+      mp_disp <- if (is.null(mun_now) || mun_now == "Todos") {
+        "Todos"
+      } else {
+        m <- mpios_sf |>
+          sf::st_drop_geometry() |>
+          dplyr::filter(COD_DANE_MPIO_D == mun_now) |>
+          dplyr::pull(MUNICIPIO_D)
+        if (!length(m) || is.na(m[1])) as.character(mun_now) else title_case_es(m[1])
+      }
+      
+      filtros_tbl <- data.frame(
+        Parametro = c("Año", "Departamento", "Municipio", "Nivel del mapa"),
+        Valor     = c(as.character(anio_now), dep_disp, mp_disp, nivel_now),
+        stringsAsFactors = FALSE
+      )
+      
+      logo_src <- file.path(app_root, "www", "LOGO_PLATEA.png")
+      if (!file.exists(logo_src)) {
+        logo_src2 <- file.path(app_root, "WWW", "LOGO_PLATEA.png")
+        logo_src  <- if (file.exists(logo_src2)) logo_src2 else NA_character_
+      }
+      logo_dst <- file.path(EXPORT_DIR, "LOGO_PLATEA.png")
+      if (!is.na(logo_src) && file.exists(logo_src)) file.copy(logo_src, logo_dst, overwrite = TRUE)
+      logo_tex <- gsub("\\\\", "/", normalizePath(logo_dst, winslash = "/", mustWork = FALSE))
+      
+      td <- tempfile("rmd_hansen_")
+      dir.create(td, recursive = TRUE, showWarnings = FALSE)
+      
+      rmd_to_render <- ruta_rmd
+      rmd_lines <- readLines(ruta_rmd, warn = FALSE, encoding = "UTF-8")
+      if (any(grepl("__LOGO_PLATEA_PATH__", rmd_lines, fixed = TRUE))) {
+        rmd_tmp <- file.path(td, "Informe_descargable_HANSEN_render.Rmd")
+        rmd_lines <- gsub("__LOGO_PLATEA_PATH__", logo_tex, rmd_lines, fixed = TRUE)
+        writeLines(rmd_lines, rmd_tmp, useBytes = TRUE)
+        rmd_to_render <- rmd_tmp
+      }
+      
+      rmarkdown::render(
+        input         = rmd_to_render,
+        output_format = "pdf_document",
+        output_file   = basename(file),
+        output_dir    = dirname(file),
+        quiet         = TRUE,
+        params        = list(
+          app_root     = app_root,
+          export_dir   = "Descargas",
+          filtros      = filtros_tbl,
+          anio         = anio_now,
+          departamento = dep_disp,
+          municipio    = mp_disp,
+          img_map      = basename(IMG_MAP),
+          img_serie    = basename(IMG_SER),
+          img_ranking  = basename(IMG_TOP),
+          csv_filtrado = NULL
+        ),
+        knit_root_dir = app_root,
+        envir         = new.env(parent = globalenv())
+      )
+    },
+    contentType = "application/pdf"
   )
 }
 

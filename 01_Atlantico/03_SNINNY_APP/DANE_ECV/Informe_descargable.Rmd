@@ -1,0 +1,210 @@
+---
+title: "Condiciones de inseguridad alimentaria y consumo de ultra-procesados en los hogares"
+subtitle: "PLATEA"
+header-includes:
+  - \usepackage{graphicx}
+  - \usepackage{float}
+  - \usepackage{placeins}
+  - \usepackage{fancyhdr}
+  - \usepackage{array}
+  - \usepackage{longtable}
+  - \usepackage{booktabs}
+  - \usepackage{caption}
+  - \pagestyle{fancy}
+  - \setlength{\headheight}{40pt}
+  - \fancyfoot[C]{\thepage}
+  - \renewcommand{\headrulewidth}{0.6pt}
+  - \renewcommand{\footrulewidth}{0.6pt}
+  - \fancyhead[L]{\includegraphics[height=1.4cm]{Descargas/LOGO_PLATEA.png}}
+  - \raggedbottom
+  - \sloppy
+output:
+  pdf_document:
+    toc: true
+    number_sections: true
+    latex_engine: xelatex
+geometry: margin=1in
+
+params:
+  app_root: !r getwd()
+  export_dir: "Descargas"
+  filtros_fies: NULL
+  filtros_ultra: NULL
+
+  img_fies_map: NULL
+  img_fies_serie: NULL
+  img_fies_ranking: NULL
+
+  img_ultra_map: NULL
+  img_ultra_serie: NULL
+  img_ultra_ranking: NULL
+
+  csv_filtrado: NULL
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center",
+  out.width = "95%",
+  dpi = 150
+)
+
+`%||%` <- function(x, y) if (is.null(x) || length(x) == 0) y else x
+
+app_root   <- params$app_root %||% getwd()
+export_dir <- params$export_dir %||% "Descargas"
+light_dir  <- export_dir
+
+safe_path <- function(fname){
+  if (is.null(fname) || is.na(fname) || !nzchar(fname)) return(NA_character_)
+  p <- file.path(light_dir, fname)
+  if (!file.exists(file.path(app_root, p))) return(NA_character_)
+  p
+}
+
+safe_include <- function(p, txt = "No se encontró la imagen correspondiente."){
+  if (is.na(p) || !nzchar(p) || !file.exists(file.path(app_root, p))) {
+    cat(txt, "\n")
+  } else {
+    knitr::include_graphics(p)
+  }
+}
+
+img_use <- list(
+  fies_map   = safe_path(params$img_fies_map),
+  fies_serie = safe_path(params$img_fies_serie),
+  fies_rank  = safe_path(params$img_fies_ranking),
+
+  ultra_map   = safe_path(params$img_ultra_map),
+  ultra_serie = safe_path(params$img_ultra_serie),
+  ultra_rank  = safe_path(params$img_ultra_ranking)
+)
+
+mk_filtros_tbl <- function(x){
+  if (!is.null(x) && is.data.frame(x) && all(c("Parametro","Valor") %in% names(x))) {
+    x[] <- lapply(x, function(v){
+      v <- as.character(v)
+      v[is.na(v)] <- ""
+      v
+    })
+    return(x)
+  }
+  data.frame(
+    Parametro = c("Filtro", "Valor"),
+    Valor     = c("Sin información", "Sin información"),
+    stringsAsFactors = FALSE
+  )
+}
+
+filtros_fies_tbl  <- mk_filtros_tbl(params$filtros_fies)
+filtros_ultra_tbl <- mk_filtros_tbl(params$filtros_ultra)
+```
+
+# Resumen del reporte
+
+Este informe analiza la condición de inseguridad alimentaria en los hogares, medida a través del indicadores de los FIES-8, y su relación con los patrones de consumo de alimentos ultra-procesados, particularmente snacks y bebidas azucaradas. El análisis integra la dimensión de acceso a los alimentos con la calidad del consumo, permitiendo evaluar tensiones estructurales del sistema agroalimentario que no se reflejan únicamente en la disponibilidad física de alimentos. Desde una perspectiva agroalimentaria, la coexistencia de inseguridad alimentaria y alto consumo de ultra-procesados revela desbalances en el acceso, la asequibilidad y las decisiones de consumo, con implicaciones directas sobre la seguridad alimentaria y nutricional.
+
+
+## Objetivo
+
+El objetivo de este informe es analizar los patrones territoriales y temporales de la inseguridad alimentaria y del consumo de alimentos ultra-procesados como insumo para la toma de decisiones en el sistema agroalimentario.
+
+1. Caracterizar y comparar las prevalencias, rankings y series temporales de inseguridad alimentaria y consumo de ultra-procesados, con el fin de identificar territorios con mayor vulnerabilidad alimentaria.
+
+2. Presentar la interacción entre los hábitos de consumo y las condiciones de inseguridad alimentaria.
+
+3. Generar insumos para el diseño de políticas públicas en seguridad alimentaria y nutricional.
+
+
+# Resultados
+
+## 1. Condición de inseguridad alimentaria
+
+### Filtros usados en esta pestaña
+
+```{r}
+knitr::kable(
+  filtros_fies_tbl,
+  format = "latex",
+  booktabs = TRUE,
+  longtable = FALSE,
+  align = c("p{0.38\\textwidth}", "p{0.52\\textwidth}"),
+  escape = TRUE,
+  caption = "Filtros aplicados en la pestaña de inseguridad alimentaria"
+)
+```
+
+### ¿Cuáles departamentos concentran más hogares que se preocuparon por no tener suficientes alimentos?
+
+El mapa territorial muestra la prevalencia de hogares que reportaron preocupación por no tener suficientes alimentos, como una señal temprana de inseguridad alimentaria. Este indicador permite identificar territorios donde el acceso económico y social a los alimentos presenta mayores tensiones.En el sistema agroalimentario, este resultado se interpreta como una alerta sobre posibles fallas en el acceso, incluso en contextos donde la oferta agregada de alimentos puede ser suficiente. La preocupación por no contar con alimentos adecuados suele anticipar estrategias de ajuste en el consumo, reducción en la calidad de la dieta y mayor vulnerabilidad nutricional.
+
+
+```{r}
+safe_include(img_use$fies_map, "No se encontró la imagen del mapa FIES.")
+```
+
+### ¿Cómo ha evolucionado en el tiempo la prevalencia de hogares que se preocuparon por no tener suficientes alimentos?
+
+La serie temporal muestra cómo ha evolucionado la prevalencia de hogares con preocupación por no tener suficientes alimentos a lo largo del tiempo. Este indicador permite evaluar si la inseguridad alimentaria responde a choques coyunturales o si se trata de una condición persistente. En términos del sistema agroalimentario, reducciones sostenidas pueden reflejar mejoras en ingreso, acceso o políticas de apoyo, mientras que aumentos o estancamientos sugieren fragilidades estructurales que requieren intervenciones de mayor alcance.
+
+```{r}
+safe_include(img_use$fies_serie, "No se encontró la imagen de la serie FIES.")
+```
+
+### ¿Qué departamentos tienen mayor prevalencia de hogares que se preocuparon por no tener suficientes alimentos?
+
+El ranking de departamentos según la prevalencia de hogares que se preocuparon por no tener suficientes alimentos permite focalizar territorios con mayores niveles relativos de inseguridad alimentaria. Desde una perspectiva agroalimentaria, este ranking permite pasar de un diagnóstico general a la identificación concreta de territorios donde se requieren acciones coordinadas en acceso, protección social, fortalecimiento de mercados locales y apoyo a la producción de alimentos básicos.
+
+
+```{r}
+safe_include(img_use$fies_rank, "No se encontró la imagen del ranking FIES.")
+```
+
+\clearpage
+
+## 2. Consumo y frecuencia de snacks y gaseosas
+
+### Filtros usados en esta pestaña
+
+```{r}
+knitr::kable(
+  filtros_ultra_tbl,
+  format = "latex",
+  booktabs = TRUE,
+  longtable = FALSE,
+  align = c("p{0.38\\textwidth}", "p{0.52\\textwidth}"),
+  escape = TRUE,
+  caption = "Filtros aplicados en la pestaña de consumo y frecuencia"
+)
+```
+
+### ¿Cuáles departamentos concentran más consumo de estos alimentos?
+
+El mapa de presencia de consumo de bebidas azucaradas y snacks identifica territorios donde una mayor proporción de hogares reporta consumir este tipo de productos. Este indicador no mide cantidades, sino la extensión del consumo en la población. Desde el enfoque agroalimentario, una alta presencia de consumo de ultra-procesados puede indicar sustitución de alimentos frescos por productos de alta densidad calórica y bajo valor nutricional, lo que refleja tensiones entre acceso, precios relativos y disponibilidad de alimentos saludables.
+
+
+```{r}
+safe_include(img_use$ultra_map, "No se encontró la imagen del mapa Ultra.")
+```
+
+### ¿Cómo ha evolucionado la prevalencia de consumo?
+
+La serie temporal de prevalencia de consumo permite evaluar cambios en los hábitos alimentarios a lo largo del tiempo. Tendencias crecientes sugieren una consolidación de patrones de consumo poco saludables, mientras que reducciones pueden reflejar cambios en precios, políticas públicas o campañas de educación alimentaria. Para el sistema agroalimentario, este indicador es clave para anticipar transformaciones en la demanda y ajustar estrategias de producción, abastecimiento y regulación.
+
+
+```{r}
+safe_include(img_use$ultra_serie, "No se encontró la imagen de la serie Ultra.")
+```
+
+### ¿Qué departamentos tienen mayor prevalencia al consumo de estos alimentos?
+
+El ranking departamental de prevalencia de consumo permite identificar territorios donde estos productos tienen mayor penetración en los hogares. Este indicador es relevante para analizar la estructura de la demanda alimentaria y su alineación  con los sistemas locales de producción. En contextos donde coexisten alta inseguridad alimentaria y alto consumo de ultra-procesados, el sistema agroalimentario enfrenta un doble desafío: garantizar acceso suficiente y promover dietas más saludables y sostenibles.
+
+
+```{r}
+safe_include(img_use$ultra_rank, "No se encontró la imagen del ranking Ultra.")
+```
+

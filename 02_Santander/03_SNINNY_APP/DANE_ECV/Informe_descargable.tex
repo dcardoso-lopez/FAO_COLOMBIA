@@ -1,0 +1,262 @@
+% Options for packages loaded elsewhere
+\PassOptionsToPackage{unicode}{hyperref}
+\PassOptionsToPackage{hyphens}{url}
+%
+\documentclass[
+]{article}
+\usepackage{amsmath,amssymb}
+\usepackage{iftex}
+\ifPDFTeX
+  \usepackage[T1]{fontenc}
+  \usepackage[utf8]{inputenc}
+  \usepackage{textcomp} % provide euro and other symbols
+\else % if luatex or xetex
+  \usepackage{unicode-math} % this also loads fontspec
+  \defaultfontfeatures{Scale=MatchLowercase}
+  \defaultfontfeatures[\rmfamily]{Ligatures=TeX,Scale=1}
+\fi
+\usepackage{lmodern}
+\ifPDFTeX\else
+  % xetex/luatex font selection
+\fi
+% Use upquote if available, for straight quotes in verbatim environments
+\IfFileExists{upquote.sty}{\usepackage{upquote}}{}
+\IfFileExists{microtype.sty}{% use microtype if available
+  \usepackage[]{microtype}
+  \UseMicrotypeSet[protrusion]{basicmath} % disable protrusion for tt fonts
+}{}
+\makeatletter
+\@ifundefined{KOMAClassName}{% if non-KOMA class
+  \IfFileExists{parskip.sty}{%
+    \usepackage{parskip}
+  }{% else
+    \setlength{\parindent}{0pt}
+    \setlength{\parskip}{6pt plus 2pt minus 1pt}}
+}{% if KOMA class
+  \KOMAoptions{parskip=half}}
+\makeatother
+\usepackage{xcolor}
+\usepackage[margin=1in]{geometry}
+\usepackage{graphicx}
+\makeatletter
+\def\maxwidth{\ifdim\Gin@nat@width>\linewidth\linewidth\else\Gin@nat@width\fi}
+\def\maxheight{\ifdim\Gin@nat@height>\textheight\textheight\else\Gin@nat@height\fi}
+\makeatother
+% Scale images if necessary, so that they will not overflow the page
+% margins by default, and it is still possible to overwrite the defaults
+% using explicit options in \includegraphics[width, height, ...]{}
+\setkeys{Gin}{width=\maxwidth,height=\maxheight,keepaspectratio}
+% Set default figure placement to htbp
+\makeatletter
+\def\fps@figure{htbp}
+\makeatother
+\setlength{\emergencystretch}{3em} % prevent overfull lines
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+\setcounter{secnumdepth}{5}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{placeins}
+\usepackage{fancyhdr}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{booktabs}
+\usepackage{caption}
+\pagestyle{fancy}
+\setlength{\headheight}{40pt}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.6pt}
+\renewcommand{\footrulewidth}{0.6pt}
+\fancyhead[L]{\includegraphics[height=1.4cm]{Descargas/LOGO_PLATEA.png}}
+\raggedbottom
+\sloppy
+\ifLuaTeX
+  \usepackage{selnolig}  % disable illegal ligatures
+\fi
+\usepackage{bookmark}
+\IfFileExists{xurl.sty}{\usepackage{xurl}}{} % add URL line breaks if available
+\urlstyle{same}
+\hypersetup{
+  pdftitle={Consumo de alimentos e inseguridad alimentaria},
+  hidelinks,
+  pdfcreator={LaTeX via pandoc}}
+
+\title{Consumo de alimentos e inseguridad alimentaria}
+\usepackage{etoolbox}
+\makeatletter
+\providecommand{\subtitle}[1]{% add subtitle to \maketitle
+  \apptocmd{\@title}{\par {\large #1 \par}}{}{}
+}
+\makeatother
+\subtitle{PLATEA}
+\author{}
+\date{\vspace{-2.5em}}
+
+\begin{document}
+\maketitle
+
+{
+\setcounter{tocdepth}{2}
+\tableofcontents
+}
+\section{Resumen del reporte}\label{resumen-del-reporte}
+
+Este informe consolida todos los objetos visuales presentes en el
+tablero para el módulo de inseguridad alimentaria y para el módulo de
+consumo y frecuencia de snacks y gaseosas. La integración de mapas,
+series temporales y rankings permite ofrecer una lectura territorial,
+temporal y comparativa de los indicadores analizados, de modo que el
+documento funcione como una síntesis completa del comportamiento
+observado en ambas pestañas del aplicativo.
+
+\subsection{Objetivo}\label{objetivo}
+
+El objetivo de este informe es presentar de forma integrada los
+principales resultados visuales del tablero, incorporando los objetos
+gráficos generados para las dos pestañas del módulo y facilitando una
+lectura analítica conjunta de los patrones territoriales y temporales
+observados.
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  Examinar y describir la distribución territorial de los indicadores
+  asociados a inseguridad alimentaria y consumo.
+\item
+  Analizar la evolución temporal de los indicadores mostrados en el
+  tablero.
+\item
+  Presentar comparaciones territoriales mediante rankings que permitan
+  identificar concentraciones relativas del fenómeno.
+\end{enumerate}
+
+\section{Resultados}\label{resultados}
+
+\subsection{1. Condición de inseguridad
+alimentaria}\label{condiciuxf3n-de-inseguridad-alimentaria}
+
+\subsubsection{Filtros usados en esta
+pestaña}\label{filtros-usados-en-esta-pestauxf1a}
+
+\begin{table}
+
+\caption{\label{tab:unnamed-chunk-1}Filtros aplicados en la pestaña de inseguridad alimentaria}
+\centering
+\begin{tabular}[t]{p{0.38\textwidth}p{0.52\textwidth}}
+\toprule
+Parametro & Valor\\
+\midrule
+Filtro & Sin información\\
+Valor & Sin información\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{¿En qué territorios se concentra el indicador
+seleccionado?}\label{en-quuxe9-territorios-se-concentra-el-indicador-seleccionado}
+
+El mapa territorial permite identificar qué departamentos presentan
+mayores niveles relativos del indicador FIES seleccionado. Esta
+visualización facilita reconocer patrones espaciales de la inseguridad
+alimentaria y detectar territorios donde los hogares enfrentan con mayor
+frecuencia restricciones asociadas al acceso, la suficiencia o la
+calidad de los alimentos.
+
+\begin{verbatim}
+## No se encontró la imagen del mapa FIES.
+\end{verbatim}
+
+\subsubsection{¿Cómo ha evolucionado el indicador a lo largo del
+tiempo?}\label{cuxf3mo-ha-evolucionado-el-indicador-a-lo-largo-del-tiempo}
+
+La serie temporal resume la trayectoria del indicador seleccionado en el
+tiempo. Esta lectura permite reconocer si la prevalencia observada
+presenta tendencias de incremento, reducción o estabilidad, ofreciendo
+un insumo importante para el seguimiento del fenómeno.
+
+\begin{verbatim}
+## No se encontró la imagen de la serie FIES.
+\end{verbatim}
+
+\subsubsection{¿Qué departamentos presentan los mayores niveles del
+indicador?}\label{quuxe9-departamentos-presentan-los-mayores-niveles-del-indicador}
+
+El ranking departamental permite comparar la posición relativa de los
+territorios según la prevalencia del indicador seleccionado. Esta
+visualización resulta útil para priorizar territorios y resumir de
+manera sintética dónde se concentra con mayor intensidad el fenómeno
+analizado.
+
+\begin{verbatim}
+## No se encontró la imagen del ranking FIES.
+\end{verbatim}
+
+\clearpage
+
+\subsection{2. Consumo y frecuencia de snacks y
+gaseosas}\label{consumo-y-frecuencia-de-snacks-y-gaseosas}
+
+\subsubsection{Filtros usados en esta
+pestaña}\label{filtros-usados-en-esta-pestauxf1a-1}
+
+\begin{table}
+
+\caption{\label{tab:unnamed-chunk-5}Filtros aplicados en la pestaña de consumo y frecuencia}
+\centering
+\begin{tabular}[t]{p{0.38\textwidth}p{0.52\textwidth}}
+\toprule
+Parametro & Valor\\
+\midrule
+Filtro & Sin información\\
+Valor & Sin información\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{¿En qué territorios se concentra el indicador
+seleccionado?}\label{en-quuxe9-territorios-se-concentra-el-indicador-seleccionado-1}
+
+El mapa territorial muestra la distribución departamental del indicador
+de consumo o frecuencia configurado en el tablero. Esta visualización
+permite comparar la intensidad relativa del fenómeno entre territorios y
+reconocer posibles concentraciones espaciales en los patrones de consumo
+observados.
+
+\begin{verbatim}
+## No se encontró la imagen del mapa Ultra.
+\end{verbatim}
+
+\subsubsection{¿Cómo ha evolucionado el indicador a lo largo del
+tiempo?}\label{cuxf3mo-ha-evolucionado-el-indicador-a-lo-largo-del-tiempo-1}
+
+La serie temporal permite observar la trayectoria del indicador
+seleccionado en el periodo analizado. Esta lectura es útil para
+identificar cambios, persistencias o comportamientos relativamente
+estables en el consumo o en la frecuencia específica considerada.
+
+\begin{verbatim}
+## No se encontró la imagen de la serie Ultra.
+\end{verbatim}
+
+\subsubsection{¿Qué departamentos presentan los valores más
+altos?}\label{quuxe9-departamentos-presentan-los-valores-muxe1s-altos}
+
+El ranking departamental resume la posición relativa de los territorios
+según el indicador configurado en la pestaña. Esta comparación permite
+identificar los departamentos que concentran los mayores porcentajes
+relativos y facilita una lectura sintética del fenómeno.
+
+\begin{verbatim}
+## No se encontró la imagen del ranking Ultra.
+\end{verbatim}
+
+\section{Consideraciones finales}\label{consideraciones-finales}
+
+Este documento integra todos los objetos visuales principales del
+tablero y permite una lectura conjunta de los resultados mostrados en
+ambas pestañas. La interpretación debe hacerse a la luz de los filtros
+aplicados en cada módulo, ya que los valores reportados dependen de la
+configuración activa al momento de generar el informe.
+
+\end{document}

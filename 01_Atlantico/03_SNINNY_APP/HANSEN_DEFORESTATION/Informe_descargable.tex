@@ -1,0 +1,253 @@
+% Options for packages loaded elsewhere
+\PassOptionsToPackage{unicode}{hyperref}
+\PassOptionsToPackage{hyphens}{url}
+%
+\documentclass[
+]{article}
+\usepackage{amsmath,amssymb}
+\usepackage{iftex}
+\ifPDFTeX
+  \usepackage[T1]{fontenc}
+  \usepackage[utf8]{inputenc}
+  \usepackage{textcomp} % provide euro and other symbols
+\else % if luatex or xetex
+  \usepackage{unicode-math} % this also loads fontspec
+  \defaultfontfeatures{Scale=MatchLowercase}
+  \defaultfontfeatures[\rmfamily]{Ligatures=TeX,Scale=1}
+\fi
+\usepackage{lmodern}
+\ifPDFTeX\else
+  % xetex/luatex font selection
+\fi
+% Use upquote if available, for straight quotes in verbatim environments
+\IfFileExists{upquote.sty}{\usepackage{upquote}}{}
+\IfFileExists{microtype.sty}{% use microtype if available
+  \usepackage[]{microtype}
+  \UseMicrotypeSet[protrusion]{basicmath} % disable protrusion for tt fonts
+}{}
+\makeatletter
+\@ifundefined{KOMAClassName}{% if non-KOMA class
+  \IfFileExists{parskip.sty}{%
+    \usepackage{parskip}
+  }{% else
+    \setlength{\parindent}{0pt}
+    \setlength{\parskip}{6pt plus 2pt minus 1pt}}
+}{% if KOMA class
+  \KOMAoptions{parskip=half}}
+\makeatother
+\usepackage{xcolor}
+\usepackage[margin=1in]{geometry}
+\usepackage{graphicx}
+\makeatletter
+\def\maxwidth{\ifdim\Gin@nat@width>\linewidth\linewidth\else\Gin@nat@width\fi}
+\def\maxheight{\ifdim\Gin@nat@height>\textheight\textheight\else\Gin@nat@height\fi}
+\makeatother
+% Scale images if necessary, so that they will not overflow the page
+% margins by default, and it is still possible to overwrite the defaults
+% using explicit options in \includegraphics[width, height, ...]{}
+\setkeys{Gin}{width=\maxwidth,height=\maxheight,keepaspectratio}
+% Set default figure placement to htbp
+\makeatletter
+\def\fps@figure{htbp}
+\makeatother
+\setlength{\emergencystretch}{3em} % prevent overfull lines
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+\setcounter{secnumdepth}{5}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{placeins}
+\usepackage{fancyhdr}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{booktabs}
+\usepackage{caption}
+\pagestyle{fancy}
+\setlength{\headheight}{40pt}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.6pt}
+\renewcommand{\footrulewidth}{0.6pt}
+\fancyhead[L]{\includegraphics[height=1.4cm]{Descargas/LOGO_PLATEA.png}}
+\raggedbottom
+\sloppy
+\ifLuaTeX
+  \usepackage{selnolig}  % disable illegal ligatures
+\fi
+\usepackage{bookmark}
+\IfFileExists{xurl.sty}{\usepackage{xurl}}{} % add URL line breaks if available
+\urlstyle{same}
+\hypersetup{
+  pdftitle={Informe descargable --- Deforestación},
+  hidelinks,
+  pdfcreator={LaTeX via pandoc}}
+
+\title{Informe descargable --- Deforestación}
+\usepackage{etoolbox}
+\makeatletter
+\providecommand{\subtitle}[1]{% add subtitle to \maketitle
+  \apptocmd{\@title}{\par {\large #1 \par}}{}{}
+}
+\makeatother
+\subtitle{PLATEA}
+\author{}
+\date{\vspace{-2.5em}}
+
+\begin{document}
+\maketitle
+
+{
+\setcounter{tocdepth}{2}
+\tableofcontents
+}
+\section{Resumen del reporte}\label{resumen-del-reporte}
+
+Este informe presenta un análisis territorial y temporal de la
+deforestación medida en hectáreas perdidas de cobertura boscosa. A
+partir de la información visualizada en la aplicación, se integran tres
+componentes complementarios: un mapa temático, una serie temporal y un
+ranking territorial. La lectura conjunta de estas salidas permite
+identificar dónde se concentra la pérdida de bosque, cómo evoluciona en
+el tiempo y qué territorios registran los mayores niveles del fenómeno
+bajo los filtros seleccionados.
+
+Desde una perspectiva agroambiental y territorial, este tipo de análisis
+permite reconocer presiones diferenciadas sobre los ecosistemas,
+priorizar espacios para seguimiento y orientar decisiones de política
+pública, monitoreo ambiental y gestión del territorio.
+
+\subsection{Objetivo}\label{objetivo}
+
+El objetivo de este informe es analizar la distribución espacial y la
+evolución temporal de la deforestación como insumo para la toma de
+decisiones territoriales y ambientales.
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  Identificar territorios con mayor cantidad de hectáreas deforestadas.
+\item
+  Analizar la trayectoria anual y acumulada de la pérdida de cobertura
+  boscosa.
+\item
+  Reconocer los territorios con mayor concentración relativa del
+  fenómeno.
+\item
+  Generar insumos para la priorización territorial de acciones de
+  monitoreo, conservación y gestión ambiental.
+\end{enumerate}
+
+\section{Resultados}\label{resultados}
+
+\subsection{1. Filtros aplicados}\label{filtros-aplicados}
+
+\begin{table}
+
+\caption{\label{tab:unnamed-chunk-1}Filtros aplicados en la app al momento de generar el informe}
+\centering
+\begin{tabular}[t]{p{0.38\textwidth}p{0.52\textwidth}}
+\toprule
+Parametro & Valor\\
+\midrule
+Año & Sin información\\
+Departamento & Sin información\\
+Municipio & Sin información\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{2. Distribución territorial de la
+deforestación}\label{distribuciuxf3n-territorial-de-la-deforestaciuxf3n}
+
+\subsubsection{¿Qué territorios presentan mayor cantidad de hectáreas
+deforestadas?}\label{quuxe9-territorios-presentan-mayor-cantidad-de-hectuxe1reas-deforestadas}
+
+El mapa territorial muestra la distribución espacial de la deforestación
+según los filtros seleccionados en la aplicación. La visualización
+permite comparar territorios en términos de hectáreas perdidas de
+cobertura boscosa y reconocer patrones de concentración espacial del
+fenómeno. Cuando el análisis se presenta a nivel departamental, el mapa
+resume la intensidad relativa del problema entre departamentos. Cuando
+el usuario profundiza a escala municipal, la lectura se vuelve más
+precisa y permite localizar focos más específicos de pérdida de bosque.
+
+Desde una perspectiva territorial, esta salida resulta útil para
+identificar áreas prioritarias de seguimiento ambiental, reconocer
+contrastes espaciales dentro de un mismo departamento y apoyar
+estrategias de focalización. En contextos donde la presión sobre los
+ecosistemas es heterogénea, esta evidencia ayuda a distinguir entre
+zonas con pérdidas relativamente acotadas y territorios donde la
+deforestación muestra una mayor intensidad.
+
+\begin{verbatim}
+## No se encontró la imagen del mapa.
+\end{verbatim}
+
+\subsection{3. Evolución temporal de la
+deforestación}\label{evoluciuxf3n-temporal-de-la-deforestaciuxf3n}
+
+\subsubsection{¿Cómo viene la deforestación año a
+año?}\label{cuxf3mo-viene-la-deforestaciuxf3n-auxf1o-a-auxf1o}
+
+La serie temporal resume la trayectoria anual de la deforestación y, de
+forma complementaria, la evolución acumulada del fenómeno. Esta doble
+lectura permite observar tanto la variación de corto plazo como el peso
+histórico de la pérdida de cobertura boscosa en el territorio analizado.
+La línea anual muestra los cambios entre un año y otro, mientras que la
+línea acumulada refleja la magnitud total que se ha ido consolidando con
+el paso del tiempo.
+
+Este tipo de análisis es especialmente útil para reconocer si la
+deforestación responde a episodios puntuales, si presenta una tendencia
+persistente o si muestra cambios de intensidad en distintos periodos.
+Desde el punto de vista de la gestión ambiental, la lectura temporal
+permite orientar acciones de prevención, seguimiento y control, así como
+evaluar si el comportamiento observado es consistente con procesos
+estructurales o con choques coyunturales.
+
+\begin{verbatim}
+## No se encontró la imagen de la serie temporal.
+\end{verbatim}
+
+\subsection{4. Ranking de territorios con mayor pérdida de
+bosque}\label{ranking-de-territorios-con-mayor-puxe9rdida-de-bosque}
+
+\subsubsection{¿Qué territorios registran mayores niveles de
+deforestación?}\label{quuxe9-territorios-registran-mayores-niveles-de-deforestaciuxf3n}
+
+El ranking territorial identifica los diez territorios con mayor pérdida
+de cobertura boscosa según los filtros aplicados en la aplicación. Esta
+visualización complementa el mapa al permitir una comparación directa
+entre unidades territoriales y al destacar los espacios que concentran
+los valores más altos del indicador.
+
+Desde una perspectiva analítica, el ranking ayuda a pasar del
+diagnóstico general a la priorización concreta. Esto resulta
+particularmente útil cuando se requiere enfocar esfuerzos de monitoreo,
+diseñar intervenciones focalizadas o comparar el peso relativo de
+distintos territorios en la dinámica total de la deforestación. En
+términos de gestión pública, esta información permite fortalecer
+criterios de priorización territorial y apoyar procesos de asignación de
+recursos y seguimiento diferenciado.
+
+\begin{verbatim}
+## No se encontró la imagen del ranking.
+\end{verbatim}
+
+\section{Consideraciones finales}\label{consideraciones-finales}
+
+Los resultados presentados en este informe permiten caracterizar la
+deforestación desde una perspectiva espacial y temporal, utilizando una
+lectura integrada entre mapa, serie y ranking. Esta combinación facilita
+identificar territorios con mayores niveles del fenómeno, reconocer su
+evolución histórica y fortalecer ejercicios de priorización territorial.
+
+La evidencia aquí sintetizada puede servir como insumo para la
+planeación ambiental, la formulación de estrategias de conservación, la
+focalización de acciones de control y el seguimiento de dinámicas de
+pérdida de cobertura boscosa. En desarrollos posteriores, este análisis
+puede complementarse con variables socioeconómicas, productivas o
+institucionales que permitan profundizar en los factores asociados a la
+presión sobre el bosque y en las capacidades territoriales de respuesta.
+
+\end{document}

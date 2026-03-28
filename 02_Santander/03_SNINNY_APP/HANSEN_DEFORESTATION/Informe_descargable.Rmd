@@ -1,0 +1,158 @@
+---
+title: "Pérdida de bosque en el territorio"
+subtitle: "PLATEA"
+header-includes:
+  - \usepackage{graphicx}
+  - \usepackage{float}
+  - \usepackage{placeins}
+  - \usepackage{fancyhdr}
+  - \usepackage{array}
+  - \usepackage{longtable}
+  - \usepackage{booktabs}
+  - \usepackage{caption}
+  - \pagestyle{fancy}
+  - \setlength{\headheight}{40pt}
+  - \fancyfoot[C]{\thepage}
+  - \renewcommand{\headrulewidth}{0.6pt}
+  - \renewcommand{\footrulewidth}{0.6pt}
+  - \fancyhead[L]{\includegraphics[height=1.4cm]{Descargas/LOGO_PLATEA.png}}
+  - \raggedbottom
+  - \sloppy
+output:
+  pdf_document:
+    toc: true
+    number_sections: true
+    latex_engine: xelatex
+geometry: margin=1in
+
+params:
+  app_root: !r getwd()
+  export_dir: "Descargas"
+  filtros: NULL
+
+  anio: NULL
+  departamento: NULL
+  municipio: NULL
+
+  img_map: NULL
+  img_serie: NULL
+  img_ranking: NULL
+
+  csv_filtrado: NULL
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center",
+  out.width = "95%",
+  dpi = 150
+)
+
+`%||%` <- function(x, y) if (is.null(x) || length(x) == 0) y else x
+
+app_root   <- params$app_root %||% getwd()
+export_dir <- params$export_dir %||% "Descargas"
+
+safe_path <- function(fname){
+  if (is.null(fname) || is.na(fname) || !nzchar(fname)) return(NA_character_)
+  p <- file.path(export_dir, fname)
+  if (!file.exists(file.path(app_root, p))) return(NA_character_)
+  p
+}
+
+safe_include <- function(p, txt = "No se encontró la imagen correspondiente."){
+  if (is.na(p) || !nzchar(p) || !file.exists(file.path(app_root, p))) {
+    cat(txt, "\n")
+  } else {
+    knitr::include_graphics(p)
+  }
+}
+
+img_use <- list(
+  map     = safe_path(params$img_map),
+  serie   = safe_path(params$img_serie),
+  ranking = safe_path(params$img_ranking)
+)
+
+mk_filtros_tbl <- function(x){
+  if (!is.null(x) && is.data.frame(x) && all(c("Parametro","Valor") %in% names(x))) {
+    x[] <- lapply(x, function(v){
+      v <- as.character(v)
+      v[is.na(v)] <- ""
+      v
+    })
+    return(x)
+  }
+
+  data.frame(
+    Parametro = c("Año", "Departamento", "Municipio"),
+    Valor     = c(
+      as.character(params$anio %||% "Sin información"),
+      as.character(params$departamento %||% "Sin información"),
+      as.character(params$municipio %||% "Sin información")
+    ),
+    stringsAsFactors = FALSE
+  )
+}
+
+filtros_tbl <- mk_filtros_tbl(params$filtros)
+```
+
+# Resumen del reporte
+
+Este módulo analiza la pérdida de cobertura boscosa como un determinante estructural del desempeño del sistema agroalimentario. La deforestación incide directamente sobre la sostenibilidad de la producción, la regulación hídrica, la fertilidad de los suelos y la estabilidad climática local, afectando tanto la oferta agrícola como las condiciones de abastecimiento y resiliencia territorial. Desde una perspectiva agroalimentaria, la pérdida de bosque no debe interpretarse únicamente como un fenómeno ambiental, sino como un proceso que puede generar presiones de corto y largo plazo sobre la productividad, los costos de producción y la seguridad alimentaria.
+
+
+## Objetivo
+El objetivo de este módulo es identificar patrones espaciales y temporales de deforestación para apoyar la toma de decisiones en el sistema agroalimentario. En particular, busca:
+
+1. Producción: detectar territorios donde la pérdida de bosque puede estar asociada a degradación de suelos, mayor exposición a sequías o eventos extremos y reducción de la productividad agrícola.
+
+2. Abastecimiento y logística: identificar zonas donde la deforestación puede aumentar el riesgo de inundaciones, deslizamientos o deterioro de infraestructura vial, afectando la salida de productos.
+
+3. Gestión del riesgo y sostenibilidad: reconocer tendencias persistentes de pérdida de bosque que justifiquen acciones preventivas, ordenamiento territorial y fortalecimiento institucional.
+
+
+# Resultados
+
+## 1. Filtros aplicados
+
+```{r}
+knitr::kable(
+  filtros_tbl,
+  format = "latex",
+  booktabs = TRUE,
+  longtable = FALSE,
+  align = c("p{0.38\\textwidth}", "p{0.52\\textwidth}"),
+  escape = TRUE,
+  caption = "Filtros aplicados en la app al momento de generar el informe"
+)
+```
+
+## ¿Qué territorios presentan mayor cantidad de hectáreas deforestadas?
+
+Este indicador sirve para ubicar territorialmente dónde se concentra la pérdida de cobertura boscosa en el periodo seleccionado. En un sistema agroalimentario, los territorios con mayores áreas deforestadas suelen enfrentar mayores riesgos de erosión, pérdida de servicios ecosistémicos y alteraciones en el ciclo hídrico. El mapa no debe interpretarse únicamente como “dónde se deforesta más”, sino como una herramienta para identificar territorios donde el sistema agroalimentario puede verse tensionado por una menor capacidad de regulación ambiental y mayor vulnerabilidad productiva.
+
+```{r}
+safe_include(img_use$map, "No se encontró la imagen del mapa.")
+```
+
+## Evolución de la deforestación en el tiempo (anual y acumulada)
+
+La serie temporal anual y acumulada permite analizar cómo evoluciona la deforestación a lo largo del tiempo, diferenciando episodios puntuales de pérdida de bosque de tendencias estructurales. En términos agroalimentarios, un crecimiento sostenido de la deforestación acumulada indica un deterioro progresivo de las condiciones de producción y una mayor probabilidad de impactos negativos sobre rendimientos, estabilidad de la oferta y costos de adaptación. Por el contrario, reducciones o estabilizaciones pueden reflejar mejoras en gobernanza territorial o cambios en el uso del suelo.
+
+```{r}
+safe_include(img_use$serie, "No se encontró la imagen de la serie temporal.")
+```
+
+## Top 10 de los territorios con mayor pérdida de cobertura boscosa
+
+El ranking de los diez territorios con mayor pérdida de bosque permite focalizar prioridades cuando los recursos de seguimiento e intervención son limitados. Este indicador facilita pasar de un diagnóstico general a una lista concreta de territorios donde es más probable que la deforestación genere impactos críticos sobre el sistema agroalimentario. Desde un enfoque operativo, este ranking es útil para priorizar acciones de control, restauración, asistencia técnica y coordinación interinstitucional en territorios estratégicos para la producción y el abastecimiento de alimentos.
+
+```{r}
+safe_include(img_use$ranking, "No se encontró la imagen del ranking.")
+```
+

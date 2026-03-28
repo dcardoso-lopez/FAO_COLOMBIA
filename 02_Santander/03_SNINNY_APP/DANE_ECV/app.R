@@ -1,23 +1,68 @@
 # app.R — ECV Consumo (c_ = binarios, f_ = frecuencias, FIES-8)
-#========================================================================
+# ============================================================================
+# MODIFICADA:
+# + Botones estilo ICA / IDM
+# + Exportación robusta de PNG (htmlwidgets + webshot2 + retry)
+# + Un solo botón "Descargar informe (PDF)" para TODO el tablero
+# + El PDF genera y muestra TODOS los objetos visuales:
+#   - FIES: mapa + serie + ranking
+#   - ULTRA: mapa + serie + ranking
+# + Renderiza Informe_descargable.Rmd desde la raíz
+# + NO depende de CSV para el informe
+# + FIX: el PDF usa snapshot de inputs, para evitar reactividad interrumpida
+# ============================================================================
 
 suppressWarnings({
   library(shiny); library(bslib); library(shinyWidgets)
   library(dplyr); library(tidyr); library(readr); library(stringi); library(scales)
   library(leaflet); library(sf); library(htmltools); library(plotly); library(haven); library(stringr)
   library(htmlwidgets); library(webshot2)
+  library(rmarkdown); library(ragg); library(ggplot2)
 })
+
 options(stringsAsFactors = FALSE)
 sf::sf_use_s2(FALSE)
 
+# ---------------- Utils base ----------------
+`%||%` <- function(x,y) if (is.null(x)||length(x)==0) y else x
+
 # ---------------- Rutas ----------------
-app_root <- tryCatch(normalizePath(getwd(), winslash = "/", mustWork = TRUE), error = function(e) getwd())
+get_app_root <- function(){
+  normalizePath(shiny::getShinyOption("appDir") %||% getwd(), winslash = "/", mustWork = FALSE)
+}
+
+app_root <- get_app_root()
 data_dir <- file.path(app_root, "data")
 ruta_ecv     <- file.path(data_dir, "052_DANE_ECV.rds")
 ruta_shp_dep <- file.path(data_dir, "shp", "MGN_ANM_DPTOS.shp")
 ruta_shp_mun <- file.path(data_dir, "shp", "MGN_ANM_MPIOS.shp")
 
+EXPORT_DIR <- file.path(app_root, "Descargas")
+dir.create(EXPORT_DIR, recursive = TRUE, showWarnings = FALSE)
+
+ruta_rmd <- file.path(app_root, "Informe_descargable.Rmd")
+
+# PNG export config
+PNG_VWIDTH_MAP   <- 2400
+PNG_VHEIGHT_MAP  <- 1700
+PNG_VWIDTH_PLOT  <- 1800
+PNG_VHEIGHT_TS   <- 900
+PNG_VHEIGHT_BAR  <- 1000
+PNG_DELAY_MAP    <- 1.3
+PNG_DELAY_PLOT   <- 0.9
+
+# Nombres fijos para FIES
+IMG_FIES_MAP  <- file.path(EXPORT_DIR, "ecv_fies_mapa.png")
+IMG_FIES_TS   <- file.path(EXPORT_DIR, "ecv_fies_serie.png")
+IMG_FIES_BAR  <- file.path(EXPORT_DIR, "ecv_fies_ranking.png")
+
+# Nombres fijos para ULTRA
+IMG_ULTRA_MAP <- file.path(EXPORT_DIR, "ecv_ultra_mapa.png")
+IMG_ULTRA_TS  <- file.path(EXPORT_DIR, "ecv_ultra_serie.png")
+IMG_ULTRA_BAR <- file.path(EXPORT_DIR, "ecv_ultra_ranking.png")
+
 if (!file.exists(ruta_ecv)) stop("No se encuentra el archivo: ", ruta_ecv)
+
 chk <- function(shp){
   b <- sub("\\.shp$","",shp)
   req <- paste0(b,c(".shp",".dbf",".shx",".prj"))
@@ -26,8 +71,6 @@ chk <- function(shp){
 if (length(chk(ruta_shp_dep))) stop("Faltan partes del SHP deptos en /data/shp (shp/dbf/shx/prj)")
 
 # ---------------- Utils ----------------
-`%||%` <- function(x,y) if (is.null(x)||length(x)==0) y else x
-
 norm_txt <- function(x) stringi::stri_trans_general(trimws(as.character(x)), "Latin-ASCII")
 norm_cmp <- function(x) tolower(stringi::stri_trans_general(trimws(as.character(x)), "Latin-ASCII"))
 
@@ -35,7 +78,11 @@ plain_txt <- function(x){
   trimws(as.character(x))
 }
 
-# Title Case en español (para nombres de dpto/mun, no para etiquetas de filtros)
+safe_first <- function(x, default = "?"){
+  x <- x[!is.na(x)]
+  if (length(x) == 0) default else x[1]
+}
+
 to_title <- function(x){
   s <- stringi::stri_trans_tolower(as.character(x), locale = "es")
   min_words <- c("y","e","o","u","de","del","la","las","el","los",
@@ -64,14 +111,12 @@ to_title <- function(x){
   }, FUN.VALUE = character(1))
 }
 
-# ---- Acortar nombre de San Andrés en los visuales ----
 shorten_depto_lbl <- function(x){
   out <- as.character(x)
   nm  <- norm_cmp(out)
   target <- "archipielago de san andres, providencia y santa catalina"
   out[nm == target] <- "San Andrés y Providencia"
   
-  # Bogotá D.C.
   target_bog1 <- "bogota, d.c."
   target_bog2 <- "bogota d.c."
   out[nm %in% c(target_bog1, target_bog2)] <- "Bogotá D.C."
@@ -79,7 +124,6 @@ shorten_depto_lbl <- function(x){
   out
 }
 
-# Etiqueta de filtro en texto normal (sin Title Case)
 lbl <- function(x) div(class = "filter-label", x)
 
 safe_as_char <- function(x){
@@ -93,23 +137,21 @@ safe_as_num <- function(x){
 }
 numish <- function(x) safe_as_num(x)
 
-# ---- FIX w_prop ----
 w_prop <- function(x, w){
   ok <- is.finite(x) & is.finite(w) & w > 0
   if (!any(ok)) return(NA_real_)
   sum(w[ok] * x[ok]) / sum(w[ok])
 }
 
-# ---- Formato es-CO: decimales "," y miles "." ----
 fmt_num_co <- function(x, digits = 1){
   ifelse(
     is.na(x) | !is.finite(x),
     NA_character_,
     scales::number(
       x,
-      accuracy    = 10^(-digits),
-      big.mark    = ".",
-      decimal.mark= ","
+      accuracy     = 10^(-digits),
+      big.mark     = ".",
+      decimal.mark = ","
     )
   )
 }
@@ -127,7 +169,6 @@ norm_mun5 <- function(x){
   stringi::stri_pad_left(x,5,"0")
 }
 
-# ---- Colores corporativos ----
 COL_BAR   <-  "#e6550d"
 COLS_MAP  <- c("#ffe0cc", "#fa8916", "#e6550d", "#9c4a00")
 
@@ -137,8 +178,10 @@ make_pal_fixed <- function(values, colors = COLS_MAP){
   n <- length(colors)
   if (length(vals) == 0) {
     bins <- c(0,1)
-    pal <- leaflet::colorBin(palette = colors, domain = c(0,1), bins = bins,
-                             na.color = "#f0f0f0", right = FALSE)
+    pal <- leaflet::colorBin(
+      palette = colors, domain = c(0,1), bins = bins,
+      na.color = "#f0f0f0", right = FALSE
+    )
     attr(pal, "bins") <- bins
     return(pal)
   }
@@ -155,8 +198,10 @@ make_pal_fixed <- function(values, colors = COLS_MAP){
     eps <- max(1e-12, diff(range(bins))/1e9)
     for (i in 2:length(bins)) if (bins[i] <= bins[i-1]) bins[i] <- bins[i-1] + eps
   }
-  pal <- leaflet::colorBin(palette = colors, domain = vals, bins = bins,
-                           na.color = "#f0f0f0", right = FALSE)
+  pal <- leaflet::colorBin(
+    palette = colors, domain = vals, bins = bins,
+    na.color = "#f0f0f0", right = FALSE
+  )
   attr(pal, "bins") <- bins
   pal
 }
@@ -237,6 +282,56 @@ build_info_html <- function(breaks, percent = FALSE){
   ))
 }
 
+zoom_from_bbox <- function(bb){
+  w <- abs(as.numeric(bb["xmax"] - bb["xmin"]))
+  h <- abs(as.numeric(bb["ymax"] - bb["ymin"]))
+  span <- max(w, h)
+  if (!is.finite(span)) return(6)
+  if (span < 0.10) return(12)
+  if (span < 0.20) return(11)
+  if (span < 0.35) return(10)
+  if (span < 0.80) return(9)
+  if (span < 1.50) return(8)
+  if (span < 3.00) return(7)
+  6
+}
+
+save_widget_png <- function(widget, out_png, vwidth, vheight, delay = 1){
+  dir.create(dirname(out_png), recursive = TRUE, showWarnings = FALSE)
+  
+  tmp_dir  <- tempfile("wshot_")
+  dir.create(tmp_dir, recursive = TRUE, showWarnings = FALSE)
+  lib_dir  <- file.path(tmp_dir, "lib")
+  dir.create(lib_dir, recursive = TRUE, showWarnings = FALSE)
+  tmp_html <- file.path(tmp_dir, "widget.html")
+  
+  htmlwidgets::saveWidget(widget, file = tmp_html, selfcontained = FALSE, libdir = lib_dir)
+  
+  webshot2::webshot(
+    url     = tmp_html,
+    file    = out_png,
+    vwidth  = vwidth,
+    vheight = vheight,
+    delay   = delay
+  )
+  
+  file.exists(out_png) &&
+    is.finite(file.info(out_png)$size) &&
+    file.info(out_png)$size > 0
+}
+
+save_widget_png_retry <- function(widget, out_png, vwidth, vheight, delay_base = 1){
+  delays <- c(delay_base, delay_base + 1.5, delay_base + 3)
+  for (d in delays){
+    ok <- tryCatch(
+      save_widget_png(widget, out_png, vwidth = vwidth, vheight = vheight, delay = d),
+      error = function(e) FALSE
+    )
+    if (isTRUE(ok)) return(TRUE)
+  }
+  FALSE
+}
+
 # ---------------- Cargar base ----------------
 ecv_raw <- readRDS(ruta_ecv)
 names(ecv_raw) <- tolower(names(ecv_raw))
@@ -256,10 +351,9 @@ col_sexo    <- if (!is.na(col_sexo_txt)) col_sexo_txt else pick1(names(ecv_raw),
 col_edad    <- pick1(names(ecv_raw), "p6040", "^p?6040|edad")
 col_w       <- pick1(names(ecv_raw), "fex_c.x", "^fex|factor|pondera|expans")
 
-need <- c(col_ano,col_dep_cod,col_dep_nom,col_sexo,col_edad,col_w)
-if (any(is.na(need))) stop("Faltan columnas clave en ECV (anio, cod_dane_dpto_d, departamento_d, sexo/p6020, p6040, factor).")
+need_cols <- c(col_ano,col_dep_cod,col_dep_nom,col_sexo,col_edad,col_w)
+if (any(is.na(need_cols))) stop("Faltan columnas clave en ECV (anio, cod_dane_dpto_d, departamento_d, sexo/p6020, p6040, factor).")
 
-# Detectar variables c_ y f_
 col_c_azuc <- names(ecv_raw)[grepl("^c_.*azucar", names(ecv_raw))]
 col_c_paq  <- names(ecv_raw)[grepl("^c_.*paq|^c_.*paque", names(ecv_raw))]
 col_c_azuc <- if (length(col_c_azuc)) col_c_azuc[1] else NA_character_
@@ -270,7 +364,6 @@ col_f_paq  <- names(ecv_raw)[grepl("^f_.*paq|^f_.*paque", names(ecv_raw))]
 col_f_azuc <- if (length(col_f_azuc)) col_f_azuc[1] else NA_character_
 col_f_paq  <- if (length(col_f_paq))  col_f_paq[1]  else NA_character_
 
-# CLASE exacta (1 = Cabecera; 2 = CPRD)
 mk_clase_exact <- function(v){
   if (all(is.na(v))) return(rep(NA_character_, length(v)))
   vnum <- suppressWarnings(as.integer(numish(v)))
@@ -279,26 +372,25 @@ mk_clase_exact <- function(v){
   need_txt <- is.na(out)
   if (any(need_txt)) {
     txt <- tolower(norm_txt(safe_as_char(v[need_txt])))
-    lbl <- rep(NA_character_, length(txt))
-    lbl[grepl("cabecera", txt)] <- "Cabecera municipal"
-    lbl[grepl("centro|centros|poblado|poblados|rural|disperso", txt)] <- "Centros Poblados y Rural Disperso"
-    out[need_txt] <- lbl
+    lbl2 <- rep(NA_character_, length(txt))
+    lbl2[grepl("cabecera", txt)] <- "Cabecera municipal"
+    lbl2[grepl("centro|centros|poblado|poblados|rural|disperso", txt)] <- "Centros Poblados y Rural Disperso"
+    out[need_txt] <- lbl2
   }
   out
 }
 
-# Sexo: aceptar p6020 (1/2) o texto
 mk_sexo_lbl <- function(col_val){
   if (!is.null(col_sexo_txt) && !is.na(col_sexo_txt)) {
     s <- tolower(norm_txt(safe_as_char(col_val)))
     ifelse(grepl("^hombre|^hombres|^m$", s), "Hombre",
            ifelse(grepl("^mujer|^mujeres|^f$", s), "Mujer", "Sin dato"))
   } else {
-    v <- numish(col_val); dplyr::case_when(v==1 ~ "Hombre", v==2 ~ "Mujer", TRUE ~ "Sin dato")
+    v <- numish(col_val)
+    dplyr::case_when(v==1 ~ "Hombre", v==2 ~ "Mujer", TRUE ~ "Sin dato")
   }
 }
 
-# Estructura base
 ecv <- tibble::tibble(
   anio           = suppressWarnings(as.integer(numish(ecv_raw[[col_ano]]))),
   COD_DANE_DPTO2 = norm_dep2(ecv_raw[[col_dep_cod]]),
@@ -313,7 +405,6 @@ ecv <- tibble::tibble(
   c_paquetes     = if (!is.na(col_c_paq))  suppressWarnings(as.integer(numish(ecv_raw[[col_c_paq]])))  else NA_integer_,
   f_azucaradas   = if (!is.na(col_f_azuc)) suppressWarnings(as.integer(numish(ecv_raw[[col_f_azuc]]))) else NA_integer_,
   f_paquetes     = if (!is.na(col_f_paq))  suppressWarnings(as.integer(numish(ecv_raw[[col_f_paq]])))  else NA_integer_,
-  # FIES-8
   p_suficiente_a          = col_or_na_int(ecv_raw, c("p3516s1","p3516_s1","p_suficiente_a")),
   np_comer_a_saludables   = col_or_na_int(ecv_raw, c("p3516s2","p3516_s2","np_comer_a_saludables")),
   c_poca_variedad         = col_or_na_int(ecv_raw, c("p3516s3","p3516_s3","c_poca_variedad")),
@@ -324,22 +415,29 @@ ecv <- tibble::tibble(
   no_comer_dia_entero     = col_or_na_int(ecv_raw, c("p3516s8","p3516_s8","no_comer_dia_entero"))
 ) %>%
   mutate(
-    edad_grupo = cut(p6040, breaks=c(-Inf,11,17,26,40,59,Inf),
-                     labels=c("0–11","12–17","18–26","27–40","41–59","60+"), right=TRUE)
+    edad_grupo = cut(
+      p6040,
+      breaks = c(-Inf,11,17,26,40,59,Inf),
+      labels = c("0–11","12–17","18–26","27–40","41–59","60+"),
+      right  = TRUE
+    )
   )
 
 pad_or_na <- function(x, width){
   x <- as.character(x)
   ifelse(is.na(x) | !nzchar(x), NA_character_, stringr::str_pad(x, width, pad = "0"))
 }
+
 ecv <- ecv %>%
   mutate(
     CODMUN = pad_or_na(COD_DANE_MPIO2, 5),
-    DPTO2  = dplyr::coalesce(pad_or_na(COD_DANE_DPTO2, 2),
-                             substr(ifelse(is.na(CODMUN), "", CODMUN), 1, 2))
-  )%>% dplyr::filter(DEPARTAMENTO == "SANTANDER")
+    DPTO2  = dplyr::coalesce(
+      pad_or_na(COD_DANE_DPTO2, 2),
+      substr(ifelse(is.na(CODMUN), "", CODMUN), 1, 2)
+    )
+  ) %>%
+  dplyr::filter(DEPARTAMENTO == "SANTANDER")
 
-# ---------------- Indicadores ----------------
 inds_binarios <- c(
   "¿Consume bebidas azucaradas?" = "c_azucaradas",
   "¿Consume alimentos de paquete?" = "c_paquetes"
@@ -354,28 +452,27 @@ freq_labels <- c(
   "Una vez a la semana",
   "Menos de una vez por semana"
 )
-freq_ind_map <- tibble::tibble(
-  var  = rep(c("f_azucaradas","f_paquetes"), each=6),
-  code = rep(1:6, times=2),
-  label_base = rep(c("Bebidas azucaradas", "Paquetes"), each=6),
-  label_cat  = rep(freq_labels, times=2)
-) %>% mutate(
-  key   = paste(var, code, sep = ":"),
-  # Solo mostramos el tramo de frecuencia
-  label = label_cat
-)
-freq_choices_ind <- setNames(freq_ind_map$key, freq_ind_map$label)
 
-# -------- FIES-8 --------
+freq_ind_map <- tibble::tibble(
+  var       = rep(c("f_azucaradas","f_paquetes"), each=6),
+  code      = rep(1:6, times=2),
+  label_base= rep(c("Bebidas azucaradas", "Paquetes"), each=6),
+  label_cat = rep(freq_labels, times=2)
+) %>%
+  mutate(
+    key   = paste(var, code, sep = ":"),
+    label = label_cat
+  )
+
 inds_fies <- c(
   "Se preocupó por no tener suficientes alimentos" = "p_suficiente_a",
   "No pudo comer alimentos saludables y nutritivos" = "np_comer_a_saludables",
   "Consumió poca variedad de alimentos"             = "c_poca_variedad",
-  "Saltó comidas (desayuno/almuerzo/cena)"         = "salto_comidas",
-  "Comió menos de lo que pensaba debía comer"      = "comio_menos_delopensado",
-  "El hogar se quedó sin alimentos"                = "hogar_sin_alimentos",
-  "Tuvo hambre pero no comió"                      = "hambre_pero_sin_comida",
-  "Un día entero sin comer"                        = "no_comer_dia_entero"
+  "Saltó comidas (desayuno/almuerzo/cena)"          = "salto_comidas",
+  "Comió menos de lo que pensaba debía comer"       = "comio_menos_delopensado",
+  "El hogar se quedó sin alimentos"                 = "hogar_sin_alimentos",
+  "Tuvo hambre pero no comió"                       = "hambre_pero_sin_comida",
+  "Un día entero sin comer"                         = "no_comer_dia_entero"
 )
 
 get_fies_phrase_tail <- function(key){
@@ -398,7 +495,6 @@ mk_event_fies <- function(d, ind_var){
   ifelse(v %in% c(1, 2), as.numeric(v == 1L), NA_real_)
 }
 
-# ---------------- Shapes ----------------
 dep_sf <- sf::st_read(ruta_shp_dep, quiet=TRUE) %>%
   dplyr::mutate(
     COD_DPTO2 = dplyr::coalesce(
@@ -408,8 +504,11 @@ dep_sf <- sf::st_read(ruta_shp_dep, quiet=TRUE) %>%
     DEPTO_N = dplyr::coalesce(
       as.character(.$DEPARTAMENTO_D %||% NA),
       as.character(.$DPTO_CNMBR %||% NA),
-      as.character(.$NOMBRE_DEPTO %||% COD_DPTO2))
-  ) %>% sf::st_transform(4326) %>% sf::st_make_valid()
+      as.character(.$NOMBRE_DEPTO %||% COD_DPTO2)
+    )
+  ) %>%
+  sf::st_transform(4326) %>%
+  sf::st_make_valid()
 
 mun_sf <- NULL
 if (file.exists(ruta_shp_mun) && length(chk(ruta_shp_mun))==0) {
@@ -424,16 +523,9 @@ if (file.exists(ruta_shp_mun) && length(chk(ruta_shp_mun))==0) {
       CODMUN      = stringr::str_pad(as.character(.data[["MPIO_CDPMP"]]), 5, pad="0"),
       DPTO2       = if (!is.na(dpto2_col)) stringr::str_pad(as.character(.data[[dpto2_col]]), 2, pad="0") else substr(CODMUN, 1, 2),
       MUNICIPIO_D = if (!is.na(muni_name_col)) as.character(.data[[muni_name_col]]) else CODMUN
-    ) %>% sf::st_transform(4326) %>% sf::st_make_valid()
-}
-
-# -------- helpers bin/freq --------
-inds_aplican_12mas <- c("c_azucaradas", "f_azucaradas", "c_paquetes", "f_paquetes")
-
-mk_event_bin <- function(d, ind){
-  # se ajusta luego en server para usar input de sí/no
-  v <- suppressWarnings(as.integer(numish(d[[ind]])))
-  ifelse(is.na(v), NA_real_, as.numeric(v == 1L))
+    ) %>%
+    sf::st_transform(4326) %>%
+    sf::st_make_valid()
 }
 
 lookup_freq <- function(key){
@@ -449,7 +541,6 @@ mk_event_freq_single <- function(d, key){
   ifelse(is.na(vcode), NA_real_, ifelse(vcode == lk$code, 1, 0))
 }
 
-# ---------- Filtros comunes ----------
 apply_common_filters <- function(d, sexo, edad, ind_var, clase=NULL){
   if (!is.null(sexo) && length(sexo) && !("Todos" %in% sexo)) {
     d <- d %>% dplyr::filter(p6020_lbl %in% sexo)
@@ -552,23 +643,20 @@ ui <- fluidPage(
     }
 
     .btn-download{
-      font-size:12px;
-      font-weight:500;
-      padding:4px 14px;
-      border-radius:999px !important;
-      border:1.6px solid var(--ecv-bdr) !important;
       background:#ffffff !important;
-      color:#111827 !important;
-      display:inline-flex;
-      align-items:center;
-      gap:6px;
-      box-shadow:none !important;
+      border:1px solid var(--ecv-bdr) !important;
+      color:#374151 !important;
+      font-weight:700 !important;
+      border-radius:12px !important;
+      padding:6px 10px !important;
+      font-size:12px !important;
       line-height:1.2;
+      box-shadow:none !important;
     }
     .btn-download:hover{
-      background:#f57c00 !important;
-      color:#ffffff !important;
-      box-shadow:0 0 0 0.15rem rgba(245,124,0,.35) !important;
+      background:#ffffff !important;
+      color:#374151 !important;
+      box-shadow:none !important;
     }
 
     .grid-2{
@@ -670,6 +758,15 @@ ui <- fluidPage(
     .info-text{font-size:12px;color:#4b5563;margin-bottom:6px;}
     .info-list{margin:0;padding-left:18px;font-size:12px;}
 
+    .footer-actions{
+      margin-top:10px;
+      display:flex;
+      justify-content:flex-end;
+      gap:8px;
+      padding:6px 6px 0;
+      flex-wrap:wrap;
+    }
+
     @media (max-width:1200px){
       .grid-2{
         grid-auto-rows:360px;
@@ -684,7 +781,7 @@ ui <- fluidPage(
       .cell-left-2,
       .cell-right-span{
         grid-column:auto;
-        grid.row:auto;
+        grid-row:auto;
       }
     }
   ")),
@@ -734,9 +831,8 @@ ui <- fluidPage(
     tabsetPanel(
       type = "tabs", id = "tabs",
       
-      # -------- TAB 1 (FIES) --------
       tabPanel(
-        "Condición de inseguridad alimentaria (FIES-8)",
+        "Condición de inseguridad alimentaria",
         
         div(
           class = "filters",
@@ -796,8 +892,8 @@ ui <- fluidPage(
               ),
               downloadButton(
                 "dl_mapa_fies",
-                label = HTML("&#x2B07; PNG — Mapa (simple)"),
-                class  = "btn btn-download"
+                label = "Descargar PNG",
+                class  = "btn-download"
               )
             ),
             div(class = "fill", leafletOutput("mapa_fies", height = "100%"))
@@ -809,8 +905,8 @@ ui <- fluidPage(
               uiOutput("titulo_ts_fies"),
               downloadButton(
                 "dl_ts_fies",
-                label = HTML("&#x2B07; PNG — Serie temporal"),
-                class  = "btn btn-download"
+                label = "Descargar PNG",
+                class  = "btn-download"
               )
             ),
             htmlOutput("ts_label_fies"),
@@ -823,8 +919,8 @@ ui <- fluidPage(
               uiOutput("titulo_barras_fies"),
               downloadButton(
                 "dl_bars_fies",
-                label = HTML("&#x2B07; PNG — Ranking"),
-                class  = "btn btn-download"
+                label = "Descargar PNG",
+                class  = "btn-download"
               )
             ),
             div(class = "fill", plotlyOutput("bars_all_fies", height = "100%"))
@@ -832,16 +928,20 @@ ui <- fluidPage(
         ),
         
         div(
-          style = "margin-top: 10px; text-align: right;",
+          class = "footer-actions",
           downloadButton(
             "dl_csv_fies",
-            label = HTML("&#128190; CSV — Datos"),
-            class  = "btn btn-download"
+            label = "Descargar CSV",
+            class = "btn-download"
+          ),
+          downloadButton(
+            "dl_reporte_pdf",
+            label = "Descargar informe (PDF)",
+            class = "btn-download"
           )
         )
       ),
       
-      # -------- TAB 2 (PRESENCIA vs FRECUENCIA en 3 visuales) --------
       tabPanel(
         "Consumo y frecuencia de snacks y gaseosas",
         
@@ -917,7 +1017,6 @@ ui <- fluidPage(
           )
         ),
         
-        # --- ÚNICO bloque de 3 visuales (mapa + serie + ranking) ---
         div(
           class = "grid-2",
           div(
@@ -931,8 +1030,8 @@ ui <- fluidPage(
               ),
               downloadButton(
                 "dl_mapa_ultra",
-                label = HTML("&#x2B07; PNG — Mapa (simple)"),
-                class  = "btn btn-download"
+                label = "Descargar PNG",
+                class  = "btn-download"
               )
             ),
             div(class = "fill", leafletOutput("mapa_ultra", height = "100%"))
@@ -944,8 +1043,8 @@ ui <- fluidPage(
               uiOutput("titulo_ts_ultra"),
               downloadButton(
                 "dl_ts_ultra",
-                label = HTML("&#x2B07; PNG — Serie temporal"),
-                class  = "btn btn-download"
+                label = "Descargar PNG",
+                class  = "btn-download"
               )
             ),
             htmlOutput("ts_label_ultra"),
@@ -958,11 +1057,20 @@ ui <- fluidPage(
               uiOutput("titulo_barras_ultra"),
               downloadButton(
                 "dl_bars_ultra",
-                label = HTML("&#x2B07; PNG — Ranking"),
-                class  = "btn btn-download"
+                label = "Descargar PNG",
+                class  = "btn-download"
               )
             ),
             div(class = "fill", plotlyOutput("bars_all_ultra", height = "100%"))
+          )
+        ),
+        
+        div(
+          class = "footer-actions",
+          downloadButton(
+            "dl_reporte_pdf2",
+            label = "Descargar informe (PDF)",
+            class = "btn-download"
           )
         )
       )
@@ -983,15 +1091,19 @@ server <- function(input, output, session){
   output$anio_ui3 <- renderUI({ selectInput("anio3", NULL, choices=yrs_avail, selected=yr_latest) })
   
   mk_dep_choices <- function(){
-    ecv %>% dplyr::filter(!is.na(DEPARTAMENTO), nzchar(DEPARTAMENTO)) %>%
-      dplyr::distinct(DEPARTAMENTO) %>% dplyr::arrange(DEPARTAMENTO) %>% dplyr::pull(DEPARTAMENTO)
+    ecv %>%
+      dplyr::filter(!is.na(DEPARTAMENTO), nzchar(DEPARTAMENTO)) %>%
+      dplyr::distinct(DEPARTAMENTO) %>%
+      dplyr::arrange(DEPARTAMENTO) %>%
+      dplyr::pull(DEPARTAMENTO)
   }
-  output$dep_ui  <- renderUI({
+  
+  output$dep_ui <- renderUI({
     vals <- mk_dep_choices()
     selectInput(
       "f_dep", NULL,
-      choices  = stats::setNames(vals, to_title(vals)),  
-      selected = vals[1]                                
+      choices  = stats::setNames(vals, to_title(vals)),
+      selected = vals[1]
     )
   })
   
@@ -1013,7 +1125,6 @@ server <- function(input, output, session){
     )
   })
   
-  # --- Frecuencia: hacer que el filtro dependa del indicador seleccionado ---
   observe({
     ind <- input$f_ind_bin
     if (is.null(ind)) return()
@@ -1022,7 +1133,7 @@ server <- function(input, output, session){
     } else {
       opts <- freq_ind_map %>% dplyr::filter(var == "f_paquetes")
     }
-    choices <- stats::setNames(opts$key, opts$label)
+    choices <- stats::setNames(as.list(opts$key), opts$label)
     sel <- if (!is.null(input$f_ind_freq_key) && input$f_ind_freq_key %in% opts$key) input$f_ind_freq_key else opts$key[1]
     updateSelectInput(session, "f_ind_freq_key", choices = choices, selected = sel)
   })
@@ -1036,13 +1147,13 @@ server <- function(input, output, session){
         tail  = "presentan este tipo de inseguridad alimentaria"
       ))
     }
-    lbl <- names(inds_fies)[inds_fies == key][1]
-    if (is.na(lbl) || !nzchar(lbl)) lbl <- "este indicador del FIES"
+    lblx <- names(inds_fies)[inds_fies == key][1]
+    if (is.na(lblx) || !nzchar(lblx)) lblx <- "este indicador del FIES"
     tail <- get_fies_phrase_tail(key)
     if (is.null(tail) || !nzchar(tail)) {
       tail <- "presentan este tipo de inseguridad alimentaria"
     }
-    list(label = lbl, tail = tail)
+    list(label = lblx, tail = tail)
   })
   
   output$titulo_mapa_fies <- renderUI({
@@ -1063,7 +1174,6 @@ server <- function(input, output, session){
     tags$div(class = "card-title", txt)
   })
   
-  # ------ FIES ------
   base_anio_fies <- reactive({
     req(input$anio3, input$f_ind_fies)
     d <- ecv %>% dplyr::filter(anio == as.integer(input$anio3))
@@ -1081,14 +1191,13 @@ server <- function(input, output, session){
     leaflet() %>% addProviderTiles(providers$CartoDB.Positron) %>% setView(-74.3, 4.6, 5)
   })
   
-  # >>>>> SOLO VISTA DEPARTAMENTAL (SIN MUNICIPIOS) <<<<<
   observe({
     d <- base_anio_fies(); req(nrow(d) > 0)
     ev      <- mk_event_fies(d, input$f_ind_fies)
     dep_sel <- input$f_dep3 %||% "Todos"
     prx     <- leafletProxy("mapa_fies") %>% clearShapes() %>% clearControls()
     
-    dd <- d %>% 
+    dd <- d %>%
       dplyr::mutate(evento = as.numeric(ev)) %>%
       dplyr::group_by(COD_DANE_DPTO2, DEPARTAMENTO) %>%
       dplyr::summarise(prev = w_prop(evento, fexp) * 100, .groups = "drop")
@@ -1108,7 +1217,7 @@ server <- function(input, output, session){
     bins <- attr(pal, "bins")
     info_html <- build_info_html(bins, percent = TRUE)
     session$sendCustomMessage(
-      type    = 'updateQuantilesTooltipFies',
+      type    = "updateQuantilesTooltipFies",
       message = list(html = as.character(info_html))
     )
     
@@ -1129,10 +1238,10 @@ server <- function(input, output, session){
       ) %>%
         leaflet::addLegend(
           "bottomright",
-          pal     = pal,
-          values  = shp$prev,
-          title   = "Prevalencia (%)",
-          opacity = .9,
+          pal      = pal,
+          values   = shp$prev,
+          title    = "Prevalencia (%)",
+          opacity  = .9,
           labFormat = legend_fmt_pct1
         )
     }
@@ -1152,10 +1261,12 @@ server <- function(input, output, session){
   bars_all_fies_plot <- reactive({
     d <- base_anio_fies(); req(nrow(d) > 0)
     ev <- mk_event_fies(d, input$f_ind_fies)
-    dd <- d %>% dplyr::mutate(evento = as.numeric(ev)) %>%
+    dd <- d %>%
+      dplyr::mutate(evento = as.numeric(ev)) %>%
       dplyr::group_by(DEPARTAMENTO) %>%
       dplyr::summarise(prev = w_prop(evento, fexp) * 100, .groups = "drop") %>%
-      dplyr::filter(is.finite(prev)) %>% dplyr::arrange(dplyr::desc(prev)) %>%
+      dplyr::filter(is.finite(prev)) %>%
+      dplyr::arrange(dplyr::desc(prev)) %>%
       dplyr::mutate(
         Departamento_lbl = shorten_depto_lbl(to_title(DEPARTAMENTO)),
         Departamento     = factor(Departamento_lbl, levels = rev(Departamento_lbl)),
@@ -1176,7 +1287,9 @@ server <- function(input, output, session){
       layout(
         xaxis = list(title = "Prevalencia (%)", zeroline = FALSE),
         yaxis = list(title = "", automargin = TRUE),
-        margin = list(l = 140, r = 10, t = 10, b = 40)
+        margin = list(l = 140, r = 10, t = 10, b = 40),
+        paper_bgcolor = "#ffffff",
+        plot_bgcolor  = "#ffffff"
       )
   })
   output$bars_all_fies <- renderPlotly({ bars_all_fies_plot() })
@@ -1184,10 +1297,12 @@ server <- function(input, output, session){
   ts_prev_fies_plot <- reactive({
     d <- base_ts_fies(); req(nrow(d) > 0)
     ev <- mk_event_fies(d, input$f_ind_fies)
-    dt <- d %>% dplyr::mutate(evento = as.numeric(ev)) %>%
+    dt <- d %>%
+      dplyr::mutate(evento = as.numeric(ev)) %>%
       dplyr::group_by(anio) %>%
       dplyr::summarise(prev = w_prop(evento, fexp) * 100, .groups = "drop") %>%
-      dplyr::filter(!is.na(anio), is.finite(prev)) %>% dplyr::arrange(anio) %>%
+      dplyr::filter(!is.na(anio), is.finite(prev)) %>%
+      dplyr::arrange(anio) %>%
       dplyr::mutate(prev_txt = fmt_pct1_co(prev))
     
     plot_ly(
@@ -1206,65 +1321,24 @@ server <- function(input, output, session){
           showgrid = FALSE
         ),
         yaxis = list(
-          title    = "Prevalencia (%)",
+          title     = "Prevalencia (%)",
           rangemode = "tozero",
           showgrid  = TRUE,
           gridcolor = "#e5e7eb"
         ),
-        margin = list(l = 60, r = 10, t = 10, b = 40)
+        margin = list(l = 60, r = 10, t = 10, b = 40),
+        paper_bgcolor = "#ffffff",
+        plot_bgcolor  = "#ffffff"
       ) %>%
       plotly::config(displayModeBar = FALSE)
   })
   output$ts_prev_fies <- renderPlotly({ ts_prev_fies_plot() })
   output$ts_label_fies <- renderUI({ NULL })
   
-  output$dl_ts_fies <- downloadHandler(
-    filename = function() sprintf("serie_fies_%s.png", Sys.Date()),
-    content = function(file){
-      p <- ts_prev_fies_plot()
-      tmp <- tempfile(fileext = ".html")
-      htmlwidgets::saveWidget(as_widget(p), tmp, selfcontained = TRUE)
-      webshot2::webshot(tmp, file = file, vwidth = 1000, vheight = 600)
-    }
-  )
-  output$dl_bars_fies <- downloadHandler(
-    filename = function() sprintf("ranking_fies_%s.png", Sys.Date()),
-    content = function(file){
-      p <- bars_all_fies_plot()
-      tmp <- tempfile(fileext = ".html")
-      htmlwidgets::saveWidget(as_widget(p), tmp, selfcontained = TRUE)
-      webshot2::webshot(tmp, file = file, vwidth = 1000, vheight = 600)
-    }
-  )
-  output$dl_csv_fies <- downloadHandler(
-    filename = function() sprintf("datos_fies_%s.csv", Sys.Date()),
-    content = function(file){
-      d  <- base_anio_fies(); req(nrow(d) > 0)
-      ev <- mk_event_fies(d, input$f_ind_fies)
-      
-      dd <- d %>%
-        dplyr::mutate(evento = as.numeric(ev)) %>%
-        dplyr::group_by(DEPARTAMENTO) %>%
-        dplyr::summarise(
-          prevalencia = w_prop(evento, fexp) * 100,
-          .groups = "drop"
-        ) %>%
-        dplyr::filter(is.finite(prevalencia)) %>%
-        dplyr::arrange(dplyr::desc(prevalencia)) %>%
-        dplyr::mutate(
-          Departamento = shorten_depto_lbl(to_title(DEPARTAMENTO))
-        ) %>%
-        dplyr::select(Departamento, prevalencia)
-      
-      readr::write_csv(dd, file)
-    }
-  )
-  
-  # ===================== BINARIOS (BASES) =====================
+  # ---------------- ULTRA ----------------
   mk_event_bin <- function(d, ind){
-    yes <- ifelse(ind=="c_azucaradas", input$f_bin_c_azuc %||% 1, input$f_bin_c_paq %||% 1)
     v <- suppressWarnings(as.integer(numish(d[[ind]])))
-    ifelse(is.na(v), NA_real_, as.numeric(v == as.integer(yes)))
+    ifelse(is.na(v), NA_real_, as.numeric(v == 1L))
   }
   
   base_anio_bin <- reactive({
@@ -1279,14 +1353,13 @@ server <- function(input, output, session){
     apply_common_filters(d, input$f_sexo, NULL, input$f_ind_bin, clase=input$f_clase)
   })
   
-  # ===================== FRECUENCIAS (condicionadas por sí/no consume) =====================
   base_anio_freq <- reactive({
     req(input$anio, input$f_ind_freq_key, input$f_ind_bin)
     ind_var <- lookup_freq(input$f_ind_freq_key)$var
     d <- ecv %>% dplyr::filter(anio == as.integer(input$anio))
     if (!is.null(input$f_dep) && input$f_dep!="Todos") d <- d %>% dplyr::filter(DEPARTAMENTO==input$f_dep)
     d <- apply_common_filters(d, input$f_sexo, NULL, ind_var, clase=input$f_clase)
-    yes_code <- if (input$f_ind_bin == "c_azucaradas") as.integer(input$f_bin_c_azuc %||% 1) else as.integer(input$f_bin_c_paq %||% 1)
+    yes_code <- 1L
     c_var <- if (ind_var == "f_azucaradas") "c_azucaradas" else "c_paquetes"
     v_c <- suppressWarnings(as.integer(numish(d[[c_var]])))
     d <- d[is.na(v_c) | v_c == yes_code, , drop = FALSE]
@@ -1298,14 +1371,13 @@ server <- function(input, output, session){
     ind_var <- lookup_freq(input$f_ind_freq_key)$var
     d <- ecv
     d <- apply_common_filters(d, input$f_sexo, NULL, ind_var, clase=input$f_clase)
-    yes_code <- if (input$f_ind_bin == "c_azucaradas") as.integer(input$f_bin_c_azuc %||% 1) else as.integer(input$f_bin_c_paq %||% 1)
+    yes_code <- 1L
     c_var <- if (ind_var == "f_azucaradas") "c_azucaradas" else "c_paquetes"
     v_c <- suppressWarnings(as.integer(numish(d[[c_var]])))
     d <- d[is.na(v_c) | v_c == yes_code, , drop = FALSE]
     d
   })
   
-  # ===================== PRESENCIA / FRECUENCIA UNIFICADAS (3 visuales) =====================
   ultra_mode <- reactive(input$f_view_ultra %||% "bin")
   
   output$titulo_mapa_ultra <- renderUI({
@@ -1323,7 +1395,7 @@ server <- function(input, output, session){
     txt <- if (modo == "bin") {
       "¿Cómo ha evolucionado la prevalencia de consumo?"
     } else {
-      "¿Como ha evolucionado el consumo de los hogares para esta frecuencia?"
+      "¿Cómo ha evolucionado el consumo de los hogares para esta frecuencia?"
     }
     tags$div(class = "card-title", txt)
   })
@@ -1338,13 +1410,10 @@ server <- function(input, output, session){
     tags$div(class = "card-title", txt)
   })
   
-  # Map base
   output$mapa_ultra <- renderLeaflet({
-    leaflet() %>% addProviderTiles(providers$CartoDB.Positron) %>%
-      setView(-74.3, 4.6, 5)
+    leaflet() %>% addProviderTiles(providers$CartoDB.Positron) %>% setView(-74.3, 4.6, 5)
   })
   
-  # >>>>> SOLO VISTA DEPARTAMENTAL EN ULTRA (SIN MUNICIPIOS) <<<<<
   observe({
     modo    <- ultra_mode()
     dep_sel <- input$f_dep %||% "Todos"
@@ -1382,7 +1451,6 @@ server <- function(input, output, session){
       message = list(html = as.character(info_html))
     )
     
-    # ---- leyenda dinámica ----
     lab_legend <- if (modo == "bin") "Prevalencia (%)" else "Porcentaje (%)"
     
     if (sum(is.finite(shp$prev)) == 0) {
@@ -1402,10 +1470,10 @@ server <- function(input, output, session){
       ) %>%
         leaflet::addLegend(
           "bottomright",
-          pal     = pal,
-          values  = shp$prev,
-          title   = lab_legend,
-          opacity = .9,
+          pal      = pal,
+          values   = shp$prev,
+          title    = lab_legend,
+          opacity  = .9,
           labFormat = legend_fmt_pct1
         )
     }
@@ -1422,7 +1490,6 @@ server <- function(input, output, session){
     }
   })
   
-  # ---- Serie temporal unificada ----
   ts_prev_ultra_plot <- reactive({
     modo <- ultra_mode()
     if (modo == "bin") {
@@ -1441,7 +1508,6 @@ server <- function(input, output, session){
       dplyr::arrange(anio) %>%
       dplyr::mutate(prev_txt = fmt_pct1_co(prev))
     
-    # etiqueta dinámica del eje Y
     lab_y <- if (modo == "bin") "Prevalencia (%)" else "Porcentaje (%)"
     
     plot_ly(
@@ -1460,12 +1526,14 @@ server <- function(input, output, session){
           showgrid = FALSE
         ),
         yaxis = list(
-          title    = lab_y,
+          title     = lab_y,
           rangemode = "tozero",
           showgrid  = TRUE,
           gridcolor = "#e5e7eb"
         ),
-        margin = list(l = 60, r = 10, t = 10, b = 40)
+        margin = list(l = 60, r = 10, t = 10, b = 40),
+        paper_bgcolor = "#ffffff",
+        plot_bgcolor  = "#ffffff"
       ) %>%
       plotly::config(displayModeBar = FALSE)
   })
@@ -1475,22 +1543,16 @@ server <- function(input, output, session){
   output$ts_label_ultra <- renderUI({
     modo <- ultra_mode()
     if (modo == "bin") {
-      HTML('<div style="color:#6b7280;font-size:12px;margin-bottom:4px">
-             
-           </div>')
+      HTML('<div style="color:#6b7280;font-size:12px;margin-bottom:4px"></div>')
     } else {
       lk <- lookup_freq(input$f_ind_freq_key)
       HTML(sprintf(
-        '<div style="color:#6b7280;font-size:12px;margin-bottom:4px">
-           <br/>
-           <span style="font-weight:600"></span>
-         </div>',
+        '<div style="color:#6b7280;font-size:12px;margin-bottom:4px"><br/><span style="font-weight:600"></span></div>',
         htmlEscape(lk$label)
       ))
     }
   })
   
-  # ---- Ranking unificado ----
   bars_all_ultra_plot <- reactive({
     modo <- ultra_mode()
     if (modo == "bin") {
@@ -1513,7 +1575,6 @@ server <- function(input, output, session){
         prev_lab         = fmt_num_co(prev, digits = 1)
       )
     
-    # etiqueta dinámica del eje X
     lab_x <- if (modo == "bin") "Prevalencia (%)" else "Porcentaje (%)"
     
     plot_ly(
@@ -1530,70 +1591,230 @@ server <- function(input, output, session){
       layout(
         xaxis = list(title = lab_x, zeroline = FALSE),
         yaxis = list(title = "", automargin = TRUE),
-        margin = list(l = 140, r = 10, t = 10, b = 40)
+        margin = list(l = 140, r = 10, t = 10, b = 40),
+        paper_bgcolor = "#ffffff",
+        plot_bgcolor  = "#ffffff"
       )
   })
   
   output$bars_all_ultra <- renderPlotly({ bars_all_ultra_plot() })
   
-  # ---- Descargas PNG unificadas ----
-  output$dl_ts_ultra <- downloadHandler(
-    filename = function() sprintf("serie_ultraprocesados_%s.png", Sys.Date()),
-    content = function(file){
-      p   <- ts_prev_ultra_plot()
-      tmp <- tempfile(fileext = ".html")
-      htmlwidgets::saveWidget(as_widget(p), tmp, selfcontained = TRUE)
-      webshot2::webshot(tmp, file = file, vwidth = 1000, vheight = 600)
-    }
-  )
+  # ---------------- SNAPSHOT PARA PDF ----------------
+  snapshot_inputs_pdf <- function(){
+    list(
+      anio3       = isolate(input$anio3),
+      f_dep3      = isolate(input$f_dep3),
+      f_clase3    = isolate(input$f_clase3),
+      f_sexo3     = isolate(input$f_sexo3),
+      f_ind_fies  = isolate(input$f_ind_fies),
+      
+      anio           = isolate(input$anio),
+      f_dep          = isolate(input$f_dep),
+      f_clase        = isolate(input$f_clase),
+      f_sexo         = isolate(input$f_sexo),
+      f_ind_bin      = isolate(input$f_ind_bin),
+      f_ind_freq_key = isolate(input$f_ind_freq_key),
+      f_view_ultra   = isolate(input$f_view_ultra)
+    )
+  }
   
-  # ---- Mapas simples para descarga (solo nivel departamento) ----
-  map_widget_simple_fies <- reactive({
-    d <- base_anio_fies(); req(nrow(d) > 0)
-    ev <- mk_event_fies(d, input$f_ind_fies)
+  base_anio_fies_snapshot <- function(snap){
+    req(snap$anio3, snap$f_ind_fies)
+    d <- ecv %>% dplyr::filter(anio == as.integer(snap$anio3))
+    if (!is.null(snap$f_dep3) && snap$f_dep3 != "Todos") {
+      d <- d %>% dplyr::filter(DEPARTAMENTO == snap$f_dep3)
+    }
+    apply_common_filters(d, snap$f_sexo3, NULL, NULL, clase = snap$f_clase3)
+  }
+  
+  base_ts_fies_snapshot <- function(snap){
+    req(snap$f_ind_fies)
+    d <- ecv
+    apply_common_filters(d, snap$f_sexo3, NULL, NULL, clase = snap$f_clase3)
+  }
+  
+  ultra_mode_snapshot <- function(snap){
+    snap$f_view_ultra %||% "bin"
+  }
+  
+  mk_event_bin_snapshot <- function(d, ind){
+    v <- suppressWarnings(as.integer(numish(d[[ind]])))
+    ifelse(is.na(v), NA_real_, as.numeric(v == 1L))
+  }
+  
+  base_anio_bin_snapshot <- function(snap){
+    req(snap$anio)
+    d <- ecv %>% dplyr::filter(anio == as.integer(snap$anio))
+    if (!is.null(snap$f_dep) && snap$f_dep != "Todos") {
+      d <- d %>% dplyr::filter(DEPARTAMENTO == snap$f_dep)
+    }
+    apply_common_filters(d, snap$f_sexo, NULL, snap$f_ind_bin, clase = snap$f_clase)
+  }
+  
+  base_ts_bin_snapshot <- function(snap){
+    d <- ecv
+    apply_common_filters(d, snap$f_sexo, NULL, snap$f_ind_bin, clase = snap$f_clase)
+  }
+  
+  base_anio_freq_snapshot <- function(snap){
+    req(snap$anio, snap$f_ind_freq_key, snap$f_ind_bin)
+    ind_var <- lookup_freq(snap$f_ind_freq_key)$var
+    
+    d <- ecv %>% dplyr::filter(anio == as.integer(snap$anio))
+    if (!is.null(snap$f_dep) && snap$f_dep != "Todos") {
+      d <- d %>% dplyr::filter(DEPARTAMENTO == snap$f_dep)
+    }
+    
+    d <- apply_common_filters(d, snap$f_sexo, NULL, ind_var, clase = snap$f_clase)
+    
+    yes_code <- 1L
+    c_var <- if (ind_var == "f_azucaradas") "c_azucaradas" else "c_paquetes"
+    v_c <- suppressWarnings(as.integer(numish(d[[c_var]])))
+    d <- d[is.na(v_c) | v_c == yes_code, , drop = FALSE]
+    d
+  }
+  
+  base_ts_freq_snapshot <- function(snap){
+    req(snap$f_ind_freq_key, snap$f_ind_bin)
+    ind_var <- lookup_freq(snap$f_ind_freq_key)$var
+    
+    d <- ecv
+    d <- apply_common_filters(d, snap$f_sexo, NULL, ind_var, clase = snap$f_clase)
+    
+    yes_code <- 1L
+    c_var <- if (ind_var == "f_azucaradas") "c_azucaradas" else "c_paquetes"
+    v_c <- suppressWarnings(as.integer(numish(d[[c_var]])))
+    d <- d[is.na(v_c) | v_c == yes_code, , drop = FALSE]
+    d
+  }
+  
+  # ---------------- BUILDERS SNAPSHOT PARA PDF ----------------
+  build_map_widget_export_fies_snapshot <- function(snap){
+    d <- base_anio_fies_snapshot(snap); req(nrow(d) > 0)
+    ev <- mk_event_fies(d, snap$f_ind_fies)
     
     dd <- d %>%
       dplyr::mutate(evento = as.numeric(ev)) %>%
       dplyr::group_by(COD_DANE_DPTO2) %>%
-      dplyr::summarise(prev = w_prop(evento,fexp)*100, .groups="drop")
+      dplyr::summarise(prev = w_prop(evento, fexp) * 100, .groups = "drop")
     
-    mdat <- dep_sf %>%
-      dplyr::left_join(dd, by=c("COD_DPTO2"="COD_DANE_DPTO2"))
+    shp <- dep_sf %>%
+      dplyr::left_join(dd, by = c("COD_DPTO2" = "COD_DANE_DPTO2"))
     
-    pal <- make_pal_fixed(mdat$prev, COLS_MAP)
+    dep_sel <- snap$f_dep3 %||% "Todos"
+    if (!is.null(dep_sel) && dep_sel != "Todos") {
+      g <- dep_sf %>% dplyr::filter(norm_cmp(DEPTO_N) == norm_cmp(dep_sel))
+      bb <- if (nrow(g) > 0) sf::st_bbox(g) else sf::st_bbox(dep_sf)
+    } else {
+      bb <- sf::st_bbox(dep_sf)
+    }
     
-    leaflet(mdat, options = leafletOptions(zoomControl = FALSE)) %>%
-      addProviderTiles(providers$CartoDB.Positron) %>%
-      addPolygons(fillColor = ~pal(prev), weight = 0.5,
-                  color="#666", fillOpacity = 0.9) %>%
+    pal  <- make_pal_fixed(shp$prev, COLS_MAP)
+    lng  <- mean(c(as.numeric(bb["xmin"]), as.numeric(bb["xmax"])))
+    lat  <- mean(c(as.numeric(bb["ymin"]), as.numeric(bb["ymax"])))
+    zoom <- zoom_from_bbox(bb)
+    
+    leaflet(options = leafletOptions(minZoom = 5, maxZoom = 12, zoomSnap = 0.25)) %>%
+      addProviderTiles(
+        providers$CartoDB.Positron,
+        options = providerTileOptions(crossOrigin = TRUE)
+      ) %>%
+      setView(lng = lng, lat = lat, zoom = zoom) %>%
+      addPolygons(
+        data = shp,
+        fillColor = ~pal(prev),
+        weight = 0.7,
+        color = "#666",
+        fillOpacity = 0.9
+      ) %>%
       addLegend(
-        position="bottomright",
+        position = "bottomright",
         pal      = pal,
-        values   = mdat$prev,
+        values   = shp$prev,
         title    = "Prevalencia (%)",
+        opacity  = 0.9,
         labFormat = legend_fmt_pct1
       ) %>%
-      addControl(
-        html = HTML(sprintf(
-          "<div style='font-weight:600;font-size:14px;
-                     background:#fff;padding:6px 8px;
-                     border-radius:8px;border:1px solid #e6e6e6'>
-           FIES — %s
-           </div>", input$anio3)),
-        position="topleft")
-  })
+      htmlwidgets::onRender("function(el,x){ this.zoomControl.setPosition('topright'); }")
+  }
   
-  map_widget_simple_ultra <- reactive({
-    modo <- ultra_mode()
+  build_ts_fies_plot_snapshot <- function(snap){
+    d <- base_ts_fies_snapshot(snap); req(nrow(d) > 0)
+    ev <- mk_event_fies(d, snap$f_ind_fies)
+    
+    dt <- d %>%
+      dplyr::mutate(evento = as.numeric(ev)) %>%
+      dplyr::group_by(anio) %>%
+      dplyr::summarise(prev = w_prop(evento, fexp) * 100, .groups = "drop") %>%
+      dplyr::filter(!is.na(anio), is.finite(prev)) %>%
+      dplyr::arrange(anio) %>%
+      dplyr::mutate(prev_txt = fmt_pct1_co(prev))
+    
+    plot_ly(
+      dt, x = ~anio, y = ~prev,
+      type = "scatter", mode = "lines+markers",
+      text = ~prev_txt,
+      hovertemplate = "Año: %{x}<br>Promedio: %{text}<extra></extra>",
+      line   = list(color = COL_BAR),
+      marker = list(color = COL_BAR)
+    ) %>%
+      layout(
+        xaxis = list(title = "", dtick = 1, tickmode = "linear", showgrid = FALSE),
+        yaxis = list(title = "Prevalencia (%)", rangemode = "tozero", showgrid = TRUE, gridcolor = "#e5e7eb"),
+        margin = list(l = 60, r = 10, t = 10, b = 40),
+        paper_bgcolor = "#ffffff",
+        plot_bgcolor  = "#ffffff"
+      ) %>%
+      plotly::config(displayModeBar = FALSE)
+  }
+  
+  build_bars_fies_plot_snapshot <- function(snap){
+    d <- base_anio_fies_snapshot(snap); req(nrow(d) > 0)
+    ev <- mk_event_fies(d, snap$f_ind_fies)
+    
+    dd <- d %>%
+      dplyr::mutate(evento = as.numeric(ev)) %>%
+      dplyr::group_by(DEPARTAMENTO) %>%
+      dplyr::summarise(prev = w_prop(evento, fexp) * 100, .groups = "drop") %>%
+      dplyr::filter(is.finite(prev)) %>%
+      dplyr::arrange(dplyr::desc(prev)) %>%
+      dplyr::mutate(
+        Departamento_lbl = shorten_depto_lbl(to_title(DEPARTAMENTO)),
+        Departamento     = factor(Departamento_lbl, levels = rev(Departamento_lbl)),
+        prev_lab         = fmt_num_co(prev, digits = 1)
+      )
+    
+    plot_ly(
+      dd,
+      x = ~prev, y = ~Departamento,
+      type = "bar", orientation = "h",
+      text = ~prev_lab,
+      textposition = "inside",
+      insidetextanchor = "middle",
+      textfont = list(color = "white", size=14),
+      hovertemplate = "<b>%{y}</b><br>Prevalencia: %{text}%<extra></extra>",
+      marker = list(color = COL_BAR)
+    ) %>%
+      layout(
+        xaxis = list(title = "Prevalencia (%)", zeroline = FALSE),
+        yaxis = list(title = "", automargin = TRUE),
+        margin = list(l = 140, r = 10, t = 10, b = 40),
+        paper_bgcolor = "#ffffff",
+        plot_bgcolor  = "#ffffff"
+      )
+  }
+  
+  build_map_widget_export_ultra_snapshot <- function(snap){
+    modo <- ultra_mode_snapshot(snap)
     
     if (modo == "bin") {
-      d  <- base_anio_bin();  req(nrow(d) > 0)
-      ev <- mk_event_bin(d, input$f_ind_bin %||% "c_azucaradas")
-      titulo_top <- sprintf("Ultra-procesados (presencia) — %s", input$anio)
+      d  <- base_anio_bin_snapshot(snap); req(nrow(d) > 0)
+      ev <- mk_event_bin_snapshot(d, snap$f_ind_bin %||% "c_azucaradas")
+      lab_legend <- "Prevalencia (%)"
     } else {
-      d  <- base_anio_freq(); req(nrow(d) > 0)
-      ev <- mk_event_freq_single(d, input$f_ind_freq_key)
-      titulo_top <- sprintf("Ultra-procesados (frecuencia) — %s", input$anio)
+      d  <- base_anio_freq_snapshot(snap); req(nrow(d) > 0)
+      ev <- mk_event_freq_single(d, snap$f_ind_freq_key)
+      lab_legend <- "Porcentaje (%)"
     }
     
     dd <- d %>%
@@ -1601,66 +1822,353 @@ server <- function(input, output, session){
       dplyr::group_by(COD_DANE_DPTO2) %>%
       dplyr::summarise(prev = w_prop(evento, fexp) * 100, .groups = "drop")
     
-    mdat <- dep_sf %>%
+    shp <- dep_sf %>%
       dplyr::left_join(dd, by = c("COD_DPTO2" = "COD_DANE_DPTO2"))
     
-    pal <- make_pal_fixed(mdat$prev, COLS_MAP)
+    dep_sel <- snap$f_dep %||% "Todos"
+    if (!is.null(dep_sel) && dep_sel != "Todos") {
+      g <- dep_sf %>% dplyr::filter(norm_cmp(DEPTO_N) == norm_cmp(dep_sel))
+      bb <- if (nrow(g) > 0) sf::st_bbox(g) else sf::st_bbox(dep_sf)
+    } else {
+      bb <- sf::st_bbox(dep_sf)
+    }
     
-    lab_legend <- if (modo == "bin") "Prevalencia (%)" else "Porcentaje (%)"
+    pal  <- make_pal_fixed(shp$prev, COLS_MAP)
+    lng  <- mean(c(as.numeric(bb["xmin"]), as.numeric(bb["xmax"])))
+    lat  <- mean(c(as.numeric(bb["ymin"]), as.numeric(bb["ymax"])))
+    zoom <- zoom_from_bbox(bb)
     
-    leaflet(mdat, options = leafletOptions(zoomControl = FALSE)) %>%
-      addProviderTiles(providers$CartoDB.Positron) %>%
-      addPolygons(fillColor = ~pal(prev), weight = 0.5,
-                  color="#666", fillOpacity = 0.9) %>%
+    leaflet(options = leafletOptions(minZoom = 5, maxZoom = 12, zoomSnap = 0.25)) %>%
+      addProviderTiles(
+        providers$CartoDB.Positron,
+        options = providerTileOptions(crossOrigin = TRUE)
+      ) %>%
+      setView(lng = lng, lat = lat, zoom = zoom) %>%
+      addPolygons(
+        data = shp,
+        fillColor = ~pal(prev),
+        weight = 0.7,
+        color = "#666",
+        fillOpacity = 0.9
+      ) %>%
       addLegend(
-        position="bottomright",
+        position = "bottomright",
         pal      = pal,
-        values   = mdat$prev,
+        values   = shp$prev,
         title    = lab_legend,
+        opacity  = 0.9,
         labFormat = legend_fmt_pct1
       ) %>%
-      addControl(
-        html = HTML(sprintf(
-          "<div style='font-weight:600;font-size:14px;
-                     background:#fff;padding:6px 8px;
-                     border-radius:8px;border:1px solid #e6e6e6'>
-           %s
-           </div>", titulo_top)),
-        position = "topleft"
-      )
-  })
+      htmlwidgets::onRender("function(el,x){ this.zoomControl.setPosition('topright'); }")
+  }
   
-  output$dl_mapa_fies <- downloadHandler(
-    filename = function() sprintf("mapa_fies_%s.png", Sys.Date()),
+  build_ts_ultra_plot_snapshot <- function(snap){
+    modo <- ultra_mode_snapshot(snap)
+    if (modo == "bin") {
+      d  <- base_ts_bin_snapshot(snap); req(nrow(d) > 0)
+      ev <- mk_event_bin_snapshot(d, snap$f_ind_bin %||% "c_azucaradas")
+      lab_y <- "Prevalencia (%)"
+    } else {
+      d  <- base_ts_freq_snapshot(snap); req(nrow(d) > 0)
+      ev <- mk_event_freq_single(d, snap$f_ind_freq_key)
+      lab_y <- "Porcentaje (%)"
+    }
+    
+    dt <- d %>%
+      dplyr::mutate(evento = as.numeric(ev)) %>%
+      dplyr::group_by(anio) %>%
+      dplyr::summarise(prev = w_prop(evento, fexp) * 100, .groups = "drop") %>%
+      dplyr::filter(!is.na(anio), is.finite(prev)) %>%
+      dplyr::arrange(anio) %>%
+      dplyr::mutate(prev_txt = fmt_pct1_co(prev))
+    
+    plot_ly(
+      dt, x = ~anio, y = ~prev,
+      type = "scatter", mode = "lines+markers",
+      text = ~prev_txt,
+      hovertemplate = "Año: %{x}<br>Promedio: %{text}<extra></extra>",
+      line   = list(color = COL_BAR),
+      marker = list(color = COL_BAR)
+    ) %>%
+      layout(
+        xaxis = list(title = "", dtick = 1, tickmode = "linear", showgrid = FALSE),
+        yaxis = list(title = lab_y, rangemode = "tozero", showgrid = TRUE, gridcolor = "#e5e7eb"),
+        margin = list(l = 60, r = 10, t = 10, b = 40),
+        paper_bgcolor = "#ffffff",
+        plot_bgcolor  = "#ffffff"
+      ) %>%
+      plotly::config(displayModeBar = FALSE)
+  }
+  
+  build_bars_ultra_plot_snapshot <- function(snap){
+    modo <- ultra_mode_snapshot(snap)
+    if (modo == "bin") {
+      d  <- base_anio_bin_snapshot(snap); req(nrow(d) > 0)
+      ev <- mk_event_bin_snapshot(d, snap$f_ind_bin %||% "c_azucaradas")
+      lab_x <- "Prevalencia (%)"
+    } else {
+      d  <- base_anio_freq_snapshot(snap); req(nrow(d) > 0)
+      ev <- mk_event_freq_single(d, snap$f_ind_freq_key)
+      lab_x <- "Porcentaje (%)"
+    }
+    
+    dd <- d %>%
+      dplyr::mutate(evento = as.numeric(ev)) %>%
+      dplyr::group_by(DEPARTAMENTO) %>%
+      dplyr::summarise(prev = w_prop(evento, fexp) * 100, .groups = "drop") %>%
+      dplyr::filter(is.finite(prev)) %>%
+      dplyr::arrange(dplyr::desc(prev)) %>%
+      dplyr::mutate(
+        Departamento_lbl = shorten_depto_lbl(to_title(DEPARTAMENTO)),
+        Departamento     = factor(Departamento_lbl, levels = rev(Departamento_lbl)),
+        prev_lab         = fmt_num_co(prev, digits = 1)
+      )
+    
+    plot_ly(
+      dd,
+      x = ~prev, y = ~Departamento,
+      type = "bar", orientation = "h",
+      text = ~prev_lab,
+      textposition = "inside",
+      insidetextanchor = "middle",
+      textfont = list(color = "white", size=14),
+      hovertemplate = "<b>%{y}</b><br>Valor: %{text}%<extra></extra>",
+      marker = list(color = COL_BAR)
+    ) %>%
+      layout(
+        xaxis = list(title = lab_x, zeroline = FALSE),
+        yaxis = list(title = "", automargin = TRUE),
+        margin = list(l = 140, r = 10, t = 10, b = 40),
+        paper_bgcolor = "#ffffff",
+        plot_bgcolor  = "#ffffff"
+      )
+  }
+  
+  # DESCARGAS PNG INDIVIDUALES
+  output$dl_ts_fies <- downloadHandler(
+    filename = function() sprintf("serie_fies_%s.png", Sys.Date()),
     content = function(file){
-      widget <- map_widget_simple_fies()
-      tmp_html <- tempfile(fileext = ".html")
-      htmlwidgets::saveWidget(widget, tmp_html, selfcontained = TRUE)
-      webshot2::webshot(tmp_html, file = file, vwidth = 1200, vheight = 800, zoom = 2)
+      ok <- save_widget_png_retry(
+        as_widget(ts_prev_fies_plot()), file,
+        vwidth = PNG_VWIDTH_PLOT, vheight = PNG_VHEIGHT_TS, delay_base = PNG_DELAY_PLOT
+      )
+      if (!ok) stop("No se pudo generar el PNG de la serie FIES.")
     }
   )
   
-  output$dl_mapa_ultra <- downloadHandler(
-    filename = function() sprintf("mapa_ultraprocesados_%s.png", Sys.Date()),
+  output$dl_bars_fies <- downloadHandler(
+    filename = function() sprintf("ranking_fies_%s.png", Sys.Date()),
     content = function(file){
-      widget   <- map_widget_simple_ultra()
-      tmp_html <- tempfile(fileext = ".html")
-      htmlwidgets::saveWidget(widget, tmp_html, selfcontained = TRUE)
-      webshot2::webshot(tmp_html, file = file, vwidth = 1200, vheight = 800, zoom = 2)
+      ok <- save_widget_png_retry(
+        as_widget(bars_all_fies_plot()), file,
+        vwidth = PNG_VWIDTH_PLOT, vheight = PNG_VHEIGHT_BAR, delay_base = PNG_DELAY_PLOT
+      )
+      if (!ok) stop("No se pudo generar el PNG del ranking FIES.")
+    }
+  )
+  
+  output$dl_csv_fies <- downloadHandler(
+    filename = function() sprintf("datos_fies_%s.csv", Sys.Date()),
+    content = function(file){
+      d <- base_anio_fies(); req(nrow(d) > 0)
+      ev <- mk_event_fies(d, input$f_ind_fies)
+      
+      dd <- d %>%
+        dplyr::mutate(evento = as.numeric(ev)) %>%
+        dplyr::group_by(DEPARTAMENTO) %>%
+        dplyr::summarise(
+          prevalencia = w_prop(evento, fexp) * 100,
+          .groups = "drop"
+        ) %>%
+        dplyr::filter(is.finite(prevalencia)) %>%
+        dplyr::arrange(dplyr::desc(prevalencia)) %>%
+        dplyr::mutate(
+          Departamento = shorten_depto_lbl(to_title(DEPARTAMENTO))
+        ) %>%
+        dplyr::select(Departamento, prevalencia)
+      
+      readr::write_csv(dd, file)
+    }
+  )
+  
+  output$dl_ts_ultra <- downloadHandler(
+    filename = function() sprintf("serie_ultraprocesados_%s.png", Sys.Date()),
+    content = function(file){
+      ok <- save_widget_png_retry(
+        as_widget(ts_prev_ultra_plot()), file,
+        vwidth = PNG_VWIDTH_PLOT, vheight = PNG_VHEIGHT_TS, delay_base = PNG_DELAY_PLOT
+      )
+      if (!ok) stop("No se pudo generar el PNG de la serie Ultra.")
     }
   )
   
   output$dl_bars_ultra <- downloadHandler(
     filename = function() sprintf("ranking_ultraprocesados_%s.png", Sys.Date()),
     content = function(file){
-      p   <- bars_all_ultra_plot()
-      tmp <- tempfile(fileext = ".html")
-      htmlwidgets::saveWidget(as_widget(p), tmp, selfcontained = TRUE)
-      webshot2::webshot(tmp, file = file, vwidth = 1000, vheight = 600)
+      ok <- save_widget_png_retry(
+        as_widget(bars_all_ultra_plot()), file,
+        vwidth = PNG_VWIDTH_PLOT, vheight = PNG_VHEIGHT_BAR, delay_base = PNG_DELAY_PLOT
+      )
+      if (!ok) stop("No se pudo generar el PNG del ranking Ultra.")
     }
+  )
+  
+  output$dl_mapa_fies <- downloadHandler(
+    filename = function() sprintf("mapa_fies_%s.png", Sys.Date()),
+    content = function(file){
+      snap <- snapshot_inputs_pdf()
+      ok <- save_widget_png_retry(
+        build_map_widget_export_fies_snapshot(snap), file,
+        vwidth = PNG_VWIDTH_MAP, vheight = PNG_VHEIGHT_MAP, delay_base = PNG_DELAY_MAP
+      )
+      if (!ok) stop("No se pudo generar el PNG del mapa FIES.")
+    }
+  )
+  
+  output$dl_mapa_ultra <- downloadHandler(
+    filename = function() sprintf("mapa_ultraprocesados_%s.png", Sys.Date()),
+    content = function(file){
+      snap <- snapshot_inputs_pdf()
+      ok <- save_widget_png_retry(
+        build_map_widget_export_ultra_snapshot(snap), file,
+        vwidth = PNG_VWIDTH_MAP, vheight = PNG_VHEIGHT_MAP, delay_base = PNG_DELAY_MAP
+      )
+      if (!ok) stop("No se pudo generar el PNG del mapa Ultra.")
+    }
+  )
+  
+  # INFORME DEL TABLERO COMPLETO
+  render_informe_completo <- function(file){
+    
+    if (!file.exists(ruta_rmd)) {
+      stop("No encuentro Informe_descargable.Rmd en la raíz del proyecto.")
+    }
+    
+    snap <- snapshot_inputs_pdf()
+    
+    ok_fm <- save_widget_png_retry(
+      build_map_widget_export_fies_snapshot(snap), IMG_FIES_MAP,
+      vwidth = PNG_VWIDTH_MAP, vheight = PNG_VHEIGHT_MAP, delay_base = PNG_DELAY_MAP
+    )
+    ok_fs <- save_widget_png_retry(
+      as_widget(build_ts_fies_plot_snapshot(snap)), IMG_FIES_TS,
+      vwidth = PNG_VWIDTH_PLOT, vheight = PNG_VHEIGHT_TS, delay_base = PNG_DELAY_PLOT
+    )
+    ok_fb <- save_widget_png_retry(
+      as_widget(build_bars_fies_plot_snapshot(snap)), IMG_FIES_BAR,
+      vwidth = PNG_VWIDTH_PLOT, vheight = PNG_VHEIGHT_BAR, delay_base = PNG_DELAY_PLOT
+    )
+    
+    ok_um <- save_widget_png_retry(
+      build_map_widget_export_ultra_snapshot(snap), IMG_ULTRA_MAP,
+      vwidth = PNG_VWIDTH_MAP, vheight = PNG_VHEIGHT_MAP, delay_base = PNG_DELAY_MAP
+    )
+    ok_us <- save_widget_png_retry(
+      as_widget(build_ts_ultra_plot_snapshot(snap)), IMG_ULTRA_TS,
+      vwidth = PNG_VWIDTH_PLOT, vheight = PNG_VHEIGHT_TS, delay_base = PNG_DELAY_PLOT
+    )
+    ok_ub <- save_widget_png_retry(
+      as_widget(build_bars_ultra_plot_snapshot(snap)), IMG_ULTRA_BAR,
+      vwidth = PNG_VWIDTH_PLOT, vheight = PNG_VHEIGHT_BAR, delay_base = PNG_DELAY_PLOT
+    )
+    
+    if (!ok_fm) stop("No se pudo generar Descargas/ecv_fies_mapa.png")
+    if (!ok_fs) stop("No se pudo generar Descargas/ecv_fies_serie.png")
+    if (!ok_fb) stop("No se pudo generar Descargas/ecv_fies_ranking.png")
+    if (!ok_um) stop("No se pudo generar Descargas/ecv_ultra_mapa.png")
+    if (!ok_us) stop("No se pudo generar Descargas/ecv_ultra_serie.png")
+    if (!ok_ub) stop("No se pudo generar Descargas/ecv_ultra_ranking.png")
+    
+    ind_fies_lbl <- safe_first(names(inds_fies)[inds_fies == (snap$f_ind_fies %||% "p_suficiente_a")],
+                               snap$f_ind_fies %||% "p_suficiente_a")
+    
+    filtros_tbl_fies <- data.frame(
+      Parametro = c("Año", "Departamento", "Área", "Sexo", "Indicador"),
+      Valor = c(
+        as.character(snap$anio3 %||% ""),
+        as.character(snap$f_dep3 %||% ""),
+        as.character(snap$f_clase3 %||% ""),
+        as.character(snap$f_sexo3 %||% ""),
+        as.character(ind_fies_lbl)
+      ),
+      stringsAsFactors = FALSE
+    )
+    
+    modo_now <- ultra_mode_snapshot(snap)
+    ind_ultra_lbl <- if (modo_now == "bin") {
+      safe_first(names(inds_binarios)[inds_binarios == (snap$f_ind_bin %||% "c_azucaradas")],
+                 snap$f_ind_bin %||% "c_azucaradas")
+    } else {
+      lookup_freq(snap$f_ind_freq_key)$label %||% "Frecuencia"
+    }
+    
+    filtros_tbl_ultra <- data.frame(
+      Parametro = c("Año", "Departamento", "Área", "Sexo", "Modo", "Indicador"),
+      Valor = c(
+        as.character(snap$anio %||% ""),
+        as.character(snap$f_dep %||% ""),
+        as.character(snap$f_clase %||% ""),
+        as.character(snap$f_sexo %||% ""),
+        ifelse(modo_now == "bin", "Presencia de consumo", "Frecuencia de consumo"),
+        as.character(ind_ultra_lbl)
+      ),
+      stringsAsFactors = FALSE
+    )
+    
+    logo_src <- file.path(app_root, "www", "LOGO_PLATEA.png")
+    if (!file.exists(logo_src)) {
+      logo_src2 <- file.path(app_root, "WWW", "LOGO_PLATEA.png")
+      logo_src  <- if (file.exists(logo_src2)) logo_src2 else NA_character_
+    }
+    logo_dst <- file.path(EXPORT_DIR, "LOGO_PLATEA.png")
+    if (!is.na(logo_src) && file.exists(logo_src)) file.copy(logo_src, logo_dst, overwrite = TRUE)
+    
+    rmarkdown::render(
+      input         = ruta_rmd,
+      output_format = "pdf_document",
+      output_file   = basename(file),
+      output_dir    = dirname(file),
+      quiet         = TRUE,
+      params        = list(
+        app_root      = app_root,
+        export_dir    = "Descargas",
+        filtros_fies  = filtros_tbl_fies,
+        filtros_ultra = filtros_tbl_ultra,
+        
+        img_fies_map      = basename(IMG_FIES_MAP),
+        img_fies_serie    = basename(IMG_FIES_TS),
+        img_fies_ranking  = basename(IMG_FIES_BAR),
+        
+        img_ultra_map     = basename(IMG_ULTRA_MAP),
+        img_ultra_serie   = basename(IMG_ULTRA_TS),
+        img_ultra_ranking = basename(IMG_ULTRA_BAR),
+        
+        csv_filtrado = NULL
+      ),
+      knit_root_dir = app_root,
+      envir         = new.env(parent = globalenv())
+    )
+  }
+  
+  output$dl_reporte_pdf <- downloadHandler(
+    filename = function(){
+      paste0("Informe_descargable_ECV_tablero_completo_", Sys.Date(), ".pdf")
+    },
+    content = function(file){
+      render_informe_completo(file)
+    },
+    contentType = "application/pdf"
+  )
+  
+  output$dl_reporte_pdf2 <- downloadHandler(
+    filename = function(){
+      paste0("Informe_descargable_ECV_tablero_completo_", Sys.Date(), ".pdf")
+    },
+    content = function(file){
+      render_informe_completo(file)
+    },
+    contentType = "application/pdf"
   )
 }
 
 shinyApp(ui, server)
-
-

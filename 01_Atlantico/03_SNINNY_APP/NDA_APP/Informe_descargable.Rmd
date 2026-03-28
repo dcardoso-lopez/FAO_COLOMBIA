@@ -1,0 +1,160 @@
+---
+title: "Informe descargable — Niños con Desnutrición Aguda (NDA)"
+subtitle: "PLATEA"
+header-includes:
+  - \usepackage{graphicx}
+  - \usepackage{float}
+  - \usepackage{placeins}
+  - \usepackage{fancyhdr}
+  - \usepackage{array}
+  - \usepackage{longtable}
+  - \usepackage{booktabs}
+  - \usepackage{caption}
+  - \pagestyle{fancy}
+  - \setlength{\headheight}{40pt}
+  - \fancyfoot[C]{\thepage}
+  - \renewcommand{\headrulewidth}{0.6pt}
+  - \renewcommand{\footrulewidth}{0.6pt}
+  - \fancyhead[L]{\includegraphics[height=1.4cm]{Descargas/LOGO_PLATEA.png}}
+  - \raggedbottom
+  - \sloppy
+output:
+  pdf_document:
+    toc: true
+    number_sections: true
+    latex_engine: xelatex
+geometry: margin=1in
+
+params:
+  app_root: !r getwd()
+  export_dir: "Descargas"
+  filtros: NULL
+
+  img_map: NULL
+  img_top10: NULL
+  img_sexo: NULL
+  img_serie: NULL
+
+  csv_filtrado: NULL
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center",
+  out.width = "95%",
+  dpi = 150
+)
+
+`%||%` <- function(x, y) if (is.null(x) || length(x) == 0) y else x
+
+app_root   <- params$app_root %||% getwd()
+export_dir <- params$export_dir %||% "Descargas"
+
+safe_path <- function(fname){
+  if (is.null(fname) || is.na(fname) || !nzchar(fname)) return(NA_character_)
+  p <- file.path(export_dir, fname)
+  if (!file.exists(file.path(app_root, p))) return(NA_character_)
+  p
+}
+
+safe_include <- function(p, txt = "No se encontró la imagen correspondiente."){
+  if (is.na(p) || !nzchar(p) || !file.exists(file.path(app_root, p))) {
+    cat(txt, "\n")
+  } else {
+    knitr::include_graphics(p)
+  }
+}
+
+img_use <- list(
+  map   = safe_path(params$img_map),
+  top10 = safe_path(params$img_top10),
+  sexo  = safe_path(params$img_sexo),
+  serie = safe_path(params$img_serie)
+)
+
+mk_filtros_tbl <- function(x){
+  if (!is.null(x) && is.data.frame(x) && all(c("Parametro","Valor") %in% names(x))) {
+    x[] <- lapply(x, function(v){
+      v <- as.character(v)
+      v[is.na(v)] <- ""
+      v
+    })
+    return(x)
+  }
+
+  data.frame(
+    Parametro = c("Filtro", "Valor"),
+    Valor     = c("Sin información", "Sin información"),
+    stringsAsFactors = FALSE
+  )
+}
+
+filtros_tbl <- mk_filtros_tbl(params$filtros)
+```
+
+# Resumen del reporte
+
+Este módulo analiza la desnutrición aguda infantil (NDA) como una manifestación crítica de vulnerabilidad alimentaria y nutricional en el territorio. La NDA refleja fallas severas y recientes en el acceso, disponibilidad o aprovechamiento biológico de los alimentos, y constituye una señal temprana de estrés en el sistema agroalimentario, especialmente en contextos de pobreza, inestabilidad económica o disrupciones productivas. Desde una perspectiva agroalimentaria, la desnutrición aguda infantil no debe entenderse únicamente como un problema de salud, sino como el resultado de desbalances estructurales en la producción, el acceso, la calidad de la dieta y la capacidad institucional para garantizar una alimentación adecuada.
+
+## Objetivo
+
+El objetivo de este módulo es analizar la distribución y evolución territorial de la desnutrición aguda infantil como un insumo clave para la toma de decisiones en el sistema agroalimentario. En particular, se busca:
+
+1. Examinar las condiciones de acceso y disponibilidad de alimentos, identificando territorios donde la ocurrencia de casos de desnutrición aguda infantil puede reflejar restricciones en el acceso regular, oportuno y suficiente a alimentos adecuados.
+
+2. Orientar la priorización territorial de intervenciones, reconociendo municipios con mayor carga de casos para promover acciones coordinadas entre los sectores de salud, nutrición y los sistemas agroalimentarios locales.
+
+3. Anticipar y gestionar el riesgo nutricional, a partir del seguimiento de tendencias crecientes o persistentes de desnutrición aguda infantil que justifiquen el uso de alertas tempranas, el fortalecimiento institucional y la implementación de medidas preventivas.
+
+
+# Resultados
+
+## 1. Filtros aplicados
+
+```{r}
+knitr::kable(
+  filtros_tbl,
+  format = "latex",
+  booktabs = TRUE,
+  longtable = FALSE,
+  align = c("p{0.38\\textwidth}", "p{0.52\\textwidth}"),
+  escape = TRUE,
+  caption = "Filtros aplicados en la app al momento de generar el informe"
+)
+```
+
+### ¿En qué territorios se concentra la mayor cantidad de casos o la mayor incidencia de desnutrición aguda?
+
+El mapa territorial muestra la distribución espacial de los casos de NDA, permitiendo identificar municipios donde la carga absoluta de casos es mayor. Este indicador es clave para reconocer focos críticos de vulnerabilidad nutricional. En el sistema agroalimentario, territorios con alta concentración de casos de NDA suelen coincidir con contextos de acceso limitado a alimentos frescos, inestabilidad de ingresos, deficiencias en servicios básicos o debilidades en los sistemas locales de abastecimiento. El mapa, por tanto, no se interpreta solo como “dónde hay más casos”, sino como una herramienta para focalizar acciones integrales en los territorios donde el sistema alimentario muestra mayores tensiones.
+
+```{r}
+safe_include(img_use$map, "No se encontró la imagen del mapa territorial.")
+```
+
+### ¿Qué territorios registran los valores más altos del indicador seleccionado?
+
+El ranking de los diez territorios con mayor número de casos permite priorizar intervenciones cuando los recursos institucionales son limitados. Este indicador facilita pasar de un diagnóstico general a una lista concreta de municipios donde la desnutrición aguda infantil representa un riesgo crítico. Desde un enfoque agroalimentario, este ranking es operativo: orienta la articulación entre programas de nutrición, fortalecimiento de mercados locales, apoyo a la producción de alimentos básicos y estrategias de abastecimiento dirigidas a poblaciones vulnerables.
+
+```{r}
+safe_include(img_use$top10, "No se encontró la imagen del ranking Top 10.")
+```
+
+### ¿Cómo se distribuyen los casos de NDA entre Hombres y Mujeres?
+
+La distribución de los casos por sexo permite evaluar si existen diferencias significativas en la incidencia de desnutrición aguda infantil entre niños y niñas. Este análisis contribuye a identificar posibles desigualdades en el acceso a alimentos, cuidados y servicios de salud. En términos del sistema agroalimentario, diferencias persistentes por sexo pueden reflejar patrones culturales, de cuidado o de asignación intrahogar de alimentos, lo que refuerza la necesidad de intervenciones con enfoque diferencial y de equidad.
+
+```{r}
+safe_include(img_use$sexo, "No se encontró la imagen de la distribución por sexo.")
+```
+
+### ¿Cómo ha evolucionado en el tiempo el número de casos de NDA en el territorio seleccionado?
+
+La serie temporal del número de casos de NDA permite analizar la evolución del fenómeno en el tiempo, identificando picos, caídas o tendencias persistentes. Este indicador es fundamental para distinguir episodios coyunturales de desnutrición de condiciones estructurales de vulnerabilidad alimentaria. Desde una perspectiva agroalimentaria, incrementos sostenidos en los casos de NDA pueden anticipar deterioros en el acceso a alimentos, choques económicos o fallas en los sistemas locales de abastecimiento, mientras que reducciones sostenidas pueden reflejar mejoras en políticas de nutrición, protección social o estabilidad del sistema alimentario.
+
+```{r}
+safe_include(img_use$serie, "No se encontró la imagen de la serie temporal.")
+```
+

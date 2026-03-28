@@ -1,36 +1,39 @@
 # =========================================================
-# app_finagro_moderno.R — Tendencias + Indicadores (FIX + Orden eslabón)
-# - Ajustado a tu estructura real: COD_DANE_DPTO_D / COD_DANE_MUNIC_D
-# - Crea llaves estándar: COD_DPTO2, COD_MUN5, NOM_DPTO, NOM_MPIO, SEXO2
-# - Tab 2 usa SUS inputs (ano, depto_t2, mpio_t2, eslabon_t2, productor, sexo)
-# - Municipios con selectize server-side (mejor performance)
-# - FIX MAPA: cuando es municipal, SOLO dibuja municipios del departamento seleccionado
-# - NUEVO: Orden fijo de eslabón: Producción, Transformación, Comercialización, Servicios de Apoyo
+# app_finagro_moderno.R — Tendencias + Indicadores
+# MODIFICADA CON LÓGICA DE BOTONES TIPO ICA
+# - Botones PNG por visual
+# - Botón CSV
+# - Botón PDF robusto con Rmarkdown
+# - PNGs fijos en ./Descargas
+# - PDF solo se permite cuando ya se hayan visitado las 2 pestañas
+# - El informe procesa ambas pestañas
 # =========================================================
 
 suppressWarnings({
   library(shiny); library(dplyr); library(plotly)
   library(scales); library(ggplot2); library(networkD3)
   library(sf); library(leaflet); library(bslib); library(stringr)
+  library(htmlwidgets); library(webshot2); library(rmarkdown)
+  library(readr); library(htmltools)
 })
 
 options(stringsAsFactors = FALSE, scipen = 999)
 options(shiny.maxRequestSize = 100*1024^2)
 sf::sf_use_s2(FALSE)
 
-# ---------- Rutas ----------
-data_dir <- "data"
-
-# ---------- Lectura ----------
-finagro_fast       <- readRDS(file.path(data_dir, "081_FINAGRO_CFA.rds"))
-finagro_depto_map  <- readRDS(file.path(data_dir, "map_finagro_depto.rds"))
-finagro_mpio_map   <- readRDS(file.path(data_dir, "map_finagro_mpio.rds"))
-mpios_sf           <- readRDS(file.path(data_dir, "mpios_sf_simpl.rds"))
-dptos_sf           <- readRDS(file.path(data_dir, "dptos_sf_simpl.rds"))
-
 # =========================================================
-# HELPERS
+# HELPERS GENERALES
 # =========================================================
+`%||%` <- function(x, y) if (is.null(x) || length(x) == 0) y else x
+
+get_app_root <- function(){
+  normalizePath(shiny::getShinyOption("appDir") %||% getwd(), winslash = "/", mustWork = FALSE)
+}
+
+safe_first <- function(x, default = "?"){
+  x <- x[!is.na(x)]
+  if (length(x) == 0) default else x[1]
+}
 
 # ---------- Helper: Title Case en español ----------
 title_case_es <- function(x){
@@ -52,7 +55,7 @@ title_case_es <- function(x){
   }, FUN.VALUE = character(1L))
 }
 
-# ✅ ORDEN FIJO ESLABÓN (lo que pediste)
+# ✅ ORDEN FIJO ESLABÓN
 ESLABON_LEVELS <- c(
   "Producción",
   "Transformación",
@@ -111,7 +114,87 @@ pal_story <- c(
 )
 
 # =========================================================
-# NORMALIZACIÓN FINAGRO (según TU estructura real)
+# EXPORTACIÓN TIPO ICA
+# =========================================================
+app_root   <- get_app_root()
+EXPORT_DIR <- file.path(app_root, "Descargas")
+dir.create(EXPORT_DIR, recursive = TRUE, showWarnings = FALSE)
+
+ruta_rmd <- file.path(app_root, "Informe_descargable.Rmd")
+
+PNG_VWIDTH   <- 3000
+PNG_VHEIGHT  <- 2300
+PNG_DELAY_CO <- 1.4
+PNG_DELAY_MUN <- 2.6
+
+# nombres fijos para el Rmd
+IMG_T1_MAP   <- file.path(EXPORT_DIR, "finagro_tab1_mapa.png")
+IMG_T1_SER   <- file.path(EXPORT_DIR, "finagro_tab1_serie.png")
+IMG_T1_TOP   <- file.path(EXPORT_DIR, "finagro_tab1_top10.png")
+IMG_T2_SER   <- file.path(EXPORT_DIR, "finagro_tab2_serie.png")
+IMG_T2_TOP   <- file.path(EXPORT_DIR, "finagro_tab2_toplineas.png")
+IMG_T2_SAN   <- file.path(EXPORT_DIR, "finagro_tab2_sankey.png")
+
+save_widget_png <- function(widget, out_png, vwidth = PNG_VWIDTH, vheight = PNG_VHEIGHT, delay = PNG_DELAY_CO){
+  dir.create(dirname(out_png), recursive = TRUE, showWarnings = FALSE)
+  
+  tmp_dir  <- tempfile("wshot_")
+  dir.create(tmp_dir, recursive = TRUE, showWarnings = FALSE)
+  lib_dir  <- file.path(tmp_dir, "lib")
+  dir.create(lib_dir, recursive = TRUE, showWarnings = FALSE)
+  tmp_html <- file.path(tmp_dir, "widget.html")
+  
+  htmlwidgets::saveWidget(widget, file = tmp_html, selfcontained = FALSE, libdir = lib_dir)
+  
+  webshot2::webshot(
+    url     = tmp_html,
+    file    = out_png,
+    vwidth  = vwidth,
+    vheight = vheight,
+    delay   = delay
+  )
+  
+  file.exists(out_png) && is.finite(file.info(out_png)$size) && file.info(out_png)$size > 0
+}
+
+save_widget_png_retry <- function(widget, out_png, vwidth, vheight, delay_base){
+  delays <- c(delay_base, delay_base + 2.0, delay_base + 4.0)
+  for (d in delays){
+    ok <- tryCatch(
+      save_widget_png(widget, out_png, vwidth = vwidth, vheight = vheight, delay = d),
+      error = function(e) FALSE
+    )
+    if (isTRUE(ok)) return(TRUE)
+  }
+  FALSE
+}
+
+# fallback para sankey en png
+save_sankey_png_fallback <- function(out_png, width = 1800, height = 1000){
+  png(filename = out_png, width = width, height = height, res = 150, bg = "white")
+  par(mar = c(0,0,0,0))
+  plot.new()
+  text(0.5, 0.65, "Mapa de asignación: líneas de crédito \u2192 eslabones productivos", cex = 1.2, font = 2)
+  text(0.5, 0.45, "La visualización Sankey es interactiva en la app.", cex = 1.0)
+  text(0.5, 0.35, "Para el informe PDF se incluye este marcador de posición", cex = 1.0)
+  text(0.5, 0.25, "cuando no es posible rasterizar directamente el htmlwidget.", cex = 1.0)
+  dev.off()
+  file.exists(out_png)
+}
+
+# =========================================================
+# RUTAS / DATOS
+# =========================================================
+data_dir <- "data"
+
+finagro_fast       <- readRDS(file.path(data_dir, "081_FINAGRO_CFA.rds"))
+finagro_depto_map  <- readRDS(file.path(data_dir, "map_finagro_depto.rds"))
+finagro_mpio_map   <- readRDS(file.path(data_dir, "map_finagro_mpio.rds"))
+mpios_sf           <- readRDS(file.path(data_dir, "mpios_sf_simpl.rds"))
+dptos_sf           <- readRDS(file.path(data_dir, "dptos_sf_simpl.rds"))
+
+# =========================================================
+# NORMALIZACIÓN FINAGRO
 # =========================================================
 finagro_fast <- finagro_fast %>%
   mutate(
@@ -120,11 +203,10 @@ finagro_fast <- finagro_fast %>%
     NOM_DPTO  = as.character(DEPARTAMENTO_D),
     NOM_MPIO  = as.character(MUNICIPIO_D),
     SEXO2     = as.character(SEXO),
-    # eslabón normalizado para filtros/plots
     ESLABON_TC = normalize_eslabon(ESLABON_CADENA)
   )
 
-# (Opcional) dejar solo SANTANDER
+# opcional: dejar solo SANTANDER
 finagro_fast <- finagro_fast %>% dplyr::filter(NOM_DPTO == "SANTANDER")
 
 # ---------- IPP y deflactación ----------
@@ -143,7 +225,7 @@ finagro_fast <- finagro_fast %>%
     VALOR_CREDITO_REAL = VALOR_CREDITO / IPP
   )
 
-# ---------- Choices (limitadas a lo que existe) ----------
+# ---------- Choices ----------
 depto_vec     <- sort(unique(finagro_fast$NOM_DPTO))
 depto_choices <- c("Todos" = "Todos", stats::setNames(depto_vec, title_case_es(depto_vec)))
 
@@ -189,7 +271,31 @@ ui <- fluidPage(
     .grid-4{ display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
     .metric-value{ font-size:28px; font-weight:800; color:#111827; margin:2px 0 0; }
     .metric-sub{ font-size:12px; color:#6b7280; margin-top:2px; }
-    ", COL_BORDE_POLY, COL_BORDE_POLY, COL_BORDE_POLY, COL_BORDE_POLY)))
+
+    .btn-unified{
+      background:#ffffff !important;
+      border:1px solid %s !important;
+      color:#374151 !important;
+      font-weight:700 !important;
+      border-radius:12px !important;
+      padding:6px 10px !important;
+      font-size:12px !important;
+    }
+    .footer-actions{
+      margin-top: 10px;
+      display:flex;
+      justify-content:flex-end;
+      gap: 8px;
+      padding: 6px 6px 0;
+      flex-wrap: wrap;
+    }
+    .pdf-note{
+      margin-top: 8px;
+      font-size: 12px;
+      color:#4b5563;
+      text-align:right;
+    }
+    ", COL_BORDE_POLY, COL_BORDE_POLY, COL_BORDE_POLY, COL_BORDE_POLY, COL_BORDE_POLY)))
   ),
   div(
     class = "wrap",
@@ -226,7 +332,6 @@ ui <- fluidPage(
             ),
             div(class="filter",
                 div(class="filter-label","¿Eslabón de la cadena?"),
-                # ✅ orden fijo
                 selectInput("eslabon_t1", NULL,
                             choices  = c("Todos", ESLABON_LEVELS),
                             selected = "Todos")
@@ -275,18 +380,27 @@ ui <- fluidPage(
           column(
             width = 6,
             div(class="card",
-                uiOutput("titulo_mapa_t1"),
+                div(class="card-title d-flex justify-content-between align-items-center",
+                    span(uiOutput("titulo_mapa_t1")),
+                    downloadButton("dl_png_t1_mapa","Descargar PNG", class="btn-unified")
+                ),
                 leafletOutput("mapa_m_t1", height = 758)
             )
           ),
           column(
             width = 6,
             div(class="card",
-                uiOutput("titulo_serie_t1"),
+                div(class="card-title d-flex justify-content-between align-items-center",
+                    span(uiOutput("titulo_serie_t1")),
+                    downloadButton("dl_png_t1_serie","Descargar PNG", class="btn-unified")
+                ),
                 plotlyOutput("hist_monto_total", height = 330)
             ),
             div(class="card",
-                uiOutput("titulo_top10_t1"),
+                div(class="card-title d-flex justify-content-between align-items-center",
+                    span(uiOutput("titulo_top10_t1")),
+                    downloadButton("dl_png_t1_top","Descargar PNG", class="btn-unified")
+                ),
                 plotlyOutput("top5_m_t1", height = 330)
             )
           )
@@ -321,7 +435,6 @@ ui <- fluidPage(
             ),
             div(class="filter",
                 div(class="filter-label","¿Eslabón de la cadena?"),
-                # ✅ orden fijo
                 selectInput("eslabon_t2", NULL,
                             choices  = c("Todos", ESLABON_LEVELS),
                             selected = "Todos")
@@ -344,13 +457,19 @@ ui <- fluidPage(
         fluidRow(
           column(6,
                  div(class="card",
-                     div(class="card-title","Evolución mensual de créditos y monto real desembolsado"),
+                     div(class="card-title d-flex justify-content-between align-items-center",
+                         span("Evolución mensual de créditos y monto real desembolsado"),
+                         downloadButton("dl_png_t2_serie","Descargar PNG", class="btn-unified")
+                     ),
                      plotlyOutput("serie_tiempo", height = 390)
                  )
           ),
           column(6,
                  div(class="card",
-                     div(class="card-title","Concentración de las principales líneas de crédito por eslabón (reales)"),
+                     div(class="card-title d-flex justify-content-between align-items-center",
+                         span("Concentración de las principales líneas de crédito por eslabón (reales)"),
+                         downloadButton("dl_png_t2_top","Descargar PNG", class="btn-unified")
+                     ),
                      plotlyOutput("top_lineas_eslabon", height = 390)
                  )
           )
@@ -358,12 +477,23 @@ ui <- fluidPage(
         fluidRow(
           column(12,
                  div(class="card",
-                     div(class="card-title","Mapa de asignación: líneas de crédito → eslabones productivos (montos reales)"),
+                     div(class="card-title d-flex justify-content-between align-items-center",
+                         span("Mapa de asignación: líneas de crédito → eslabones productivos (montos reales)"),
+                         downloadButton("dl_png_t2_sankey","Descargar PNG", class="btn-unified")
+                     ),
                      sankeyNetworkOutput("sankey", height = "370px")
                  )
           )
         )
       )
+    ),
+    
+    div(class = "pdf-note", textOutput("estado_pdf_txt")),
+    
+    div(
+      class = "footer-actions",
+      downloadButton("dl_csv_expl","Descargar CSV", class="btn-unified"),
+      downloadButton("dl_reporte_pdf","Descargar informe (PDF)", class="btn-unified")
     )
   )
 )
@@ -373,7 +503,7 @@ ui <- fluidPage(
 # =========================================================
 server <- function(input, output, session){
   
-  # colores eslabón (orden fijo)
+  # colores eslabón
   PAL_ESLAB <- c(
     "Producción"         = "#8d6e63",
     "Transformación"     = "#a17236",
@@ -382,7 +512,42 @@ server <- function(input, output, session){
   )
   
   # =========================================================
-  # MUNICIPIOS DEPENDEN DE DEPTO (server-side selectize)
+  # CONTROL DE VISITA A LAS DOS PESTAÑAS
+  # =========================================================
+  tabs_seen <- reactiveVal(character(0))
+  
+  observeEvent(input$tabs_finagro, {
+    req(input$tabs_finagro)
+    actuales <- tabs_seen()
+    if (!(input$tabs_finagro %in% actuales)) {
+      tabs_seen(unique(c(actuales, input$tabs_finagro)))
+    }
+  }, ignoreInit = FALSE)
+  
+  ya_vio_tab1 <- reactive({
+    "Dinámica histórica del crédito agropecuario" %in% tabs_seen()
+  })
+  ya_vio_tab2 <- reactive({
+    "Indicadores anuales para gestionar el portafolio de crédito" %in% tabs_seen()
+  })
+  ya_vio_ambas_tabs <- reactive({
+    ya_vio_tab1() && ya_vio_tab2()
+  })
+  
+  output$estado_pdf_txt <- renderText({
+    if (ya_vio_ambas_tabs()) {
+      "Ya puedes descargar el informe: se han visualizado las dos pestañas."
+    } else if (ya_vio_tab1() && !ya_vio_tab2()) {
+      "Para descargar el informe primero debes visualizar la segunda pestaña."
+    } else if (!ya_vio_tab1() && ya_vio_tab2()) {
+      "Para descargar el informe primero debes visualizar la primera pestaña."
+    } else {
+      "Para descargar el informe debes visualizar las dos pestañas."
+    }
+  })
+  
+  # =========================================================
+  # MUNICIPIOS DEPENDEN DE DEPTO
   # =========================================================
   observe({
     updateSelectizeInput(session, "mpio_t1", choices = mpio_choices_all, selected = "Todos", server = TRUE)
@@ -433,7 +598,6 @@ server <- function(input, output, session){
     if (!is.null(input$ano_t1) && input$ano_t1 != "Todos") df <- df %>% filter(ano == as.numeric(input$ano_t1))
     if (!is.null(input$depto_t1) && input$depto_t1 != "Todos") df <- df %>% filter(NOM_DPTO == input$depto_t1)
     if (!is.null(input$mpio_t1) && input$mpio_t1 != "Todos")   df <- df %>% filter(NOM_MPIO == input$mpio_t1)
-    # ✅ filtro por eslabón usando normalizado
     if (!is.null(input$eslabon_t1) && input$eslabon_t1 != "Todos") df <- df %>% filter(ESLABON_TC == input$eslabon_t1)
     if (!is.null(input$productor_t1) && input$productor_t1 != "Todos") df <- df %>% filter(TIPO_PRODUCTOR == input$productor_t1)
     df
@@ -443,7 +607,6 @@ server <- function(input, output, session){
     df <- finagro_fast
     if (!is.null(input$depto_t1) && input$depto_t1 != "Todos") df <- df %>% filter(NOM_DPTO == input$depto_t1)
     if (!is.null(input$mpio_t1) && input$mpio_t1 != "Todos")   df <- df %>% filter(NOM_MPIO == input$mpio_t1)
-    # ✅
     if (!is.null(input$eslabon_t1) && input$eslabon_t1 != "Todos") df <- df %>% filter(ESLABON_TC == input$eslabon_t1)
     if (!is.null(input$productor_t1) && input$productor_t1 != "Todos") df <- df %>% filter(TIPO_PRODUCTOR == input$productor_t1)
     df
@@ -454,7 +617,6 @@ server <- function(input, output, session){
     if (!is.null(input$ano_t1) && input$ano_t1 != "Todos") df <- df %>% filter(ano == as.numeric(input$ano_t1))
     if (!is.null(input$depto_t1) && input$depto_t1 != "Todos") df <- df %>% filter(NOM_DPTO == input$depto_t1)
     if (!is.null(input$mpio_t1) && input$mpio_t1 != "Todos")   df <- df %>% filter(NOM_MPIO == input$mpio_t1)
-    # ✅
     if (!is.null(input$eslabon_t1) && input$eslabon_t1 != "Todos") df <- df %>% filter(ESLABON_TC == input$eslabon_t1)
     if (!is.null(input$productor_t1) && input$productor_t1 != "Todos") df <- df %>% filter(TIPO_PRODUCTOR == input$productor_t1)
     df
@@ -508,11 +670,11 @@ server <- function(input, output, session){
     }
   })
   
-  output$titulo_mapa_t1  <- renderUI(tags$div(class="card-title", titulo_visuales_t1()$mapa))
-  output$titulo_serie_t1 <- renderUI(tags$div(class="card-title", titulo_visuales_t1()$serie))
-  output$titulo_top10_t1 <- renderUI(tags$div(class="card-title", titulo_visuales_t1()$top10))
+  output$titulo_mapa_t1  <- renderUI(HTML(sprintf("<strong>%s</strong>", titulo_visuales_t1()$mapa)))
+  output$titulo_serie_t1 <- renderUI(HTML(sprintf("<strong>%s</strong>", titulo_visuales_t1()$serie)))
+  output$titulo_top10_t1 <- renderUI(HTML(sprintf("<strong>%s</strong>", titulo_visuales_t1()$top10)))
   
-  output$hist_monto_total <- renderPlotly({
+  build_hist_monto_total <- reactive({
     df <- base_serie_t1() %>%
       group_by(ano) %>%
       summarise(
@@ -547,9 +709,12 @@ server <- function(input, output, session){
     ) %>% layout(
       xaxis  = list(title="", showgrid=FALSE),
       yaxis  = list(title=y_title, showgrid=TRUE),
-      legend = list(orientation="h")
+      legend = list(orientation="h"),
+      paper_bgcolor = "#ffffff",
+      plot_bgcolor  = "#ffffff"
     )
   })
+  output$hist_monto_total <- renderPlotly({ build_hist_monto_total() })
   
   # ---------- MAPA (Tab 1) ----------
   output$mapa_m_t1 <- renderLeaflet({
@@ -599,7 +764,6 @@ server <- function(input, output, session){
             .groups  = "drop"
           )
         
-        # ✅ FIX: solo municipios del dpto
         shp <- mpios_sf %>%
           filter(COD_DPTO2 == cod_dep) %>%
           left_join(df_ag, by = c("COD_DPTO2","COD_MUN5")) %>%
@@ -677,8 +841,98 @@ server <- function(input, output, session){
     ignoreInit = FALSE
   )
   
+  build_map_t1_export <- reactive({
+    df_raw <- base_mapa_t1()
+    req(nrow(df_raw) > 0)
+    
+    if (is.null(input$depto_t1) || input$depto_t1 == "Todos") {
+      
+      df_ag <- df_raw %>%
+        group_by(COD_DPTO2) %>%
+        summarise(
+          monto    = sum(VALOR_CREDITO_REAL, na.rm = TRUE),
+          creditos = sum(NUMERO_CREDITO,     na.rm = TRUE),
+          .groups  = "drop"
+        )
+      
+      shp <- dptos_sf %>%
+        left_join(df_ag, by = "COD_DPTO2") %>%
+        sf::st_as_sf()
+      
+      tipo_mapa <- "depto"
+      
+    } else {
+      
+      cod_dep <- dptos_sf$COD_DPTO2[dptos_sf$NOM_DPTO == input$depto_t1][1]
+      
+      df_ag <- df_raw %>%
+        filter(COD_DPTO2 == cod_dep) %>%
+        group_by(COD_DPTO2, COD_MUN5) %>%
+        summarise(
+          monto    = sum(VALOR_CREDITO_REAL, na.rm = TRUE),
+          creditos = sum(NUMERO_CREDITO,     na.rm = TRUE),
+          .groups  = "drop"
+        )
+      
+      shp <- mpios_sf %>%
+        filter(COD_DPTO2 == cod_dep) %>%
+        left_join(df_ag, by = c("COD_DPTO2","COD_MUN5")) %>%
+        mutate(
+          NOM_MPIO_TC = title_case_es(NOM_MPIO),
+          monto    = ifelse(is.na(monto),    0, monto),
+          creditos = ifelse(is.na(creditos), 0, creditos)
+        ) %>%
+        sf::st_as_sf()
+      
+      tipo_mapa <- "mpio"
+    }
+    
+    ind <- if (!is.null(input$var_m_t1) && input$var_m_t1 %in% c("monto","creditos")) input$var_m_t1 else "monto"
+    shp$valor <- if (ind == "monto") shp$monto else shp$creditos
+    
+    pal_map <- pal_story[2:6]
+    pal     <- pal_quartiles_safe(rev(pal_map), shp$valor)
+    
+    bb <- sf::st_bbox(shp)
+    lng <- mean(c(as.numeric(bb["xmin"]), as.numeric(bb["xmax"])))
+    lat <- mean(c(as.numeric(bb["ymin"]), as.numeric(bb["ymax"])))
+    zoom <- if (tipo_mapa == "depto") 7 else 9
+    
+    if (ind == "monto") {
+      legend_title <- "Monto total del crédito (real)"
+    } else {
+      legend_title <- "Número de créditos"
+    }
+    
+    m <- leaflet(options = leafletOptions(zoomSnap = 0.25)) %>%
+      addProviderTiles(providers$CartoDB.Positron) %>%
+      setView(lng = lng, lat = lat, zoom = zoom)
+    
+    if (tipo_mapa == "depto") {
+      m <- m %>%
+        addPolygons(
+          data = shp,
+          fillColor = ~pal(valor),
+          color = COL_BORDE_POLY,
+          weight = 0.8,
+          fillOpacity = 0.8
+        )
+    } else {
+      m <- m %>%
+        addPolygons(
+          data = shp,
+          fillColor = ~pal(valor),
+          color = COL_BORDE_POLY,
+          weight = 0.6,
+          fillOpacity = 0.7
+        )
+    }
+    
+    m %>% addLegend("bottomright", pal = pal, values = shp$valor, title = legend_title)
+  })
+  
   # --- Top 10 (Tab 1) ---
-  output$top5_m_t1 <- renderPlotly({
+  build_top5_t1 <- reactive({
     df_raw <- base_mapa_t1()
     if (nrow(df_raw) == 0) return(NULL)
     
@@ -737,11 +991,14 @@ server <- function(input, output, session){
       theme(
         plot.title         = element_text(face="bold"),
         panel.grid.major.x = element_blank(),
-        panel.grid.minor.x = element_blank()
+        panel.grid.minor.x = element_blank(),
+        plot.background  = element_rect(fill="white", color=NA),
+        panel.background = element_rect(fill="white", color=NA)
       )
     
-    ggplotly(g)
+    ggplotly(g) %>% layout(paper_bgcolor="#ffffff", plot_bgcolor="#ffffff")
   })
+  output$top5_m_t1 <- renderPlotly({ build_top5_t1() })
   
   # =========================================================
   # TAB 2 — INDICADORES
@@ -751,14 +1008,13 @@ server <- function(input, output, session){
     if (!is.null(input$ano)) df <- df %>% filter(ano == as.numeric(input$ano))
     if (!is.null(input$depto_t2) && input$depto_t2 != "Todos") df <- df %>% filter(NOM_DPTO == input$depto_t2)
     if (!is.null(input$mpio_t2)  && input$mpio_t2  != "Todos") df <- df %>% filter(NOM_MPIO == input$mpio_t2)
-    # ✅ filtro por eslabón usando normalizado
     if (!is.null(input$eslabon_t2) && input$eslabon_t2 != "Todos") df <- df %>% filter(ESLABON_TC == input$eslabon_t2)
     if (!is.null(input$productor) && input$productor != "Todos") df <- df %>% filter(TIPO_PRODUCTOR == input$productor)
     if (!is.null(input$sexo) && input$sexo != "Todos") df <- df %>% filter(SEXO2 == input$sexo)
     df
   })
   
-  output$serie_tiempo <- renderPlotly({
+  build_serie_tiempo <- reactive({
     df <- base_filtrada() %>%
       group_by(mes) %>%
       summarise(
@@ -804,11 +1060,14 @@ server <- function(input, output, session){
         yaxis2 = list(title = "Miles de millones (reales)", overlaying = "y", side = "right",
                       showgrid = FALSE, zeroline = FALSE),
         legend = list(orientation = "h", x = 0, y = 1.12),
-        margin = list(l = 70, r = 70, b = 60, t = 30)
+        margin = list(l = 70, r = 70, b = 60, t = 30),
+        paper_bgcolor="#ffffff",
+        plot_bgcolor ="#ffffff"
       )
   })
+  output$serie_tiempo <- renderPlotly({ build_serie_tiempo() })
   
-  output$top_lineas_eslabon <- renderPlotly({
+  build_top_lineas_eslabon <- reactive({
     df <- base_filtrada() %>%
       group_by(LINEA_CREDITO, ESLABON_TC) %>%
       summarise(monto = sum(VALOR_CREDITO_REAL, na.rm = TRUE), .groups = "drop")
@@ -858,11 +1117,14 @@ server <- function(input, output, session){
         xaxis   = list(title = "Miles de Millones (reales)", showgrid = FALSE),
         yaxis   = list(title = "", showgrid = FALSE),
         legend  = list(orientation = "h", y = -0.2),
-        margin  = list(l = 70, r = 30, b = 40, t = 10)
+        margin  = list(l = 70, r = 30, b = 40, t = 10),
+        paper_bgcolor="#ffffff",
+        plot_bgcolor ="#ffffff"
       )
   })
+  output$top_lineas_eslabon <- renderPlotly({ build_top_lineas_eslabon() })
   
-  output$sankey <- renderSankeyNetwork({
+  build_sankey <- reactive({
     df_links <- base_filtrada() %>%
       group_by(LINEA_CREDITO, ESLABON_TC) %>%
       summarise(value = sum(VALOR_CREDITO_REAL, na.rm = TRUE) / 1e9, .groups = "drop") %>%
@@ -909,10 +1171,263 @@ server <- function(input, output, session){
       colourScale = colourScale
     )
   })
+  output$sankey <- renderSankeyNetwork({ build_sankey() })
+  
+  # =========================================================
+  # TABLA EXPORTABLE CSV
+  # =========================================================
+  tabla_export <- reactive({
+    bind_rows(
+      base_t1() %>%
+        mutate(pestana = "Tab 1"),
+      base_filtrada() %>%
+        mutate(pestana = "Tab 2")
+    ) %>%
+      transmute(
+        pestana,
+        ano,
+        mes,
+        departamento = NOM_DPTO,
+        municipio = NOM_MPIO,
+        eslabon = ESLABON_TC,
+        tipo_productor = TIPO_PRODUCTOR,
+        sexo = SEXO2,
+        linea_credito = LINEA_CREDITO,
+        numero_credito = NUMERO_CREDITO,
+        valor_credito = VALOR_CREDITO,
+        valor_credito_real = VALOR_CREDITO_REAL
+      )
+  })
+  
+  # =========================================================
+  # DESCARGAS PNG
+  # =========================================================
+  output$dl_png_t1_mapa <- downloadHandler(
+    filename = function(){
+      paste0("finagro_tab1_mapa_", Sys.Date(), ".png")
+    },
+    content = function(file){
+      dly <- if (!is.null(input$depto_t1) && input$depto_t1 != "Todos") PNG_DELAY_MUN else PNG_DELAY_CO
+      ok <- save_widget_png_retry(build_map_t1_export(), file, vwidth = PNG_VWIDTH, vheight = PNG_VHEIGHT, delay_base = dly)
+      if (!ok) stop("No se pudo generar el PNG del mapa de la pestaña 1.")
+    }
+  )
+  
+  output$dl_png_t1_serie <- downloadHandler(
+    filename = function(){
+      paste0("finagro_tab1_serie_", Sys.Date(), ".png")
+    },
+    content = function(file){
+      ok <- save_widget_png_retry(build_hist_monto_total(), file, vwidth = 1800, vheight = 900, delay_base = 0.9)
+      if (!ok) stop("No se pudo generar el PNG de la serie de la pestaña 1.")
+    }
+  )
+  
+  output$dl_png_t1_top <- downloadHandler(
+    filename = function(){
+      paste0("finagro_tab1_top10_", Sys.Date(), ".png")
+    },
+    content = function(file){
+      ok <- save_widget_png_retry(build_top5_t1(), file, vwidth = 1800, vheight = 1000, delay_base = 0.9)
+      if (!ok) stop("No se pudo generar el PNG del top 10 de la pestaña 1.")
+    }
+  )
+  
+  output$dl_png_t2_serie <- downloadHandler(
+    filename = function(){
+      paste0("finagro_tab2_serie_", Sys.Date(), ".png")
+    },
+    content = function(file){
+      ok <- save_widget_png_retry(build_serie_tiempo(), file, vwidth = 1800, vheight = 900, delay_base = 0.9)
+      if (!ok) stop("No se pudo generar el PNG de la serie de la pestaña 2.")
+    }
+  )
+  
+  output$dl_png_t2_top <- downloadHandler(
+    filename = function(){
+      paste0("finagro_tab2_top_lineas_", Sys.Date(), ".png")
+    },
+    content = function(file){
+      ok <- save_widget_png_retry(build_top_lineas_eslabon(), file, vwidth = 1800, vheight = 1000, delay_base = 0.9)
+      if (!ok) stop("No se pudo generar el PNG del top de líneas de la pestaña 2.")
+    }
+  )
+  
+  output$dl_png_t2_sankey <- downloadHandler(
+    filename = function(){
+      paste0("finagro_tab2_sankey_", Sys.Date(), ".png")
+    },
+    content = function(file){
+      ok <- tryCatch(
+        save_widget_png_retry(build_sankey(), file, vwidth = 1800, vheight = 1000, delay_base = 1.2),
+        error = function(e) FALSE
+      )
+      if (!isTRUE(ok)) {
+        ok2 <- save_sankey_png_fallback(file, width = 1800, height = 1000)
+        if (!ok2) stop("No se pudo generar el PNG del sankey de la pestaña 2.")
+      }
+    }
+  )
+  
+  # =========================================================
+  # CSV
+  # =========================================================
+  output$dl_csv_expl <- downloadHandler(
+    filename = function(){
+      paste0("FINAGRO_base_filtrada_", Sys.Date(), ".csv")
+    },
+    content = function(file){
+      readr::write_csv(tabla_export(), file, na = "")
+    }
+  )
+  
+  # =========================================================
+  # PDF ROBUSTO TIPO ICA
+  # =========================================================
+  output$dl_reporte_pdf <- downloadHandler(
+    filename = function(){
+      paste0("Informe_descargable_FINAGRO_", Sys.Date(), ".pdf")
+    },
+    content = function(file){
+      
+      if (!ya_vio_ambas_tabs()) {
+        stop("Para descargar el informe debes haber visualizado las dos pestañas de la app.")
+      }
+      
+      if (!file.exists(ruta_rmd)) {
+        stop("No encuentro Informe_descargable.Rmd en la raíz del proyecto.")
+      }
+      
+      # snapshot filtros tab 1
+      ano_t1_now       <- input$ano_t1 %||% "Todos"
+      depto_t1_now     <- input$depto_t1 %||% "Todos"
+      mpio_t1_now      <- input$mpio_t1 %||% "Todos"
+      eslabon_t1_now   <- input$eslabon_t1 %||% "Todos"
+      productor_t1_now <- input$productor_t1 %||% "Todos"
+      var_t1_now       <- input$var_m_t1 %||% "monto"
+      
+      # snapshot filtros tab 2
+      ano_t2_now       <- input$ano %||% NA
+      depto_t2_now     <- input$depto_t2 %||% "Todos"
+      mpio_t2_now      <- input$mpio_t2 %||% "Todos"
+      eslabon_t2_now   <- input$eslabon_t2 %||% "Todos"
+      productor_t2_now <- input$productor %||% "Todos"
+      sexo_t2_now      <- input$sexo %||% "Todos"
+      
+      # 1) generar PNGs fijos en ./Descargas
+      dly_map <- if (!is.null(depto_t1_now) && depto_t1_now != "Todos") PNG_DELAY_MUN else PNG_DELAY_CO
+      
+      ok_t1_map <- save_widget_png_retry(build_map_t1_export(), IMG_T1_MAP, vwidth = PNG_VWIDTH, vheight = PNG_VHEIGHT, delay_base = dly_map)
+      ok_t1_ser <- save_widget_png_retry(build_hist_monto_total(), IMG_T1_SER, vwidth = 1800, vheight = 900, delay_base = 0.9)
+      ok_t1_top <- save_widget_png_retry(build_top5_t1(),         IMG_T1_TOP, vwidth = 1800, vheight = 1000, delay_base = 0.9)
+      
+      ok_t2_ser <- save_widget_png_retry(build_serie_tiempo(),       IMG_T2_SER, vwidth = 1800, vheight = 900,  delay_base = 0.9)
+      ok_t2_top <- save_widget_png_retry(build_top_lineas_eslabon(), IMG_T2_TOP, vwidth = 1800, vheight = 1000, delay_base = 0.9)
+      
+      ok_t2_san <- tryCatch(
+        save_widget_png_retry(build_sankey(), IMG_T2_SAN, vwidth = 1800, vheight = 1000, delay_base = 1.2),
+        error = function(e) FALSE
+      )
+      if (!isTRUE(ok_t2_san)) {
+        ok_t2_san <- save_sankey_png_fallback(IMG_T2_SAN, width = 1800, height = 1000)
+      }
+      
+      if (!ok_t1_map) stop("No se pudo generar Descargas/finagro_tab1_mapa.png para el informe.")
+      if (!ok_t1_ser) stop("No se pudo generar Descargas/finagro_tab1_serie.png para el informe.")
+      if (!ok_t1_top) stop("No se pudo generar Descargas/finagro_tab1_top10.png para el informe.")
+      if (!ok_t2_ser) stop("No se pudo generar Descargas/finagro_tab2_serie.png para el informe.")
+      if (!ok_t2_top) stop("No se pudo generar Descargas/finagro_tab2_toplineas.png para el informe.")
+      if (!ok_t2_san) stop("No se pudo generar Descargas/finagro_tab2_sankey.png para el informe.")
+      
+      # 2) filtros del informe
+      filtros_tbl <- data.frame(
+        Parametro = c(
+          "Pestaña 1 - Año",
+          "Pestaña 1 - Departamento",
+          "Pestaña 1 - Municipio",
+          "Pestaña 1 - Eslabón",
+          "Pestaña 1 - Tipo de productor",
+          "Pestaña 1 - Indicador",
+          "Pestaña 2 - Año",
+          "Pestaña 2 - Departamento",
+          "Pestaña 2 - Municipio",
+          "Pestaña 2 - Eslabón",
+          "Pestaña 2 - Tipo de productor",
+          "Pestaña 2 - Sexo",
+          "Pestañas visualizadas"
+        ),
+        Valor = c(
+          as.character(ano_t1_now),
+          as.character(depto_t1_now),
+          as.character(mpio_t1_now),
+          as.character(eslabon_t1_now),
+          as.character(productor_t1_now),
+          as.character(var_t1_now),
+          as.character(ano_t2_now),
+          as.character(depto_t2_now),
+          as.character(mpio_t2_now),
+          as.character(eslabon_t2_now),
+          as.character(productor_t2_now),
+          as.character(sexo_t2_now),
+          "Sí: pestaña 1 y pestaña 2"
+        ),
+        stringsAsFactors = FALSE
+      )
+      
+      # 3) logo
+      logo_src <- file.path(app_root, "www", "LOGO_PLATEA.png")
+      if (!file.exists(logo_src)) {
+        logo_src2 <- file.path(app_root, "WWW", "LOGO_PLATEA.png")
+        logo_src  <- if (file.exists(logo_src2)) logo_src2 else NA_character_
+      }
+      logo_dst <- file.path(EXPORT_DIR, "LOGO_PLATEA.png")
+      if (!is.na(logo_src) && file.exists(logo_src)) file.copy(logo_src, logo_dst, overwrite = TRUE)
+      logo_tex <- gsub("\\\\", "/", normalizePath(logo_dst, winslash = "/", mustWork = FALSE))
+      
+      # 4) placeholder logo en Rmd si existe
+      td <- tempfile("rmd_finagro_")
+      dir.create(td, recursive = TRUE, showWarnings = FALSE)
+      
+      rmd_to_render <- ruta_rmd
+      rmd_lines <- readLines(ruta_rmd, warn = FALSE, encoding = "UTF-8")
+      if (any(grepl("__LOGO_PLATEA_PATH__", rmd_lines, fixed = TRUE))) {
+        rmd_tmp <- file.path(td, "Informe_descargable_FINAGRO_render.Rmd")
+        rmd_lines <- gsub("__LOGO_PLATEA_PATH__", logo_tex, rmd_lines, fixed = TRUE)
+        writeLines(rmd_lines, rmd_tmp, useBytes = TRUE)
+        rmd_to_render <- rmd_tmp
+      }
+      
+      # 5) render directo al archivo de Shiny
+      rmarkdown::render(
+        input         = rmd_to_render,
+        output_format = "pdf_document",
+        output_file   = basename(file),
+        output_dir    = dirname(file),
+        quiet         = TRUE,
+        params        = list(
+          app_root        = app_root,
+          export_dir      = "Descargas",
+          filtros         = filtros_tbl,
+          
+          img_tab1_mapa   = basename(IMG_T1_MAP),
+          img_tab1_serie  = basename(IMG_T1_SER),
+          img_tab1_top10  = basename(IMG_T1_TOP),
+          
+          img_tab2_serie  = basename(IMG_T2_SER),
+          img_tab2_lineas = basename(IMG_T2_TOP),
+          img_tab2_sankey = basename(IMG_T2_SAN),
+          
+          csv_filtrado    = NULL
+        ),
+        knit_root_dir = app_root,
+        envir         = new.env(parent = globalenv())
+      )
+    },
+    contentType = "application/pdf"
+  )
 }
 
 # =========================================================
 # RUN
 # =========================================================
 shinyApp(ui, server)
-
