@@ -1,33 +1,125 @@
 # app_eta.R
 # =========================================================
-# ETA — Dashboard (app exclusiva)
+# ETA — Dashboard (app exclusiva) - ATLÁNTICO
 # Vista única: Exploración ETA
-# (CORREGIDO)
-# - Fix error inicial: scope_txt() no revienta cuando f_anio_e1 aún no existe
-# - El filtro de MUNICIPIO ahora sí se llena (y se actualiza) según AÑO + DEPTO
-# - Default: Santander (si existe en la base)
-# - Paleta: gama de naranjas
+# BOTONES TIPO ICA/BPAN: PNG + CSV + PDF via Rmarkdown
 # =========================================================
 
-suppressWarnings({
-  library(shiny); library(bslib); library(shinyWidgets)
-  library(leaflet); library(sf); library(dplyr); library(tidyr)
-  library(scales); library(htmltools); library(DT); library(plotly)
-  library(stringi)
-})
+# ---------- Paquetes ----------
+pkgs <- c(
+  "shiny","bslib","shinyWidgets",
+  "leaflet","sf","dplyr","tidyr","scales","htmltools","DT","plotly",
+  "stringi","htmlwidgets","webshot2","rmarkdown","readr","ggplot2"
+)
+
+pkgs <- as.character(pkgs)
+pkgs <- pkgs[!is.na(pkgs) & nzchar(pkgs)]
+stopifnot(is.character(pkgs), length(pkgs) > 0)
+
+suppressWarnings(invisible(lapply(pkgs, function(p) {
+  suppressPackageStartupMessages(require(p, character.only = TRUE))
+})))
 
 options(stringsAsFactors = FALSE)
 sf::sf_use_s2(FALSE)
 options(shiny.maxRequestSize = 100*1024^2)
 
-# ---- Alias seguros (evita choque con plotly::validate) ----
+# ---- Alias seguros ----
 validate <- shiny::validate
 need     <- shiny::need
 `%||%`   <- function(x, y) if (is.null(x) || length(x) == 0) y else x
 
+# ---------- Export / app root ----------
+get_app_root <- function(){
+  normalizePath(shiny::getShinyOption("appDir") %||% getwd(), winslash = "/", mustWork = FALSE)
+}
+
+app_root   <- get_app_root()
+EXPORT_DIR <- file.path(app_root, "Descargas")
+dir.create(EXPORT_DIR, recursive = TRUE, showWarnings = FALSE)
+
+ruta_rmd <- file.path(app_root, "Informe_descargable.Rmd")
+
+PNG_VWIDTH    <- 3200
+PNG_VHEIGHT   <- 2400
+PNG_DELAY_CO  <- 3.0
+PNG_DELAY_MUN <- 4.5
+
+IMG_MAP <- file.path(EXPORT_DIR, "eta_mapa.png")
+IMG_ORI <- file.path(EXPORT_DIR, "eta_origen.png")
+IMG_TOP <- file.path(EXPORT_DIR, "eta_top10.png")
+
+save_widget_png <- function(widget, out_png, vwidth = PNG_VWIDTH, vheight = PNG_VHEIGHT, delay = PNG_DELAY_CO){
+  dir.create(dirname(out_png), recursive = TRUE, showWarnings = FALSE)
+  
+  tmp_dir  <- tempfile("wshot_")
+  dir.create(tmp_dir, recursive = TRUE, showWarnings = FALSE)
+  tmp_html <- file.path(tmp_dir, "widget.html")
+  
+  htmlwidgets::saveWidget(
+    widget,
+    file = tmp_html,
+    selfcontained = TRUE,
+    background = "white"
+  )
+  
+  html_url <- paste0(
+    "file:///",
+    gsub("\\\\", "/", normalizePath(tmp_html, winslash = "/", mustWork = TRUE))
+  )
+  
+  if (file.exists(out_png)) unlink(out_png, force = TRUE)
+  
+  webshot2::webshot(
+    url     = html_url,
+    file    = out_png,
+    vwidth  = vwidth,
+    vheight = vheight,
+    delay   = delay
+  )
+  
+  for (i in 1:15) {
+    if (file.exists(out_png)) {
+      info <- file.info(out_png)
+      if (is.finite(info$size) && info$size > 0) return(TRUE)
+    }
+    Sys.sleep(0.4)
+  }
+  
+  FALSE
+}
+
+save_widget_png_retry <- function(widget, out_png, vwidth, vheight, delay_base){
+  delays <- c(delay_base, delay_base + 2, delay_base + 4, delay_base + 6)
+  for (d in delays){
+    ok <- tryCatch(
+      save_widget_png(widget, out_png, vwidth = vwidth, vheight = vheight, delay = d),
+      error = function(e) {
+        message("Error en save_widget_png con delay=", d, ": ", conditionMessage(e))
+        FALSE
+      }
+    )
+    if (isTRUE(ok)) return(TRUE)
+  }
+  FALSE
+}
+
+zoom_from_bbox <- function(bb){
+  w <- abs(as.numeric(bb["xmax"] - bb["xmin"]))
+  h <- abs(as.numeric(bb["ymax"] - bb["ymin"]))
+  span <- max(w, h)
+  if (!is.finite(span)) return(10)
+  if (span < 0.10) return(15)
+  if (span < 0.20) return(14)
+  if (span < 0.35) return(13)
+  if (span < 0.80) return(12)
+  if (span < 1.50) return(11)
+  if (span < 3.00) return(10)
+  9
+}
+
 # ---------- Rutas ----------
 local_data_dir <- "data"
-app_root     <- tryCatch(normalizePath(getwd(), winslash = "/", mustWork = TRUE), error = function(e) getwd())
 rel_data_dir <- file.path(app_root, "data")
 data_dir <- if (dir.exists(rel_data_dir)) rel_data_dir else local_data_dir
 
@@ -39,6 +131,7 @@ ruta_shp_dptos <- file.path(data_dir, "shp", "MGN_ANM_DPTOS.shp")
 must_exist <- c(eta_path, ruta_pob, ruta_shp_mpios, ruta_shp_dptos)
 miss <- must_exist[!file.exists(must_exist)]
 if (length(miss)) stop("Faltan archivos. data_dir usado: ", data_dir, "\n", paste("-", miss, collapse = "\n"))
+
 check_shp_parts <- function(shp){
   base <- sub("\\.shp$", "", shp)
   req  <- paste0(base, c(".shp",".dbf",".shx",".prj"))
@@ -209,25 +302,21 @@ mun_lookup_eta <- eta %>%
   ) %>%
   dplyr::distinct()
 
-# === Choices en Title Case para filtros (valores = códigos) ===
 dept_choices <- c(
   "Todos",
   stats::setNames(dpt_lookup_eta$COD_DPTO2, dpt_lookup_eta$DEP_N)
 )
 
-# *** Código por defecto para Santander (robusto) ***
-SANTANDER_CODE <- {
-  idx <- which(toupper(dpt_lookup_eta$DEP_N) == "SANTANDER")
+ATLANTICO_CODE <- {
+  idx <- which(toupper(dpt_lookup_eta$DEP_N) %in% c("ATLANTICO","ATLÁNTICO"))
   if (length(idx) > 0) {
     dpt_lookup_eta$COD_DPTO2[idx[1]]
-  } else if (nrow(dpt_lookup_eta) > 0) {
-    dpt_lookup_eta$COD_DPTO2[1]
   } else {
-    "Todos"
+    "08"
   }
 }
 
-# ---------- Paletas/colores (GAMA NARANJA) ----------
+# ---------- Paletas/colores ----------
 MAP_COLORS <- c("#fff4e6","#ffd8a8","#ffa94d","#f76707","#d9480f")
 BAR_COLOR  <- "#f76707"
 BORDER_COL <- "#f57c00"
@@ -245,7 +334,6 @@ compute_breaks_quartiles <- function(values){
   qs <- stats::quantile(pos, probs = c(0.25, 0.50, 0.75, 1), na.rm = TRUE)
   c(0, as.numeric(qs))
 }
-
 format_interval_label <- function(a, b, is_first = TRUE){
   fa <- scales::number(a, accuracy = 1, big.mark = ".", decimal.mark = ",")
   fb <- scales::number(b, accuracy = 1, big.mark = ".", decimal.mark = ",")
@@ -298,8 +386,28 @@ ui <- fluidPage(
       background:#fff;border:1.5px solid var(--border-col);
       border-radius:16px;padding:12px;box-shadow:0 2px 10px rgba(0,0,0,.05);margin-bottom:12px
     }
-    .card-title{font-weight:700;font-size:16px;margin-bottom:8px;color:#111827;display:flex;align-items:center;gap:4px;}
+    .card-title{
+      font-weight:700;font-size:16px;margin-bottom:8px;color:#111827;
+      display:flex;align-items:center;justify-content:space-between;gap:8px;
+    }
     .map-note{margin-top:6px;font-size:12px;color:#6b7280;}
+    .btn-unified{
+      background:#ffffff !important;
+      border:1px solid var(--border-col) !important;
+      color:#374151 !important;
+      font-weight:700 !important;
+      border-radius:12px !important;
+      padding:6px 10px !important;
+      font-size:12px !important;
+    }
+    .footer-actions{
+      margin-top:10px;
+      display:flex;
+      justify-content:flex-end;
+      gap:8px;
+      padding:6px 6px 0;
+      flex-wrap:wrap;
+    }
   ", BORDER_COL, BAR_COLOR)))),
   div(class="wrap",
       h3(""),
@@ -315,7 +423,7 @@ ui <- fluidPage(
                   selectInput(
                     "f_depto_e1", NULL,
                     choices  = dept_choices,
-                    selected = SANTANDER_CODE
+                    selected = ATLANTICO_CODE
                   )
               ),
               div(class="filter",
@@ -337,10 +445,13 @@ ui <- fluidPage(
         column(6,
                div(class="card",
                    div(class="card-title",
-                       span(textOutput("ttl_mapa_e1")),
-                       span(style="margin-left:auto;",
-                            actionLink("btn_reset_e1","← Volver a Santander")
+                       span(textOutput("ttl_mapa_e1", inline = TRUE)),
+                       span(
+                         downloadButton("dl_png_mapa_eta","Descargar PNG", class="btn-unified")
                        )
+                   ),
+                   div(style="display:flex; gap:10px; align-items:center; margin-bottom:8px;",
+                       actionButton("btn_reset_e1","← Volver a Atlántico", class="btn btn-light")
                    ),
                    leafletOutput("map_eta_e1", height = 660),
                    div(class = "map-note", textOutput("nota_mapa_e1"))
@@ -350,7 +461,10 @@ ui <- fluidPage(
                fluidRow(
                  column(12,
                         div(class="card",
-                            div(class="card-title", textOutput("ttl_origen_e1")),
+                            div(class="card-title",
+                                span(textOutput("ttl_origen_e1", inline = TRUE)),
+                                span(downloadButton("dl_png_origen_eta","Descargar PNG", class="btn-unified"))
+                            ),
                             plotlyOutput("plot_origen_e1", height = 315)
                         )
                  )
@@ -358,12 +472,20 @@ ui <- fluidPage(
                fluidRow(
                  column(12,
                         div(class="card",
-                            div(class="card-title", textOutput("ttl_top_e1")),
+                            div(class="card-title",
+                                span(textOutput("ttl_top_e1", inline = TRUE)),
+                                span(downloadButton("dl_png_top_eta","Descargar PNG", class="btn-unified"))
+                            ),
                             plotlyOutput("top_mpios_e1", height = 318)
                         )
                  )
                )
         )
+      ),
+      div(
+        class = "footer-actions",
+        downloadButton("dl_csv_expl_eta","Descargar CSV", class="btn-unified"),
+        downloadButton("dl_reporte_pdf_eta","Descargar informe (PDF)", class="btn-unified")
       )
   )
 )
@@ -373,18 +495,15 @@ ui <- fluidPage(
 # =========================================================
 server <- function(input, output, session){
   
-  # ---------- Etiquetas / storytelling ----------
   indic_lbl_e1 <- reactive({
     if (identical(input$f_indic_e1, "incid")) "Incidencia (x100k)" else "Enfermos"
   })
   
-  # ====== AÑO (renderUI) ======
   output$anio_e1_ui <- renderUI({
     yrs <- sort(unique(eta$ano))
     selectInput("f_anio_e1", NULL, choices = yrs, selected = max(yrs, na.rm = TRUE))
   })
   
-  # ====== scope_txt (CORREGIDO: no revienta si aún no existe f_anio_e1) ======
   scope_txt <- reactive({
     dep_code <- input$f_depto_e1 %||% "Todos"
     mun_code <- input$f_mpio_e1  %||% "Todos"
@@ -400,9 +519,7 @@ server <- function(input, output, session){
     dep_nom
   })
   
-  # ====== Actualizar MUNICIPIOS: ahora depende de AÑO + DEPTO (y corre desde el inicio) ======
   observeEvent(list(input$f_anio_e1, input$f_depto_e1), {
-    # si aún no existe el año, no hagas nada
     if (is.null(input$f_anio_e1) || length(input$f_anio_e1) == 0) return()
     
     dep <- input$f_depto_e1 %||% "Todos"
@@ -412,14 +529,12 @@ server <- function(input, output, session){
       return()
     }
     
-    # municipios disponibles en ese AÑO+DEPTO (mejor UX)
     mm <- eta %>%
       dplyr::filter(ano == input$f_anio_e1, COD_DPTO2 == dep) %>%
       dplyr::distinct(COD_MUN5, MUN_N) %>%
       dplyr::mutate(MUN_N_TC = title_case_es(MUN_N)) %>%
       dplyr::arrange(MUN_N_TC)
     
-    # fallback si por alguna razón no hay (no debería)
     if (nrow(mm) == 0) {
       mm <- mun_lookup_eta %>%
         dplyr::filter(COD_DPTO2 == dep) %>%
@@ -434,12 +549,10 @@ server <- function(input, output, session){
     )
   }, ignoreInit = FALSE)
   
-  # ====== Nivel de visualización ======
   nivel_e1 <- reactive({
     if (is.null(input$f_depto_e1) || input$f_depto_e1 == "Todos") "deptos" else "mpios"
   })
   
-  # ====== Base filtrada ======
   base_e1 <- reactive({
     req(input$f_anio_e1)
     df <- eta %>% dplyr::filter(ano == input$f_anio_e1)
@@ -490,7 +603,6 @@ server <- function(input, output, session){
     }
   })
   
-  # ====== Títulos ======
   output$ttl_mapa_e1 <- renderText({
     amb <- scope_txt()
     ind <- tolower(indic_lbl_e1())
@@ -505,9 +617,8 @@ server <- function(input, output, session){
     paste0("¿Qué municipios tienen mayor cantidad de ", tolower(indic_lbl_e1()), "?")
   })
   
-  # ====== Origen (ENFERMOS) ======
-  output$plot_origen_e1 <- renderPlotly({
-    if (!length(origen_cols)) return(NULL)
+  build_origen_plotly_eta <- function(){
+    validate(need(length(origen_cols) > 0, "No hay variables de origen disponibles."))
     
     d <- base_e1() %>%
       dplyr::select(dplyr::all_of(origen_cols), TOTAL_ENF) %>%
@@ -543,15 +654,21 @@ server <- function(input, output, session){
       layout(
         xaxis  = list(title = "Número de enfermos"),
         yaxis  = list(title = ""),
-        margin = list(l=10,r=40,b=40,t=10)
+        margin = list(l=10,r=40,b=40,t=10),
+        paper_bgcolor="#ffffff",
+        plot_bgcolor ="#ffffff"
       )
+  }
+  
+  output$plot_origen_e1 <- renderPlotly({
+    if (!length(origen_cols)) return(NULL)
+    build_origen_plotly_eta()
   })
   
-  # ====== Mapa ======
   output$map_eta_e1 <- renderLeaflet({
     leaflet::leaflet() %>%
       leaflet::addProviderTiles(leaflet::providers$CartoDB.Positron) %>%
-      leaflet::setView(lng=-74.3, lat=4.6, zoom=5)
+      leaflet::setView(lng = -74.9, lat = 10.8, zoom = 8)
   })
   
   output$nota_mapa_e1 <- renderText({
@@ -561,6 +678,27 @@ server <- function(input, output, session){
     } else {
       "Nota: El mapa clasifica los valores del indicador en cuartiles (cuatro grupos con igual número de observaciones)."
     }
+  })
+  
+  bbox_actual_eta <- reactive({
+    if (nivel_e1() == "deptos") {
+      if (!is.null(input$f_depto_e1) && input$f_depto_e1 != "Todos") {
+        g <- dptos_sf %>% dplyr::filter(COD_DPTO2 == input$f_depto_e1)
+        if (nrow(g) > 0) return(sf::st_bbox(g))
+      }
+      return(sf::st_bbox(dptos_sf))
+    }
+    
+    sel_dep <- input$f_depto_e1
+    req(!is.na(sel_dep), nzchar(sel_dep))
+    
+    if (!is.null(input$f_mpio_e1) && input$f_mpio_e1 != "Todos") {
+      g <- mpios_sf %>% dplyr::filter(COD_MUN5 == input$f_mpio_e1)
+      if (nrow(g) > 0) return(sf::st_bbox(g))
+    }
+    
+    shp <- mpios_sf %>% dplyr::filter(COD_DPTO2 == sel_dep)
+    sf::st_bbox(shp)
   })
   
   observe({
@@ -595,6 +733,7 @@ server <- function(input, output, session){
       leaflet::leafletProxy("map_eta_e1", data=shp) %>%
         leaflet::clearShapes() %>%
         leaflet::clearControls() %>%
+        leaflet::addProviderTiles(leaflet::providers$CartoDB.Positron) %>%
         leaflet::addPolygons(
           layerId  = ~COD_DPTO2,
           fillColor= ~pal(valor),
@@ -634,6 +773,7 @@ server <- function(input, output, session){
       leaflet::leafletProxy("map_eta_e1", data=shp) %>%
         leaflet::clearShapes() %>%
         leaflet::clearControls() %>%
+        leaflet::addProviderTiles(leaflet::providers$CartoDB.Positron) %>%
         leaflet::addPolygons(
           layerId  = ~COD_MUN5,
           fillColor= ~pal(valor),
@@ -652,7 +792,6 @@ server <- function(input, output, session){
     }
   })
   
-  # ====== Click en mapa: seleccionar depto/mun ======
   observeEvent(input$map_eta_e1_shape_click, {
     click <- input$map_eta_e1_shape_click
     req(click$id)
@@ -666,14 +805,12 @@ server <- function(input, output, session){
     }
   }, ignoreInit = TRUE)
   
-  # ====== Reset → volver a Santander ======
   observeEvent(input$btn_reset_e1, {
-    updateSelectInput(session, "f_depto_e1", selected = SANTANDER_CODE)
+    updateSelectInput(session, "f_depto_e1", selected = ATLANTICO_CODE)
     updateSelectInput(session, "f_mpio_e1",  selected = "Todos")
   })
   
-  # ====== Top municipios ======
-  output$top_mpios_e1 <- renderPlotly({
+  build_top_plotly_eta <- function(){
     req(input$f_anio_e1)
     
     titulo <- indic_lbl_e1()
@@ -708,9 +845,277 @@ server <- function(input, output, session){
       layout(
         xaxis  = list(title = axis_title),
         yaxis  = list(title = ""),
-        margin = list(l=10,r=40,b=40,t=10)
+        margin = list(l=10,r=40,b=40,t=10),
+        paper_bgcolor="#ffffff",
+        plot_bgcolor ="#ffffff"
       )
+  }
+  
+  output$top_mpios_e1 <- renderPlotly({
+    build_top_plotly_eta()
   })
+  
+  map_widget_export_eta <- reactive({
+    req(input$f_anio_e1)
+    
+    titulo <- indic_lbl_e1()
+    fmt_val <- function(x){
+      if (identical(input$f_indic_e1, "incid")) {
+        scales::number(x, big.mark=".", decimal.mark=",", accuracy=0.1)
+      } else {
+        scales::number(x, big.mark=".", decimal.mark=",", accuracy=1)
+      }
+    }
+    
+    bb  <- bbox_actual_eta()
+    lng <- mean(c(as.numeric(bb["xmin"]), as.numeric(bb["xmax"])))
+    lat <- mean(c(as.numeric(bb["ymin"]), as.numeric(bb["ymax"])))
+    z   <- zoom_from_bbox(bb)
+    
+    m <- leaflet::leaflet(
+      options = leaflet::leafletOptions(
+        zoomControl = TRUE,
+        zoomSnap = 0.25
+      )
+    ) %>%
+      leaflet::addProviderTiles(
+        leaflet::providers$CartoDB.Positron,
+        options = leaflet::providerTileOptions(crossOrigin = TRUE)
+      )
+    
+    if (nivel_e1() == "deptos") {
+      shp <- dptos_sf %>%
+        dplyr::left_join(agg_depto_e1(), by="COD_DPTO2") %>%
+        dplyr::left_join(dpt_lookup_eta, by="COD_DPTO2") %>%
+        dplyr::mutate(
+          valor = tidyr::replace_na(valor, 0),
+          DEP_N = dplyr::coalesce(DEP_N, DEPARTAMENTO_N, COD_DPTO2),
+          etq   = paste0("<b>", DEP_N, "</b><br>", titulo, ": ", fmt_val(valor))
+        )
+      
+      vals <- shp$valor
+      brks <- compute_breaks_quartiles(vals)
+      pal  <- leaflet::colorBin(MAP_COLORS, domain = vals, bins = brks, na.color = "#f0f0f0")
+      labels_legend <- build_interval_labels(brks)
+      mids          <- (brks[-length(brks)] + brks[-1]) / 2
+      cols_legend   <- pal(mids)
+      
+      m <- m %>%
+        leaflet::addPolygons(
+          data = shp,
+          layerId  = ~COD_DPTO2,
+          fillColor= ~pal(valor),
+          color    = BORDER_COL, weight = 0.7, fillOpacity = 0.9
+        ) %>%
+        leaflet::addLegend(
+          "bottomright",
+          colors = cols_legend,
+          labels = labels_legend,
+          opacity = 0.9,
+          title   = titulo
+        )
+    } else {
+      sel_dep <- input$f_depto_e1
+      req(!is.na(sel_dep), nzchar(sel_dep))
+      
+      shp <- mpios_sf %>%
+        dplyr::filter(COD_DPTO2 == sel_dep) %>%
+        dplyr::left_join(agg_mpio_e1() %>% dplyr::select(COD_MUN5, valor), by="COD_MUN5") %>%
+        dplyr::left_join(mun_lookup_eta %>% dplyr::select(COD_MUN5, MUN_N_TC), by="COD_MUN5") %>%
+        dplyr::mutate(
+          valor = tidyr::replace_na(valor, 0),
+          MUN_N_TC = dplyr::coalesce(MUN_N_TC, MUNICIPIO_N, COD_MUN5),
+          etq   = paste0("<b>", MUN_N_TC, "</b><br>", titulo, ": ", fmt_val(valor))
+        )
+      
+      vals <- shp$valor
+      brks <- compute_breaks_quartiles(vals)
+      pal  <- leaflet::colorBin(MAP_COLORS, domain = vals, bins = brks, na.color = "#f0f0f0")
+      labels_legend <- build_interval_labels(brks)
+      mids          <- (brks[-length(brks)] + brks[-1]) / 2
+      cols_legend   <- pal(mids)
+      
+      m <- m %>%
+        leaflet::addPolygons(
+          data = shp,
+          layerId  = ~COD_MUN5,
+          fillColor= ~pal(valor),
+          color    = BORDER_COL, weight = 0.4, fillOpacity = 0.9
+        ) %>%
+        leaflet::addLegend(
+          "bottomright",
+          colors = cols_legend,
+          labels = labels_legend,
+          opacity = 0.9,
+          title   = titulo
+        )
+    }
+    
+    m %>%
+      leaflet::setView(lng = lng, lat = lat, zoom = z) %>%
+      htmlwidgets::onRender("
+        function(el, x) {
+          this.zoomControl.setPosition('topright');
+        }
+      ")
+  })
+  
+  tabla_export_eta <- reactive({
+    req(input$f_anio_e1)
+    out <- base_e1() %>%
+      dplyr::transmute(
+        anio         = ano,
+        departamento = DEP_N,
+        municipio    = MUN_N,
+        cod_dpto     = COD_DPTO2,
+        cod_mpio     = COD_MUN5,
+        total_enf    = TOTAL_ENF,
+        total_exp    = TOTAL_EXP,
+        total_hom    = TOTAL_HOM,
+        total_muj    = TOTAL_MUJ,
+        total_nr     = TOTAL_NR
+      )
+    
+    if (length(origen_cols) > 0) {
+      extra <- base_e1() %>% dplyr::select(dplyr::all_of(origen_cols))
+      out <- dplyr::bind_cols(out, extra)
+    }
+    out
+  })
+  
+  output$dl_png_mapa_eta <- downloadHandler(
+    filename = function(){
+      dep_tag <- if (is.null(input$f_depto_e1) || input$f_depto_e1 == "Todos") "Colombia" else "Atlantico"
+      mun_tag <- if (is.null(input$f_mpio_e1) || input$f_mpio_e1 == "Todos") "Todos" else input$f_mpio_e1
+      paste0("ETA_mapa_", dep_tag, "_", mun_tag, "_", input$f_anio_e1 %||% "NA", "_", Sys.Date(), ".png")
+    },
+    content = function(file){
+      dly <- if (!is.null(input$f_mpio_e1) && input$f_mpio_e1 != "Todos") PNG_DELAY_MUN else PNG_DELAY_CO
+      ok <- save_widget_png_retry(map_widget_export_eta(), file, vwidth = PNG_VWIDTH, vheight = PNG_VHEIGHT, delay_base = dly)
+      if (!ok) stop("No se pudo generar el PNG del mapa.")
+    }
+  )
+  
+  output$dl_png_origen_eta <- downloadHandler(
+    filename = function(){
+      paste0("ETA_origen_Atlantico_", Sys.Date(), ".png")
+    },
+    content = function(file){
+      ok <- save_widget_png_retry(build_origen_plotly_eta(), file, vwidth = 1800, vheight = 900, delay_base = 0.9)
+      if (!ok) stop("No se pudo generar el PNG del gráfico de origen.")
+    }
+  )
+  
+  output$dl_png_top_eta <- downloadHandler(
+    filename = function(){
+      paste0("ETA_top_municipios_Atlantico_", input$f_anio_e1 %||% "NA", "_", Sys.Date(), ".png")
+    },
+    content = function(file){
+      ok <- save_widget_png_retry(build_top_plotly_eta(), file, vwidth = 1800, vheight = 1000, delay_base = 0.9)
+      if (!ok) stop("No se pudo generar el PNG del Top municipios.")
+    }
+  )
+  
+  output$dl_csv_expl_eta <- downloadHandler(
+    filename = function(){
+      dep_tag <- if (is.null(input$f_depto_e1) || input$f_depto_e1 == "Todos") "Colombia" else "Atlantico"
+      mun_tag <- if (is.null(input$f_mpio_e1) || input$f_mpio_e1 == "Todos") "Todos" else input$f_mpio_e1
+      paste0("ETA_base_filtrada_", dep_tag, "_", mun_tag, "_", input$f_anio_e1 %||% "NA", "_", Sys.Date(), ".csv")
+    },
+    content = function(file){
+      readr::write_csv(tabla_export_eta(), file, na = "")
+    }
+  )
+  
+  output$dl_reporte_pdf_eta <- downloadHandler(
+    filename = function(){
+      dep_tag <- if (is.null(input$f_depto_e1) || input$f_depto_e1 == "Todos") "Colombia" else "Atlantico"
+      mun_tag <- if (is.null(input$f_mpio_e1) || input$f_mpio_e1 == "Todos") "Todos" else input$f_mpio_e1
+      paste0("Informe_descargable_ETA_", dep_tag, "_", mun_tag, "_", input$f_anio_e1 %||% "NA", "_", Sys.Date(), ".pdf")
+    },
+    content = function(file){
+      
+      if (!file.exists(ruta_rmd)) stop("No encuentro Informe_descargable.Rmd en la raíz del proyecto.")
+      
+      anio_now <- input$f_anio_e1
+      dep_now_code <- input$f_depto_e1 %||% ATLANTICO_CODE
+      mun_now_code <- input$f_mpio_e1 %||% "Todos"
+      
+      dep_now <- if (is.null(dep_now_code) || dep_now_code == "Todos") {
+        "Todos"
+      } else {
+        dpt_lookup_eta$DEP_N[dpt_lookup_eta$COD_DPTO2 == dep_now_code][1] %||% dep_now_code
+      }
+      
+      mun_now <- if (is.null(mun_now_code) || mun_now_code == "Todos") {
+        "Todos"
+      } else {
+        mun_lookup_eta$MUN_N_TC[mun_lookup_eta$COD_MUN5 == mun_now_code][1] %||% mun_now_code
+      }
+      
+      dly_map <- if (!is.null(mun_now_code) && mun_now_code != "Todos") PNG_DELAY_MUN else PNG_DELAY_CO
+      
+      ok_map <- save_widget_png_retry(map_widget_export_eta(), IMG_MAP, vwidth = PNG_VWIDTH, vheight = PNG_VHEIGHT, delay_base = dly_map)
+      ok_ori <- save_widget_png_retry(build_origen_plotly_eta(), IMG_ORI, vwidth = 1800, vheight = 900, delay_base = 0.9)
+      ok_top <- save_widget_png_retry(build_top_plotly_eta(), IMG_TOP, vwidth = 1800, vheight = 1000, delay_base = 0.9)
+      
+      if (!ok_map) stop("No se pudo generar Descargas/eta_mapa.png para el informe.")
+      if (!ok_ori) stop("No se pudo generar Descargas/eta_origen.png para el informe.")
+      if (!ok_top) stop("No se pudo generar Descargas/eta_top10.png para el informe.")
+      
+      filtros_tbl <- data.frame(
+        Parametro = c("Año", "Departamento", "Municipio", "Indicador"),
+        Valor     = c(as.character(anio_now), dep_now, mun_now, indic_lbl_e1()),
+        stringsAsFactors = FALSE
+      )
+      
+      logo_src <- file.path(app_root, "www", "LOGO_PLATEA.png")
+      if (!file.exists(logo_src)) {
+        logo_src2 <- file.path(app_root, "WWW", "LOGO_PLATEA.png")
+        logo_src  <- if (file.exists(logo_src2)) logo_src2 else NA_character_
+      }
+      logo_dst <- file.path(EXPORT_DIR, "LOGO_PLATEA.png")
+      if (!is.na(logo_src) && file.exists(logo_src)) file.copy(logo_src, logo_dst, overwrite = TRUE)
+      logo_tex <- gsub("\\\\", "/", normalizePath(logo_dst, winslash = "/", mustWork = FALSE))
+      
+      td <- tempfile("rmd_eta_")
+      dir.create(td, recursive = TRUE, showWarnings = FALSE)
+      
+      rmd_to_render <- ruta_rmd
+      rmd_lines <- readLines(ruta_rmd, warn = FALSE, encoding = "UTF-8")
+      if (any(grepl("__LOGO_PLATEA_PATH__", rmd_lines, fixed = TRUE))) {
+        rmd_tmp <- file.path(td, "Informe_descargable_ETA_render.Rmd")
+        rmd_lines <- gsub("__LOGO_PLATEA_PATH__", logo_tex, rmd_lines, fixed = TRUE)
+        writeLines(rmd_lines, rmd_tmp, useBytes = TRUE)
+        rmd_to_render <- rmd_tmp
+      }
+      
+      rmarkdown::render(
+        input         = rmd_to_render,
+        output_format = "pdf_document",
+        output_file   = basename(file),
+        output_dir    = dirname(file),
+        quiet         = TRUE,
+        params        = list(
+          app_root     = app_root,
+          export_dir   = "Descargas",
+          filtros      = filtros_tbl,
+          anio         = anio_now,
+          especie      = "ETA",
+          departamento = dep_now,
+          municipio    = mun_now,
+          ind          = paste0("eta_", input$f_indic_e1 %||% "total_enf"),
+          img_map      = basename(IMG_MAP),
+          img_serie    = basename(IMG_ORI),
+          img_ranking  = basename(IMG_TOP),
+          csv_filtrado = NULL
+        ),
+        knit_root_dir = app_root,
+        envir         = new.env(parent = globalenv())
+      )
+    },
+    contentType = "application/pdf"
+  )
 }
 
 shinyApp(ui, server)

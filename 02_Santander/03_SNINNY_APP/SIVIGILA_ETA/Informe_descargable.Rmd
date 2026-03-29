@@ -1,0 +1,167 @@
+---
+title: "Enfermedades Transmitidas por Alimentos (ETA)"
+subtitle: "PLATEA"
+header-includes:
+  - \usepackage{graphicx}
+  - \usepackage{float}
+  - \usepackage{placeins}
+  - \usepackage{fancyhdr}
+  - \usepackage{array}
+  - \usepackage{longtable}
+  - \usepackage{booktabs}
+  - \usepackage{caption}
+  - \pagestyle{fancy}
+  - \setlength{\headheight}{40pt}
+  - \fancyfoot[C]{\thepage}
+  - \renewcommand{\headrulewidth}{0.6pt}
+  - \renewcommand{\footrulewidth}{0.6pt}
+  - \fancyhead[L]{\includegraphics[height=1.4cm]{Descargas/LOGO_PLATEA.png}}
+  - \raggedbottom
+  - \sloppy
+output:
+  pdf_document:
+    toc: true
+    number_sections: true
+    latex_engine: xelatex
+geometry: margin=1in
+
+params:
+  app_root: !r getwd()
+  export_dir: "Descargas"
+  filtros: NULL
+
+  anio: NULL
+  especie: "ETA"
+  departamento: NULL
+  municipio: NULL
+  ind: NULL
+
+  img_map: NULL
+  img_serie: NULL
+  img_ranking: NULL
+
+  csv_filtrado: NULL
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center",
+  out.width = "95%",
+  dpi = 150
+)
+
+`%||%` <- function(x, y) if (is.null(x) || length(x) == 0) y else x
+
+app_root   <- params$app_root %||% getwd()
+export_dir <- params$export_dir %||% "Descargas"
+
+safe_path <- function(fname){
+  if (is.null(fname) || is.na(fname) || !nzchar(fname)) return(NA_character_)
+  p <- file.path(export_dir, fname)
+  if (!file.exists(file.path(app_root, p))) return(NA_character_)
+  p
+}
+
+safe_include <- function(p, txt = "No se encontró la imagen correspondiente."){
+  if (is.na(p) || !nzchar(p) || !file.exists(file.path(app_root, p))) {
+    cat(txt, "\n")
+  } else {
+    knitr::include_graphics(p)
+  }
+}
+
+img_use <- list(
+  map     = safe_path(params$img_map),
+  serie   = safe_path(params$img_serie),
+  ranking = safe_path(params$img_ranking)
+)
+
+mk_filtros_tbl <- function(x){
+  if (!is.null(x) && is.data.frame(x) && all(c("Parametro","Valor") %in% names(x))) {
+    x[] <- lapply(x, function(v){
+      v <- as.character(v)
+      v[is.na(v)] <- ""
+      v
+    })
+    return(x)
+  }
+
+  data.frame(
+    Parametro = c("Filtro", "Valor"),
+    Valor     = c("Sin información", "Sin información"),
+    stringsAsFactors = FALSE
+  )
+}
+
+filtros_tbl <- mk_filtros_tbl(params$filtros)
+
+indicador_txt <- if (is.null(params$ind) || is.na(params$ind) || !nzchar(params$ind)) {
+  "Total de enfermos"
+} else if (grepl("incid", params$ind, ignore.case = TRUE)) {
+  "Incidencia (casos por 100.000 habitantes)"
+} else {
+  "Total de enfermos"
+}
+```
+
+# Resumen del reporte
+
+Este informe analiza las Enfermedades Transmitidas por Alimentos (ETA) como un determinante crítico del desempeño del sistema agroalimentario en el territorio. La ocurrencia de ETA refleja fallas en la inocuidad a lo largo de la cadena —desde la producción primaria y la transformación, hasta la comercialización y el consumo— y tiene efectos directos sobre la salud de la población, la confianza en los alimentos y la estabilidad del abastecimiento. En consecuencia, este reporte se utiliza como insumo para anticipar riesgos sanitarios y orientar acciones de vigilancia, prevención y control en el sistema agroalimentario.
+
+## Objetivo
+
+Identificar patrones espaciales y descriptivos de las Enfermedades Transmitidas por Alimentos para apoyar la toma de decisiones en el sistema agroalimentario:
+
+1. Inocuidad y salud pública: reconocer territorios con mayor carga de enfermos asociados al consumo de alimentos.
+
+2. Gestión del riesgo: identificar focos territoriales donde se requieren acciones prioritarias de inspección, vigilancia y control sanitario.
+
+3. Coordinación institucional: orientar intervenciones preventivas en los eslabones de producción, comercialización y consumo para reducir la ocurrencia de ETA.
+
+
+# Resultados
+
+## 1. Filtros aplicados
+
+```{r}
+knitr::kable(
+  filtros_tbl,
+  format = "latex",
+  booktabs = TRUE,
+  longtable = FALSE,
+  align = c("p{0.38\\textwidth}", "p{0.52\\textwidth}"),
+  escape = TRUE,
+  caption = "Filtros aplicados en la app al momento de generar el informe"
+)
+```
+
+### ¿En qué territorios se concentra el indicador seleccionado?
+
+Este indicador sirve para ubicar territorialmente dónde se concentran los casos de Enfermedades Transmitidas por Alimentos en el periodo seleccionado y, con ello, identificar municipios con mayor exposición a riesgos sanitarios asociados al sistema agroalimentario. En un sistema agroalimentario, un municipio que presenta una alta concentración de enfermos suele enfrentar fallas en las condiciones de inocuidad, relacionadas con prácticas inadecuadas de manipulación, almacenamiento o comercialización de alimentos. En consecuencia, el mapa no se interpreta solo como “dónde hay más casos”, sino como una herramienta para focalizar vigilancia sanitaria, controles y asistencia técnica en los territorios donde el sistema puede estar operando con mayores riesgos para la salud de los consumidores.
+
+**Indicador reportado:** `r indicador_txt`
+
+```{r}
+safe_include(img_use$map, "No se encontró la imagen del mapa territorial.")
+```
+
+### ¿Cuál fue la principal fuente de origen de las ETA?
+
+Este indicador sirve para identificar la fuente predominante asociada a los casos de ETA, permitiendo establecer el vínculo directo entre la enfermedad y el consumo de alimentos. Desde la perspectiva del sistema agroalimentario, este resultado es clave porque evidencia puntos críticos de la cadena donde se pierde el control sanitario, ya sea en la producción primaria, la transformación o la preparación de alimentos. La identificación de la fuente permite orientar medidas de prevención, regulación y educación alimentaria para reducir la probabilidad de nuevos eventos sanitarios sin afectar la continuidad del abastecimiento.
+
+```{r}
+safe_include(img_use$serie, "No se encontró la imagen del gráfico de origen.")
+```
+
+### ¿Qué municipios registran los valores más altos del indicador?
+
+Este indicador sirve para focalizar prioridades dentro del territorio, especialmente cuando los recursos de seguimiento e intervención son limitados. Al identificar los municipios con mayor número de enfermos por ETA, el ranking ayuda a definir dónde conviene intensificar las acciones de inspección, vigilancia y control sanitario. En un enfoque agroalimentario, el valor del Top-10 es operativo: permite pasar de un diagnóstico general a una lista concreta de territorios donde es más probable que persistan fallas de inocuidad, afectando la salud pública y la confianza en los alimentos disponibles.
+
+**Indicador reportado:** `r indicador_txt`
+
+```{r}
+safe_include(img_use$ranking, "No se encontró la imagen del ranking municipal.")
+```

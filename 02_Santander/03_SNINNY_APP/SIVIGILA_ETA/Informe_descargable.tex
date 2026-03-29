@@ -1,0 +1,211 @@
+% Options for packages loaded elsewhere
+\PassOptionsToPackage{unicode}{hyperref}
+\PassOptionsToPackage{hyphens}{url}
+%
+\documentclass[
+]{article}
+\usepackage{amsmath,amssymb}
+\usepackage{iftex}
+\ifPDFTeX
+  \usepackage[T1]{fontenc}
+  \usepackage[utf8]{inputenc}
+  \usepackage{textcomp} % provide euro and other symbols
+\else % if luatex or xetex
+  \usepackage{unicode-math} % this also loads fontspec
+  \defaultfontfeatures{Scale=MatchLowercase}
+  \defaultfontfeatures[\rmfamily]{Ligatures=TeX,Scale=1}
+\fi
+\usepackage{lmodern}
+\ifPDFTeX\else
+  % xetex/luatex font selection
+\fi
+% Use upquote if available, for straight quotes in verbatim environments
+\IfFileExists{upquote.sty}{\usepackage{upquote}}{}
+\IfFileExists{microtype.sty}{% use microtype if available
+  \usepackage[]{microtype}
+  \UseMicrotypeSet[protrusion]{basicmath} % disable protrusion for tt fonts
+}{}
+\makeatletter
+\@ifundefined{KOMAClassName}{% if non-KOMA class
+  \IfFileExists{parskip.sty}{%
+    \usepackage{parskip}
+  }{% else
+    \setlength{\parindent}{0pt}
+    \setlength{\parskip}{6pt plus 2pt minus 1pt}}
+}{% if KOMA class
+  \KOMAoptions{parskip=half}}
+\makeatother
+\usepackage{xcolor}
+\usepackage[margin=1in]{geometry}
+\usepackage{graphicx}
+\makeatletter
+\def\maxwidth{\ifdim\Gin@nat@width>\linewidth\linewidth\else\Gin@nat@width\fi}
+\def\maxheight{\ifdim\Gin@nat@height>\textheight\textheight\else\Gin@nat@height\fi}
+\makeatother
+% Scale images if necessary, so that they will not overflow the page
+% margins by default, and it is still possible to overwrite the defaults
+% using explicit options in \includegraphics[width, height, ...]{}
+\setkeys{Gin}{width=\maxwidth,height=\maxheight,keepaspectratio}
+% Set default figure placement to htbp
+\makeatletter
+\def\fps@figure{htbp}
+\makeatother
+\setlength{\emergencystretch}{3em} % prevent overfull lines
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+\setcounter{secnumdepth}{5}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{placeins}
+\usepackage{fancyhdr}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{booktabs}
+\usepackage{caption}
+\pagestyle{fancy}
+\setlength{\headheight}{40pt}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.6pt}
+\renewcommand{\footrulewidth}{0.6pt}
+\fancyhead[L]{\includegraphics[height=1.4cm]{Descargas/LOGO_PLATEA.png}}
+\raggedbottom
+\sloppy
+\ifLuaTeX
+  \usepackage{selnolig}  % disable illegal ligatures
+\fi
+\usepackage{bookmark}
+\IfFileExists{xurl.sty}{\usepackage{xurl}}{} % add URL line breaks if available
+\urlstyle{same}
+\hypersetup{
+  pdftitle={Enfermedades Transmitidas por Alimentos (ETA)},
+  hidelinks,
+  pdfcreator={LaTeX via pandoc}}
+
+\title{Enfermedades Transmitidas por Alimentos (ETA)}
+\usepackage{etoolbox}
+\makeatletter
+\providecommand{\subtitle}[1]{% add subtitle to \maketitle
+  \apptocmd{\@title}{\par {\large #1 \par}}{}{}
+}
+\makeatother
+\subtitle{PLATEA}
+\author{}
+\date{\vspace{-2.5em}}
+
+\begin{document}
+\maketitle
+
+{
+\setcounter{tocdepth}{2}
+\tableofcontents
+}
+\section{Resumen del reporte}\label{resumen-del-reporte}
+
+Este informe analiza las Enfermedades Transmitidas por Alimentos (ETA)
+como un determinante crítico del desempeño del sistema agroalimentario
+en el territorio. La ocurrencia de ETA refleja fallas en la inocuidad a
+lo largo de la cadena ---desde la producción primaria y la
+transformación, hasta la comercialización y el consumo--- y tiene
+efectos directos sobre la salud de la población, la confianza en los
+alimentos y la estabilidad del abastecimiento. En consecuencia, este
+reporte se utiliza como insumo para anticipar riesgos sanitarios y
+orientar acciones de vigilancia, prevención y control en el sistema
+agroalimentario.
+
+\subsection{Objetivo}\label{objetivo}
+
+Identificar patrones espaciales y descriptivos de las Enfermedades
+Transmitidas por Alimentos para apoyar la toma de decisiones en el
+sistema agroalimentario:
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\item
+  Inocuidad y salud pública: reconocer territorios con mayor carga de
+  enfermos asociados al consumo de alimentos.
+\item
+  Gestión del riesgo: identificar focos territoriales donde se requieren
+  acciones prioritarias de inspección, vigilancia y control sanitario.
+\item
+  Coordinación institucional: orientar intervenciones preventivas en los
+  eslabones de producción, comercialización y consumo para reducir la
+  ocurrencia de ETA.
+\end{enumerate}
+
+\section{Resultados}\label{resultados}
+
+\subsection{1. Filtros aplicados}\label{filtros-aplicados}
+
+\begin{table}
+
+\caption{\label{tab:unnamed-chunk-1}Filtros aplicados en la app al momento de generar el informe}
+\centering
+\begin{tabular}[t]{p{0.38\textwidth}p{0.52\textwidth}}
+\toprule
+Parametro & Valor\\
+\midrule
+Filtro & Sin información\\
+Valor & Sin información\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{¿En qué territorios se concentra el indicador
+seleccionado?}\label{en-quuxe9-territorios-se-concentra-el-indicador-seleccionado}
+
+Este indicador sirve para ubicar territorialmente dónde se concentran
+los casos de Enfermedades Transmitidas por Alimentos en el periodo
+seleccionado y, con ello, identificar municipios con mayor exposición a
+riesgos sanitarios asociados al sistema agroalimentario. En un sistema
+agroalimentario, un municipio que presenta una alta concentración de
+enfermos suele enfrentar fallas en las condiciones de inocuidad,
+relacionadas con prácticas inadecuadas de manipulación, almacenamiento o
+comercialización de alimentos. En consecuencia, el mapa no se interpreta
+solo como ``dónde hay más casos'', sino como una herramienta para
+focalizar vigilancia sanitaria, controles y asistencia técnica en los
+territorios donde el sistema puede estar operando con mayores riesgos
+para la salud de los consumidores.
+
+\textbf{Indicador reportado:} Total de enfermos
+
+\begin{verbatim}
+## No se encontró la imagen del mapa territorial.
+\end{verbatim}
+
+\subsubsection{¿Cuál fue la principal fuente de origen de las
+ETA?}\label{cuuxe1l-fue-la-principal-fuente-de-origen-de-las-eta}
+
+Este indicador sirve para identificar la fuente predominante asociada a
+los casos de ETA, permitiendo establecer el vínculo directo entre la
+enfermedad y el consumo de alimentos. Desde la perspectiva del sistema
+agroalimentario, este resultado es clave porque evidencia puntos
+críticos de la cadena donde se pierde el control sanitario, ya sea en la
+producción primaria, la transformación o la preparación de alimentos. La
+identificación de la fuente permite orientar medidas de prevención,
+regulación y educación alimentaria para reducir la probabilidad de
+nuevos eventos sanitarios sin afectar la continuidad del abastecimiento.
+
+\begin{verbatim}
+## No se encontró la imagen del gráfico de origen.
+\end{verbatim}
+
+\subsubsection{¿Qué municipios registran los valores más altos del
+indicador?}\label{quuxe9-municipios-registran-los-valores-muxe1s-altos-del-indicador}
+
+Este indicador sirve para focalizar prioridades dentro del territorio,
+especialmente cuando los recursos de seguimiento e intervención son
+limitados. Al identificar los municipios con mayor número de enfermos
+por ETA, el ranking ayuda a definir dónde conviene intensificar las
+acciones de inspección, vigilancia y control sanitario. En un enfoque
+agroalimentario, el valor del Top-10 es operativo: permite pasar de un
+diagnóstico general a una lista concreta de territorios donde es más
+probable que persistan fallas de inocuidad, afectando la salud pública y
+la confianza en los alimentos disponibles.
+
+\textbf{Indicador reportado:} Total de enfermos
+
+\begin{verbatim}
+## No se encontró la imagen del ranking municipal.
+\end{verbatim}
+
+\end{document}
