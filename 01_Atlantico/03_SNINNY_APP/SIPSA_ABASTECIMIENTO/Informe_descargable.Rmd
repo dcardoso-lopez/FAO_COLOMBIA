@@ -1,0 +1,190 @@
+---
+title: "SIPSA — Abastecimiento de alimentos"
+subtitle: "Remisión y recepción — Atlántico"
+header-includes:
+  - \usepackage{graphicx}
+  - \usepackage{float}
+  - \usepackage{placeins}
+  - \usepackage{fancyhdr}
+  - \usepackage{array}
+  - \usepackage{longtable}
+  - \usepackage{booktabs}
+  - \usepackage{caption}
+  - \pagestyle{fancy}
+  - \setlength{\headheight}{40pt}
+  - \fancyfoot[C]{\thepage}
+  - \renewcommand{\headrulewidth}{0.6pt}
+  - \renewcommand{\footrulewidth}{0.6pt}
+  - \raggedbottom
+  - \sloppy
+output:
+  pdf_document:
+    toc: true
+    number_sections: true
+    latex_engine: xelatex
+geometry: margin=1in
+
+params:
+  app_root: !r getwd()
+  export_dir: "Descargas"
+
+  filtros_tab1: NULL
+  filtros_tab2: NULL
+
+  img_t1_map: NULL
+  img_t1_bar: NULL
+  img_t1_serie: NULL
+
+  img_t2_map: NULL
+  img_t2_bar: NULL
+  img_t2_serie: NULL
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center",
+  out.width = "95%",
+  dpi = 150
+)
+
+`%||%` <- function(x, y) if (is.null(x) || length(x) == 0) y else x
+
+app_root   <- params$app_root %||% getwd()
+export_dir <- params$export_dir %||% "Descargas"
+
+safe_path <- function(fname){
+  if (is.null(fname) || is.na(fname) || !nzchar(fname)) return(NA_character_)
+  p <- file.path(export_dir, fname)
+  if (!file.exists(file.path(app_root, p))) return(NA_character_)
+  p
+}
+
+safe_include <- function(p, txt = "No se encontró la imagen correspondiente."){
+  if (is.na(p) || !nzchar(p) || !file.exists(file.path(app_root, p))) {
+    cat(txt, "\n")
+  } else {
+    knitr::include_graphics(p)
+  }
+}
+
+mk_filtros_tbl <- function(x){
+  if (!is.null(x) && is.data.frame(x) && all(c("Parametro","Valor") %in% names(x))) {
+    x[] <- lapply(x, function(v){
+      v <- as.character(v)
+      v[is.na(v)] <- ""
+      v
+    })
+    return(x)
+  }
+
+  data.frame(
+    Parametro = c("Filtro", "Valor"),
+    Valor     = c("Sin información", "Sin información"),
+    stringsAsFactors = FALSE
+  )
+}
+
+filtros_t1_tbl <- mk_filtros_tbl(params$filtros_tab1)
+filtros_t2_tbl <- mk_filtros_tbl(params$filtros_tab2)
+
+img_use <- list(
+  t1_map   = safe_path(params$img_t1_map),
+  t1_bar   = safe_path(params$img_t1_bar),
+  t1_serie = safe_path(params$img_t1_serie),
+
+  t2_map   = safe_path(params$img_t2_map),
+  t2_bar   = safe_path(params$img_t2_bar),
+  t2_serie = safe_path(params$img_t2_serie)
+)
+```
+
+# Resumen del reporte
+
+Este módulo resume la dinámica del abastecimiento de alimentos para el departamento de **Atlántico**, distinguiendo dos dimensiones complementarias del sistema agroalimentario: la **remisión** de alimentos desde Atlántico hacia otros departamentos y la **recepción** de alimentos en Atlántico provenientes de otros territorios. Esta lectura permite identificar patrones territoriales, composición por grupos alimenticios y evolución temporal del flujo de alimentos.
+
+## Objetivo
+
+El objetivo de este informe es examinar la magnitud, distribución territorial y evolución del abastecimiento de alimentos asociado a Atlántico, considerando tanto su papel como origen como su papel como destino dentro de la red de abastecimiento.
+
+1. Identificar los departamentos con mayor concentración de alimentos remitidos desde Atlántico y recibidos en Atlántico.
+2. Describir la composición del abastecimiento por grupos alimenticios.
+3. Analizar la evolución temporal del volumen abastecido según los filtros activos en la aplicación.
+
+# Resultados
+
+## 1. Remisión de alimentos desde Atlántico
+
+### Filtros aplicados
+
+```{r filtros_t1}
+knitr::kable(filtros_t1_tbl, col.names = c("Parámetro", "Valor"), align = c("l", "l"))
+```
+
+### ¿En qué departamentos se concentra la mayor cantidad de alimentos remitidos desde la central mayorista priorizada?
+
+El mapa territorial muestra la distribución de las toneladas remitidas desde Atlántico hacia otros departamentos. Este indicador permite identificar los principales destinos del abastecimiento y visualizar la concentración territorial de los flujos alimentarios.
+
+```{r tab1_map}
+safe_include(img_use$t1_map)
+```
+
+### ¿Qué grupos de alimentos tienen mayor participación?
+
+La gráfica de barras resume la participación de los principales grupos alimenticios dentro del total remitido. Esta visualización permite identificar qué componentes del abastecimiento tienen mayor peso relativo en la estructura de remisión.
+
+```{r tab1_bar}
+safe_include(img_use$t1_bar)
+```
+
+### ¿Cómo es la evolución del abastecimiento de alimentos?
+
+La serie temporal muestra la trayectoria del volumen remitido a lo largo del tiempo. Este comportamiento permite identificar patrones de crecimiento, contracción o estacionalidad en el abastecimiento desde Atlántico.
+
+```{r tab1_serie}
+safe_include(img_use$t1_serie)
+```
+
+\newpage
+
+## 2. Recepción de alimentos en Atlántico
+
+### Filtros aplicados
+
+```{r filtros_t2}
+knitr::kable(filtros_t2_tbl, col.names = c("Parámetro", "Valor"), align = c("l", "l"))
+```
+
+### ¿En qué departamentos se concentra la mayor cantidad de alimentos recibidos en la central mayorista priorizada?
+
+El mapa territorial presenta los principales departamentos de origen de los alimentos que llegan a Atlántico. Esto permite identificar la procedencia del abastecimiento y los territorios que sostienen la oferta alimentaria del departamento.
+
+```{r tab2_map}
+safe_include(img_use$t2_map)
+```
+
+### ¿Qué grupos de alimentos tienen mayor participación?
+
+La gráfica de barras resume la composición por grupos alimenticios del abastecimiento recibido en Atlántico. Esta visual permite reconocer qué grupos explican la mayor parte del volumen de entrada.
+
+```{r tab2_bar}
+safe_include(img_use$t2_bar)
+```
+
+### ¿Cómo es la evolución del abastecimiento de alimentos?
+
+La serie temporal muestra la evolución del volumen de alimentos recibido en Atlántico. Esta lectura permite analizar la dinámica temporal del abastecimiento y posibles variaciones estacionales o coyunturales.
+
+```{r tab2_serie}
+safe_include(img_use$t2_serie)
+```
+
+# Nota metodológica
+
+- Los mapas representan toneladas agregadas por departamento.
+- La clasificación cartográfica se realiza mediante cuartiles.
+- Las gráficas corresponden a los filtros activos en cada pestaña de la app.
+- El informe integra las dos pestañas del tablero.
+- Para que el PDF se procese correctamente, los nombres de `params` en el YAML deben coincidir exactamente con los enviados desde `rmarkdown::render()`.

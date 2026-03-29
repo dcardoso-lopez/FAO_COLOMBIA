@@ -1,9 +1,11 @@
 # app.R
 # =========================================================
 # SIPSA ABASTECIMIENTO — MAPA + (BARRAS GRUPOS) + (SERIE TOTAL) + TABLA (2 pestañas)
-# (MOD: dropdowns salen de la caja verde + meses con nombres + ✅ SIN filtro de NIVEL)
-# (MOD NUEVO: Tab 2 (Recepción) barras + serie se calculan SOLO con recepción en Atlántico)
-# (MOD NUEVO: ✅ En mapas SOLO etiqueta al pasar el cursor (hover) y mostrando NOMBRE del dpto)
+# MODIFICACIONES:
+# - Botones PNG para TODOS los objetos visuales de ambas pestañas
+# - PDF SOLO en Tab 1
+# - PDF SOLO se habilita cuando ya se visualizaron las 2 pestañas
+# - El PDF incluye imágenes de ambas pestañas
 # =========================================================
 
 # ------------------------------
@@ -14,7 +16,7 @@ pkgs <- c(
   "dplyr","stringr","janitor","scales",
   "readr","DT","plotly",
   "sf","leaflet","stringi","htmltools",
-  "webshot2","htmlwidgets","ragg"
+  "webshot2","htmlwidgets","ragg","rmarkdown"
 )
 
 missing <- pkgs[!vapply(pkgs, requireNamespace, logical(1), quietly = TRUE)]
@@ -37,6 +39,7 @@ suppressWarnings({
   library(htmltools)
   library(webshot2); library(htmlwidgets)
   library(ragg)
+  library(rmarkdown)
 })
 
 options(stringsAsFactors = FALSE, scipen = 999)
@@ -67,6 +70,9 @@ app_root <- tryCatch({
 data_dir <- file.path(app_root, "data")
 rds_path <- file.path(data_dir, "041_DANE_SIPSA-Abast.rds")
 stopifnot(file.exists(rds_path))
+
+export_dir_default <- file.path(app_root, "Descargas")
+if (!dir.exists(export_dir_default)) dir.create(export_dir_default, recursive = TRUE, showWarnings = FALSE)
 
 # =========================================================
 # 1) Helpers
@@ -145,12 +151,10 @@ legend_lab_es <- function(suffix = "", between = " – "){
   }
 }
 
-# --- Paleta 4 clases tipo HANSEN ---
 pal4_vec <- grDevices::colorRampPalette(
   c("#F6E8C3", "#EBD3A6", "#C9A56A", "#9A7547", "#6B4F2C")
 )(4)
 
-# ✅ BINS: SOLO con valores > 0 (excluye 0/NA)
 make_bins4 <- function(values){
   v <- as.numeric(values)
   v <- v[is.finite(v) & v > 0]
@@ -168,7 +172,6 @@ make_bins4 <- function(values){
   qs
 }
 
-# ✅ Paleta: dominio SOLO con >0 y NA pintado gris
 palBin4 <- function(values){
   v <- as.numeric(values)
   vpos <- v[is.finite(v) & v > 0]
@@ -206,6 +209,27 @@ filter_multi <- function(df, col, sel){
   df %>% dplyr::filter(.data[[col]] %in% sel)
 }
 
+save_widget_png <- function(widget, file, vwidth = 1600, vheight = 1000, delay = 1.5, zoom = 2){
+  tmp_html <- tempfile(fileext = ".html")
+  htmlwidgets::saveWidget(widget, tmp_html, selfcontained = TRUE)
+  webshot2::webshot(
+    url    = tmp_html,
+    file   = file,
+    vwidth = vwidth,
+    vheight = vheight,
+    delay  = delay,
+    zoom   = zoom
+  )
+}
+
+safe_basename <- function(x){
+  x <- iconv(x, from = "", to = "ASCII//TRANSLIT")
+  x <- gsub("[^A-Za-z0-9_\\-]+", "_", x)
+  x <- gsub("_+", "_", x)
+  x <- gsub("^_|_$", "", x)
+  x
+}
+
 # =========================================================
 # 2) Cargar RDS y mapear columnas reales
 # =========================================================
@@ -219,15 +243,12 @@ gcol <- req_col(nms, c("grupo","grupo_alimento","grupo_alimentos","grupo_de_alim
 pcol <- req_col(nms, c("alimento","producto","item","articulo","artículo"), "ALIMENTO/PRODUCTO")
 qcol <- req_col(nms, c("cantkg_total","cant_kg_total","cantidad_kg","cantidadkg","cantkg","kg_total","cant_total_kg"), "CANTIDAD KG")
 
-# nombres DESTINO (si existen)
 dep_d_col <- pick_first(nms, c("departamento_d","depto_d","departamento_destino","depto_destino"))
 mun_d_col <- pick_first(nms, c("municipio_d","mpio_d","municipio_destino","mpio_destino"))
 
-# nombres ORIGEN (si existen)
 dep_o_col <- pick_first(nms, c("departamento_o","depto_o","departamento_origen","depto_origen"))
 mun_o_col <- pick_first(nms, c("municipio_o","mpio_o","municipio_origen","mpio_origen"))
 
-# códigos DESTINO
 dpto_code_d_col <- req_col(
   nms,
   c("cod_dane_dpto_d","dane_cod_dpto_d","dane_cod_dpto","cod_dane_dpto","cod_dpto_d","cod_dpto"),
@@ -235,7 +256,6 @@ dpto_code_d_col <- req_col(
 )
 mpio_code_d_col <- pick_first(nms, c("cod_dane_munic_d","dane_cod_munic_d","cod_dane_mpio_d","cod_dane_mpio","cod_mpio_d"))
 
-# códigos ORIGEN
 dpto_code_o_col <- req_col(
   nms,
   c("cod_dane_dpto_o","dane_cod_dpto_o","cod_dpto_o","cod_dpto_origen","cod_dane_dpto_origen","dane_cod_dpto_origen"),
@@ -244,22 +264,18 @@ dpto_code_o_col <- req_col(
 mpio_code_o_col <- pick_first(nms, c("cod_dane_munic_o","dane_cod_munic_o","cod_dane_mpio_o","cod_mpio_o","cod_mpio_origen"))
 
 # =========================================================
-# 3) Base estándar (kg interno, UI solo muestra ton)
-#   ✅ Filtra 2018+
-#   ✅ Elimina filas con DEPARTAMENTO_O en blanco
+# 3) Base estándar
 # =========================================================
 base_sipsa <- sipsa %>%
   transmute(
     anio = suppressWarnings(as.integer(.data[[ycol]])),
     mes  = suppressWarnings(as.integer(.data[[mcol]])),
     
-    # DESTINO
     cod_dpto_d = pad_dpto(.data[[dpto_code_d_col]]),
     cod_mpio_d = if (!is.na(mpio_code_d_col)) pad_mpio(.data[[mpio_code_d_col]]) else NA_character_,
     departamento_d = if (!is.na(dep_d_col)) title_case_es(.data[[dep_d_col]]) else NA_character_,
     municipio_d    = if (!is.na(mun_d_col)) title_case_es(.data[[mun_d_col]]) else NA_character_,
     
-    # ORIGEN
     cod_dpto_o = pad_dpto(.data[[dpto_code_o_col]]),
     cod_mpio_o = if (!is.na(mpio_code_o_col)) pad_mpio(.data[[mpio_code_o_col]]) else NA_character_,
     departamento_o = if (!is.na(dep_o_col)) title_case_es(.data[[dep_o_col]]) else NA_character_,
@@ -277,19 +293,9 @@ base_sipsa <- sipsa %>%
     ton   = kg/1000
   )
 
-# =========================================================
-# 3.2) Separar bases por pestaña (FOCO Atlántico)
-# =========================================================
-# TAB 1: Remisión desde Atlántico (ORIGEN = Atlántico)
 base_t1 <- base_sipsa %>% filter(cod_dpto_o == DPTO_FOCO_COD)
-
-# TAB 2: Recepción en Atlántico (DESTINO = Atlántico)
 base_t2 <- base_sipsa %>% filter(cod_dpto_d == DPTO_FOCO_COD)
 
-# =========================================================
-# 3.4) (NUEVO) Diccionario COD_DPTO -> NOMBRE (desde la base)
-#   para asegurar que el hover muestre NOMBRE y no código
-# =========================================================
 dept_names_lut <- dplyr::bind_rows(
   base_sipsa %>% dplyr::distinct(cod_dpto = cod_dpto_d, dept_name = departamento_d),
   base_sipsa %>% dplyr::distinct(cod_dpto = cod_dpto_o, dept_name = departamento_o)
@@ -299,7 +305,7 @@ dept_names_lut <- dplyr::bind_rows(
   dplyr::summarise(dept_name = dplyr::first(dept_name), .groups = "drop")
 
 # =========================================================
-# 3.3) Shapefile Departamentos — SOLO desde ./data/shp
+# 3.3) Shapefile Departamentos
 # =========================================================
 load_dept_sf_only <- function(data_dir){
   shp_dir <- file.path(data_dir, "shp")
@@ -336,6 +342,7 @@ load_dept_sf_only <- function(data_dir){
     if (max(abs(xs), na.rm=TRUE) > 2e6) return(3857)
     3116
   }
+  
   if (is.na(sf::st_crs(obj))) {
     epsg_guess <- guess_crs_epsg(obj)
     message("[MAPA] CRS faltante (.prj). Asumiendo EPSG:", epsg_guess)
@@ -365,7 +372,6 @@ load_dept_sf_only <- function(data_dir){
 
 dept_sf <- tryCatch(load_dept_sf_only(data_dir), error = function(e){ message("[MAPA] ", e$message); NULL })
 
-# ✅ Forzar NOMBRE del departamento usando el diccionario de la base
 if (!is.null(dept_sf) && inherits(dept_sf, "sf") && nrow(dept_sf) > 0) {
   dept_sf <- dept_sf %>%
     dplyr::left_join(dept_names_lut, by = "cod_dpto") %>%
@@ -374,7 +380,7 @@ if (!is.null(dept_sf) && inherits(dept_sf, "sf") && nrow(dept_sf) > 0) {
 }
 
 # =========================================================
-# 4) UI  ✅ (CORREGIDO: h2 + tabsetPanel bien cerrados)
+# 4) UI
 # =========================================================
 ui <- fluidPage(
   theme = bslib::bs_theme(
@@ -395,7 +401,6 @@ ui <- fluidPage(
       .wrap{ max-width:1360px; margin:0 auto; padding:16px 20px 32px; }
       h2#app-title{ text-align:center; margin-top:10px; margin-bottom:10px; font-weight:800; letter-spacing:.3px; }
 
-      /* ✅ Caja verde: permitir que dropdowns salgan */
       .filters{
         background:#fff; border:1px solid var(--accent-border); border-radius:16px;
         padding:14px 16px; margin-bottom:16px; box-shadow:0 4px 14px rgba(0,0,0,.06);
@@ -406,7 +411,6 @@ ui <- fluidPage(
         z-index: 20;
       }
 
-      /* ✅ SIN NIVEL: ahora 5 columnas */
       .filters-grid{
         width:100%;
         display:grid;
@@ -496,7 +500,18 @@ ui <- fluidPage(
         padding: 4px 6px; color: #222; font-weight: 600; box-shadow: 0 1px 4px rgba(0,0,0,.08);
       }
       .map-note{ font-size:12px; color:#4b5563; margin-top:6px; }
-      .dl-under{ margin-top:8px; text-align:right; }
+      .dl-under{
+        margin-top:8px;
+        display:flex;
+        gap:8px;
+        flex-wrap:wrap;
+        justify-content:flex-end;
+      }
+
+      .report-box{
+        background:#fff; border:1px solid #99d5ec; border-radius:16px;
+        padding:14px; box-shadow:0 2px 10px rgba(0,0,0,.05); margin-top:8px;
+      }
 
       table.dataTable tbody td{ padding:6px 8px; }
       table.dataTable thead th{ padding:8px; }
@@ -525,9 +540,6 @@ ui <- fluidPage(
       id   = "tabs_sipsa",
       type = "tabs",
       
-      # =====================================================
-      # TAB 1 — REMISIÓN DESDE ATLÁNTICO (destinos)
-      # =====================================================
       tabPanel(
         "Remisión de alimentos desde Atlántico", br(),
         
@@ -550,10 +562,13 @@ ui <- fluidPage(
             class = "left-col",
             div(
               class = "card viz-card viz-map",
-              div(class="card-title", strong("¿En que departamentos se concentra la mayor cantidad de alimentos remitidos de la central mayorista priorizada?")),
+              div(class="card-title", strong("¿En qué departamentos se concentra la mayor cantidad de alimentos remitidos de la central mayorista priorizada?")),
               div(class="viz-body", leafletOutput("map_t1")),
               div(class="map-note","Nota: El mapa clasifica los valores del indicador en cuartiles (cuatro grupos con igual número de observaciones)."),
-              div(class="dl-under", downloadButton("dl_png_map_t1", "PNG — Mapa (simple)"))
+              div(
+                class="dl-under",
+                downloadButton("dl_png_map_t1", "PNG — Mapa")
+              )
             )
           ),
           
@@ -562,12 +577,14 @@ ui <- fluidPage(
             div(
               class="card viz-card",
               div(class="card-title", strong("¿Qué grupos de alimentos tienen mayor participación?")),
-              div(class="viz-body", plotlyOutput("bar_grupos_t1", height="100%"))
+              div(class="viz-body", plotlyOutput("bar_grupos_t1", height="100%")),
+              div(class="dl-under", downloadButton("dl_png_bar_t1", "PNG — Barras"))
             ),
             div(
               class="card viz-card",
               div(class="card-title", strong("¿Cómo es la evolución de abastecimiento de alimentos?")),
-              div(class="viz-body", plotlyOutput("serie_total_t1", height="100%"))
+              div(class="viz-body", plotlyOutput("serie_total_t1", height="100%")),
+              div(class="dl-under", downloadButton("dl_png_serie_t1", "PNG — Serie"))
             )
           )
         ),
@@ -581,12 +598,16 @@ ui <- fluidPage(
                   "El % se calcula sobre el total de toneladas del departamento (destino), por año, con los filtros del Tab 1")
           ),
           DTOutput("tbl_detalle_t1")
+        ),
+        
+        div(
+          class = "report-box",
+          h4("Informe descargable"),
+          p("El PDF solo se habilita cuando ya se hayan visualizado las dos pestañas del tablero."),
+          uiOutput("pdf_ui_t1")
         )
       ),
       
-      # =====================================================
-      # TAB 2 — RECEPCIÓN EN ATLÁNTICO (orígenes)
-      # =====================================================
       tabPanel(
         "Recepción de alimentos en Atlántico", br(),
         
@@ -609,10 +630,13 @@ ui <- fluidPage(
             class = "left-col",
             div(
               class = "card viz-card viz-map",
-              div(class="card-title", strong("¿En que departamentos se concentra la mayor cantidad de alimentos recibidos de la central mayorista priorizada?")),
+              div(class="card-title", strong("¿En qué departamentos se concentra la mayor cantidad de alimentos recibidos de la central mayorista priorizada?")),
               div(class="viz-body", leafletOutput("map_t2")),
               div(class="map-note","Nota: El mapa clasifica los valores del indicador en cuartiles (cuatro grupos con igual número de observaciones)."),
-              div(class="dl-under", downloadButton("dl_png_map_t2", "PNG — Mapa (simple)"))
+              div(
+                class="dl-under",
+                downloadButton("dl_png_map_t2", "PNG — Mapa")
+              )
             )
           ),
           
@@ -621,12 +645,14 @@ ui <- fluidPage(
             div(
               class="card viz-card",
               div(class="card-title", strong("¿Qué grupos de alimentos tienen mayor participación?")),
-              div(class="viz-body", plotlyOutput("bar_grupos_t2", height="100%"))
+              div(class="viz-body", plotlyOutput("bar_grupos_t2", height="100%")),
+              div(class="dl-under", downloadButton("dl_png_bar_t2", "PNG — Barras"))
             ),
             div(
               class="card viz-card",
               div(class="card-title", strong("¿Cómo es la evolución de abastecimiento de alimentos?")),
-              div(class="viz-body", plotlyOutput("serie_total_t2", height="100%"))
+              div(class="viz-body", plotlyOutput("serie_total_t2", height="100%")),
+              div(class="dl-under", downloadButton("dl_png_serie_t2", "PNG — Serie"))
             )
           )
         ),
@@ -654,7 +680,6 @@ server <- function(input, output, session){
   years  <- sort(unique(base_sipsa$anio[is.finite(base_sipsa$anio)]))
   months <- sort(unique(base_sipsa$mes[is.finite(base_sipsa$mes)]))
   
-  # ✅ Meses en español (UI), pero valores siguen siendo 1..12
   mes_nombre <- c(
     "Enero","Febrero","Marzo","Abril","Mayo","Junio",
     "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"
@@ -664,6 +689,46 @@ server <- function(input, output, session){
   hover_label_opts <- leaflet::labelOptions(
     direction="auto", textsize="12px", sticky=TRUE, opacity=0.95, className="lbl-clean"
   )
+  
+  rv <- reactiveValues(
+    tab1_seen = TRUE,   # arranca en la primera pestaña
+    tab2_seen = FALSE
+  )
+  
+  observeEvent(input$tabs_sipsa, {
+    if (identical(input$tabs_sipsa, "Remisión de alimentos desde Atlántico")) rv$tab1_seen <- TRUE
+    if (identical(input$tabs_sipsa, "Recepción de alimentos en Atlántico"))   rv$tab2_seen <- TRUE
+  }, ignoreInit = FALSE)
+  
+  both_tabs_seen <- reactive({
+    isTRUE(rv$tab1_seen) && isTRUE(rv$tab2_seen)
+  })
+  
+  output$pdf_ui_t1 <- renderUI({
+    if (both_tabs_seen()) {
+      tagList(
+        tags$p(style="color:#065f46;font-weight:600;", "Listo: ya se visualizaron las dos pestañas."),
+        downloadButton("dl_pdf_report", "Descargar informe PDF")
+      )
+    } else {
+      faltan <- c()
+      if (!isTRUE(rv$tab1_seen)) faltan <- c(faltan, "Remisión")
+      if (!isTRUE(rv$tab2_seen)) faltan <- c(faltan, "Recepción")
+      
+      tagList(
+        tags$p(
+          style="color:#92400e;font-weight:600;",
+          paste0("Aún no se habilita el PDF. Falta visualizar: ", paste(faltan, collapse = " y "), ".")
+        ),
+        tags$button(
+          type = "button",
+          class = "btn btn-secondary",
+          disabled = NA,
+          "Descargar informe PDF"
+        )
+      )
+    }
+  })
   
   # =========================================================
   # TAB 1 — Inputs
@@ -676,7 +741,7 @@ server <- function(input, output, session){
     selectInput("mes_t1", NULL, choices = month_choices, selected = "Todos")
   })
   output$territorio_ui_t1 <- renderUI({
-    opts <- sort(unique(na.omit(base_t1$departamento_d)))  # ✅ destinos desde Atlántico
+    opts <- sort(unique(na.omit(base_t1$departamento_d)))
     pickerInput(
       "territorio_t1", NULL,
       choices  = c("Todos", opts),
@@ -696,7 +761,7 @@ server <- function(input, output, session){
     selectInput("mes_t2", NULL, choices = month_choices, selected = "Todos")
   })
   output$territorio_ui_t2 <- renderUI({
-    opts <- sort(unique(na.omit(base_t2$departamento_o)))  # ✅ orígenes hacia Atlántico
+    opts <- sort(unique(na.omit(base_t2$departamento_o)))
     pickerInput(
       "territorio_t2", NULL,
       choices  = c("Todos", opts),
@@ -706,7 +771,7 @@ server <- function(input, output, session){
   })
   
   # =========================================================
-  # TAB 1 — Contexto (choices grupo/alimento) ✅ Remisión desde Atlántico
+  # TAB 1 — Contexto
   # =========================================================
   ctx_t1 <- reactive({
     df <- base_t1
@@ -747,7 +812,7 @@ server <- function(input, output, session){
   })
   
   # =========================================================
-  # TAB 2 — Contexto (choices grupo/alimento) ✅ Recepción en Atlántico
+  # TAB 2 — Contexto
   # =========================================================
   ctx_t2 <- reactive({
     df <- base_t2
@@ -788,7 +853,7 @@ server <- function(input, output, session){
   })
   
   # =========================================================
-  # TAB 1 — Datos (DESTINO)
+  # DATOS FILTRADOS
   # =========================================================
   datos_t1 <- reactive({
     df <- ctx_t1()
@@ -798,9 +863,6 @@ server <- function(input, output, session){
     df
   })
   
-  # =========================================================
-  # TAB 2 — Datos (ORIGEN)
-  # =========================================================
   datos_t2 <- reactive({
     df <- ctx_t2()
     df <- filter_multi(df, "grupo",    input$grupos_t2)
@@ -810,7 +872,36 @@ server <- function(input, output, session){
   })
   
   # =========================================================
-  # TAB 1 — MAPA (Destinos) — ✅ SOLO HOVER (sin etiquetas fijas)
+  # BADGES
+  # =========================================================
+  badge_t1 <- reactive({
+    yr <- if (!is.null(input$anio_t1) && input$anio_t1 != "Todos") as.character(input$anio_t1) else "Todos"
+    ms <- if (!is.null(input$mes_t1)  && input$mes_t1  != "Todos") mes_nombre[as.integer(input$mes_t1)] else "Todos"
+    tr <- input$territorio_t1 %||% "Todos"
+    htmltools::HTML(sprintf(
+      '<div style="background:#fff;padding:6px 10px;border-radius:8px;
+                   box-shadow:0 1px 6px rgba(0,0,0,.15);font-size:12px;line-height:1.3;">
+         <b>Remisión:</b> desde %s<br>
+         <b>Año:</b> %s &nbsp; <b>Mes:</b> %s<br><b>Destino:</b> %s
+       </div>', DPTO_FOCO_NOMBRE, yr, ms, htmltools::htmlEscape(tr)
+    ))
+  })
+  
+  badge_t2 <- reactive({
+    yr <- if (!is.null(input$anio_t2) && input$anio_t2 != "Todos") as.character(input$anio_t2) else "Todos"
+    ms <- if (!is.null(input$mes_t2)  && input$mes_t2  != "Todos") mes_nombre[as.integer(input$mes_t2)] else "Todos"
+    tr <- input$territorio_t2 %||% "Todos"
+    htmltools::HTML(sprintf(
+      '<div style="background:#fff;padding:6px 10px;border-radius:8px;
+                   box-shadow:0 1px 6px rgba(0,0,0,.15);font-size:12px;line-height:1.3;">
+         <b>Recepción:</b> en %s<br>
+         <b>Año:</b> %s &nbsp; <b>Mes:</b> %s<br><b>Origen:</b> %s
+       </div>', DPTO_FOCO_NOMBRE, yr, ms, htmltools::htmlEscape(tr)
+    ))
+  })
+  
+  # =========================================================
+  # MAPAS
   # =========================================================
   output$map_t1 <- renderLeaflet({
     leaflet(options = leafletOptions(zoomControl = TRUE)) %>%
@@ -833,18 +924,44 @@ server <- function(input, output, session){
       mutate(ton = as.numeric(ton))
   })
   
-  badge_t1 <- reactive({
-    yr <- if (!is.null(input$anio_t1) && input$anio_t1 != "Todos") as.character(input$anio_t1) else "Todos"
-    ms <- if (!is.null(input$mes_t1)  && input$mes_t1  != "Todos") mes_nombre[as.integer(input$mes_t1)] else "Todos"
-    tr <- input$territorio_t1 %||% "Todos"
-    htmltools::HTML(sprintf(
-      '<div style="background:#fff;padding:6px 10px;border-radius:8px;
-                   box-shadow:0 1px 6px rgba(0,0,0,.15);font-size:12px;line-height:1.3;">
-         <b>Remisión:</b> desde %s<br>
-         <b>Año:</b> %s &nbsp; <b>Mes:</b> %s<br><b>Destino:</b> %s
-       </div>', DPTO_FOCO_NOMBRE, yr, ms, htmltools::htmlEscape(tr)
-    ))
-  })
+  build_map_widget_t1 <- function(){
+    shp <- tryCatch(mapa_t1_sf(), error = function(e) NULL)
+    
+    if (is.null(shp) || !inherits(shp, "sf") || nrow(shp) == 0) {
+      return(
+        leaflet() %>%
+          addProviderTiles(providers$CartoDB.Positron) %>%
+          setView(-74, 4.6, 5)
+      )
+    }
+    
+    shp <- shp %>% sf::st_make_valid() %>% sf::st_zm(drop = TRUE, what = "ZM")
+    shp <- tryCatch(sf::st_cast(shp, "MULTIPOLYGON", warn = FALSE), error = function(e) shp)
+    shp <- shp[!sf::st_is_empty(shp$geometry), , drop = FALSE]
+    pal <- palBin4(shp$ton)
+    
+    leaflet(shp, options = leafletOptions(zoomControl = FALSE)) %>%
+      addProviderTiles(providers$CartoDB.Positron) %>%
+      addPolygons(
+        fillColor = ~ifelse(is.na(ton) | ton <= 0, "#bdbdbd", pal(ton)),
+        weight = 0.7, color = "#666", fillOpacity = 0.9,
+        label = ~ifelse(
+          is.na(ton) | ton <= 0,
+          sprintf("%s — Sin información", departamento_d),
+          sprintf("%s — %s Ton", departamento_d, fmt_ton_co(ton, 1))
+        ),
+        labelOptions = hover_label_opts
+      ) %>%
+      addLegend(
+        position="bottomright",
+        pal=pal,
+        values=~ifelse(is.na(ton)|ton<=0, NA, ton),
+        title="Toneladas",
+        labFormat=legend_lab_es(suffix=" Ton"),
+        na.label="Sin información"
+      ) %>%
+      addControl(badge_t1(), position="topright")
+  }
   
   draw_map_t1 <- function(){
     mdat <- tryCatch(mapa_t1_sf(), error = function(e) NULL)
@@ -899,9 +1016,6 @@ server <- function(input, output, session){
     }
   }, ignoreInit=TRUE)
   
-  # =========================================================
-  # TAB 2 — MAPA (Orígenes hacia Atlántico) — ✅ SOLO HOVER
-  # =========================================================
   output$map_t2 <- renderLeaflet({
     leaflet(options = leafletOptions(zoomControl = TRUE)) %>%
       addProviderTiles(providers$CartoDB.Positron) %>%
@@ -923,18 +1037,44 @@ server <- function(input, output, session){
       mutate(ton = as.numeric(ton))
   })
   
-  badge_t2 <- reactive({
-    yr <- if (!is.null(input$anio_t2) && input$anio_t2 != "Todos") as.character(input$anio_t2) else "Todos"
-    ms <- if (!is.null(input$mes_t2)  && input$mes_t2  != "Todos") mes_nombre[as.integer(input$mes_t2)] else "Todos"
-    tr <- input$territorio_t2 %||% "Todos"
-    htmltools::HTML(sprintf(
-      '<div style="background:#fff;padding:6px 10px;border-radius:8px;
-                   box-shadow:0 1px 6px rgba(0,0,0,.15);font-size:12px;line-height:1.3;">
-         <b>Recepción:</b> en %s<br>
-         <b>Año:</b> %s &nbsp; <b>Mes:</b> %s<br><b>Origen:</b> %s
-       </div>', DPTO_FOCO_NOMBRE, yr, ms, htmltools::htmlEscape(tr)
-    ))
-  })
+  build_map_widget_t2 <- function(){
+    shp <- tryCatch(mapa_t2_sf(), error = function(e) NULL)
+    
+    if (is.null(shp) || !inherits(shp, "sf") || nrow(shp) == 0) {
+      return(
+        leaflet() %>%
+          addProviderTiles(providers$CartoDB.Positron) %>%
+          setView(-74, 4.6, 5)
+      )
+    }
+    
+    shp <- shp %>% sf::st_make_valid() %>% sf::st_zm(drop = TRUE, what = "ZM")
+    shp <- tryCatch(sf::st_cast(shp, "MULTIPOLYGON", warn = FALSE), error = function(e) shp)
+    shp <- shp[!sf::st_is_empty(shp$geometry), , drop = FALSE]
+    pal <- palBin4(shp$ton)
+    
+    leaflet(shp, options = leafletOptions(zoomControl = FALSE)) %>%
+      addProviderTiles(providers$CartoDB.Positron) %>%
+      addPolygons(
+        fillColor = ~ifelse(is.na(ton) | ton <= 0, "#bdbdbd", pal(ton)),
+        weight = 0.7, color = "#666", fillOpacity = 0.9,
+        label = ~ifelse(
+          is.na(ton) | ton <= 0,
+          sprintf("%s — Sin información", departamento_d),
+          sprintf("%s — %s Ton", departamento_d, fmt_ton_co(ton, 1))
+        ),
+        labelOptions = hover_label_opts
+      ) %>%
+      addLegend(
+        position="bottomright",
+        pal=pal,
+        values=~ifelse(is.na(ton)|ton<=0, NA, ton),
+        title="Toneladas",
+        labFormat=legend_lab_es(suffix=" Ton"),
+        na.label="Sin información"
+      ) %>%
+      addControl(badge_t2(), position="topright")
+  }
   
   draw_map_t2 <- function(){
     mdat <- tryCatch(mapa_t2_sf(), error = function(e) NULL)
@@ -988,14 +1128,18 @@ server <- function(input, output, session){
   }, ignoreInit=TRUE)
   
   # =========================================================
-  # TAB 1 — Barras (Grupos) (remisión desde Atlántico)
+  # BARRAS Y SERIES — construir widgets reutilizables
   # =========================================================
-  output$bar_grupos_t1 <- renderPlotly({
-    dd <- datos_t1() %>%
+  bar_grupos_t1_df <- reactive({
+    datos_t1() %>%
       group_by(grupo) %>%
       summarise(ton=sum(ton, na.rm=TRUE), .groups="drop") %>%
       arrange(desc(ton)) %>%
       head(10)
+  })
+  
+  build_bar_widget_t1 <- function(){
+    dd <- bar_grupos_t1_df()
     validate(need(nrow(dd) > 0, "Sin datos para barras (Tab 1)"))
     dd$grupo <- factor(dd$grupo, levels = rev(dd$grupo))
     
@@ -1008,18 +1152,24 @@ server <- function(input, output, session){
         xaxis=list(title="Toneladas", zeroline=FALSE),
         yaxis=list(title="", automargin=TRUE),
         margin=list(l=140, r=20, b=40, t=10)
-      )
+      ) %>%
+      config(displayModeBar = FALSE)
+  }
+  
+  output$bar_grupos_t1 <- renderPlotly({
+    build_bar_widget_t1()
   })
   
-  # =========================================================
-  # TAB 2 — Barras (Grupos) (✅ recepción en Atlántico)
-  # =========================================================
-  output$bar_grupos_t2 <- renderPlotly({
-    dd <- datos_t2() %>%
+  bar_grupos_t2_df <- reactive({
+    datos_t2() %>%
       group_by(grupo) %>%
       summarise(ton=sum(ton, na.rm=TRUE), .groups="drop") %>%
       arrange(desc(ton)) %>%
       head(10)
+  })
+  
+  build_bar_widget_t2 <- function(){
+    dd <- bar_grupos_t2_df()
     validate(need(nrow(dd) > 0, "Sin datos para barras (Tab 2)"))
     dd$grupo <- factor(dd$grupo, levels = rev(dd$grupo))
     
@@ -1032,12 +1182,14 @@ server <- function(input, output, session){
         xaxis=list(title="Toneladas", zeroline=FALSE),
         yaxis=list(title="", automargin=TRUE),
         margin=list(l=140, r=20, b=40, t=10)
-      )
+      ) %>%
+      config(displayModeBar = FALSE)
+  }
+  
+  output$bar_grupos_t2 <- renderPlotly({
+    build_bar_widget_t2()
   })
   
-  # =========================================================
-  # TAB 1 — Serie Total (ignora filtro de mes) (remisión desde Atlántico)
-  # =========================================================
   serie_total_t1_df <- reactive({
     df <- base_t1
     if (!is.null(input$anio_t1) && input$anio_t1 != "Todos") df <- df %>% filter(anio == as.integer(input$anio_t1))
@@ -1057,7 +1209,7 @@ server <- function(input, output, session){
     out
   })
   
-  output$serie_total_t1 <- renderPlotly({
+  build_serie_widget_t1 <- function(){
     ts <- serie_total_t1_df()
     plot_ly(
       ts, x=~fecha, y=~ton, type="scatter", mode="lines+markers",
@@ -1068,12 +1220,14 @@ server <- function(input, output, session){
         xaxis=list(title="", tickformat="%Y-%m"),
         yaxis=list(title="Toneladas"),
         margin=list(l=60, r=20, b=40, t=10)
-      )
+      ) %>%
+      config(displayModeBar = FALSE)
+  }
+  
+  output$serie_total_t1 <- renderPlotly({
+    build_serie_widget_t1()
   })
   
-  # =========================================================
-  # TAB 2 — Serie Total (ignora filtro de mes) (✅ recepción en Atlántico)
-  # =========================================================
   serie_total_t2_df <- reactive({
     df <- base_t2
     if (!is.null(input$anio_t2) && input$anio_t2 != "Todos") df <- df %>% filter(anio == as.integer(input$anio_t2))
@@ -1093,7 +1247,7 @@ server <- function(input, output, session){
     out
   })
   
-  output$serie_total_t2 <- renderPlotly({
+  build_serie_widget_t2 <- function(){
     ts <- serie_total_t2_df()
     plot_ly(
       ts, x=~fecha, y=~ton, type="scatter", mode="lines+markers",
@@ -1104,11 +1258,16 @@ server <- function(input, output, session){
         xaxis=list(title="", tickformat="%Y-%m"),
         yaxis=list(title="Toneladas"),
         margin=list(l=60, r=20, b=40, t=10)
-      )
+      ) %>%
+      config(displayModeBar = FALSE)
+  }
+  
+  output$serie_total_t2 <- renderPlotly({
+    build_serie_widget_t2()
   })
   
   # =========================================================
-  # TAB 1 — Tabla detalle (DESTINO) — ✅ SOLO DEPARTAMENTO
+  # TABLAS
   # =========================================================
   detalle_t1 <- reactive({
     df <- datos_t1()
@@ -1164,9 +1323,6 @@ server <- function(input, output, session){
     )
   })
   
-  # =========================================================
-  # TAB 2 — Tabla detalle (ORIGEN) — ✅ SOLO DEPARTAMENTO
-  # =========================================================
   detalle_t2 <- reactive({
     df <- datos_t2()
     
@@ -1222,65 +1378,174 @@ server <- function(input, output, session){
   })
   
   # =========================================================
-  # PNG — Mapas simples (sin etiquetas fijas; solo polígonos)
+  # DOWNLOAD PNG — TAB 1
   # =========================================================
   output$dl_png_map_t1 <- downloadHandler(
-    filename = function() paste0("SIPSA_mapa_tab1_destino_", Sys.Date(), ".png"),
+    filename = function() paste0("SIPSA_tab1_mapa_", Sys.Date(), ".png"),
     content  = function(file){
-      shp <- mapa_t1_sf()
-      widget <- if (is.null(shp)) {
-        leaflet() %>% addProviderTiles(providers$CartoDB.Positron) %>% setView(-74, 4.6, 5)
-      } else {
-        pal <- palBin4(shp$ton)
-        leaflet(shp, options = leafletOptions(zoomControl=FALSE)) %>%
-          addProviderTiles(providers$CartoDB.Positron) %>%
-          addPolygons(
-            fillColor=~ifelse(is.na(ton)|ton<=0,"#bdbdbd",pal(ton)),
-            weight=0.7,color="#666",fillOpacity=0.9,
-            label=~ifelse(is.na(ton)|ton<=0,
-                          sprintf("%s — Sin información", departamento_d),
-                          sprintf("%s — %s Ton", departamento_d, fmt_ton_co(ton,1))),
-            labelOptions=hover_label_opts
-          ) %>%
-          addLegend(position="bottomright", pal=pal,
-                    values=~ifelse(is.na(ton)|ton<=0, NA, ton),
-                    title="Toneladas", labFormat=legend_lab_es(suffix=" Ton"),
-                    na.label="Sin información") %>%
-          addControl(badge_t1(), position="topright")
-      }
-      tmp_html <- tempfile(fileext = ".html")
-      htmlwidgets::saveWidget(widget, tmp_html, selfcontained = TRUE)
-      webshot2::webshot(tmp_html, file = file, vwidth = 1200, vheight = 800, zoom = 2)
+      widget <- build_map_widget_t1()
+      save_widget_png(widget, file, vwidth = 1600, vheight = 1100, delay = 2, zoom = 2)
     }
   )
   
-  output$dl_png_map_t2 <- downloadHandler(
-    filename = function() paste0("SIPSA_mapa_tab2_origen_", Sys.Date(), ".png"),
+  output$dl_png_bar_t1 <- downloadHandler(
+    filename = function() paste0("SIPSA_tab1_barras_", Sys.Date(), ".png"),
     content  = function(file){
-      shp <- mapa_t2_sf()
-      widget <- if (is.null(shp)) {
-        leaflet() %>% addProviderTiles(providers$CartoDB.Positron) %>% setView(-74, 4.6, 5)
-      } else {
-        pal <- palBin4(shp$ton)
-        leaflet(shp, options = leafletOptions(zoomControl=FALSE)) %>%
-          addProviderTiles(providers$CartoDB.Positron) %>%
-          addPolygons(
-            fillColor=~ifelse(is.na(ton)|ton<=0,"#bdbdbd",pal(ton)),
-            weight=0.7,color="#666",fillOpacity=0.9,
-            label=~ifelse(is.na(ton)|ton<=0,
-                          sprintf("%s — Sin información", departamento_d),
-                          sprintf("%s — %s Ton", departamento_d, fmt_ton_co(ton,1))),
-            labelOptions=hover_label_opts
-          ) %>%
-          addLegend(position="bottomright", pal=pal,
-                    values=~ifelse(is.na(ton)|ton<=0, NA, ton),
-                    title="Toneladas", labFormat=legend_lab_es(suffix=" Ton"),
-                    na.label="Sin información") %>%
-          addControl(badge_t2(), position="topright")
+      widget <- build_bar_widget_t1()
+      save_widget_png(widget, file, vwidth = 1600, vheight = 900, delay = 1.2, zoom = 2)
+    }
+  )
+  
+  output$dl_png_serie_t1 <- downloadHandler(
+    filename = function() paste0("SIPSA_tab1_serie_", Sys.Date(), ".png"),
+    content  = function(file){
+      widget <- build_serie_widget_t1()
+      save_widget_png(widget, file, vwidth = 1600, vheight = 900, delay = 1.2, zoom = 2)
+    }
+  )
+  
+  # =========================================================
+  # DOWNLOAD PNG — TAB 2
+  # =========================================================
+  output$dl_png_map_t2 <- downloadHandler(
+    filename = function() paste0("SIPSA_tab2_mapa_", Sys.Date(), ".png"),
+    content  = function(file){
+      widget <- build_map_widget_t2()
+      save_widget_png(widget, file, vwidth = 1600, vheight = 1100, delay = 2, zoom = 2)
+    }
+  )
+  
+  output$dl_png_bar_t2 <- downloadHandler(
+    filename = function() paste0("SIPSA_tab2_barras_", Sys.Date(), ".png"),
+    content  = function(file){
+      widget <- build_bar_widget_t2()
+      save_widget_png(widget, file, vwidth = 1600, vheight = 900, delay = 1.2, zoom = 2)
+    }
+  )
+  
+  output$dl_png_serie_t2 <- downloadHandler(
+    filename = function() paste0("SIPSA_tab2_serie_", Sys.Date(), ".png"),
+    content  = function(file){
+      widget <- build_serie_widget_t2()
+      save_widget_png(widget, file, vwidth = 1600, vheight = 900, delay = 1.2, zoom = 2)
+    }
+  )
+  
+  # =========================================================
+  # HELPERS PDF
+  # =========================================================
+  filtros_tab1_df <- reactive({
+    data.frame(
+      Parametro = c("Pestaña", "Departamento foco", "Año", "Mes", "Departamento de destino", "Grupo alimenticio", "Alimento"),
+      Valor = c(
+        "Remisión desde Atlántico",
+        DPTO_FOCO_NOMBRE,
+        input$anio_t1 %||% "Todos",
+        if (!is.null(input$mes_t1) && input$mes_t1 != "Todos") mes_nombre[as.integer(input$mes_t1)] else "Todos",
+        paste(input$territorio_t1 %||% "Todos", collapse = ", "),
+        paste(input$grupos_t1 %||% "Todos", collapse = ", "),
+        paste(input$alimentos_t1 %||% "Todos", collapse = ", ")
+      ),
+      stringsAsFactors = FALSE
+    )
+  })
+  
+  filtros_tab2_df <- reactive({
+    data.frame(
+      Parametro = c("Pestaña", "Departamento foco", "Año", "Mes", "Departamento de origen", "Grupo alimenticio", "Alimento"),
+      Valor = c(
+        "Recepción en Atlántico",
+        DPTO_FOCO_NOMBRE,
+        input$anio_t2 %||% "Todos",
+        if (!is.null(input$mes_t2) && input$mes_t2 != "Todos") mes_nombre[as.integer(input$mes_t2)] else "Todos",
+        paste(input$territorio_t2 %||% "Todos", collapse = ", "),
+        paste(input$grupos_t2 %||% "Todos", collapse = ", "),
+        paste(input$alimentos_t2 %||% "Todos", collapse = ", ")
+      ),
+      stringsAsFactors = FALSE
+    )
+  })
+  
+  generar_insumos_pdf <- function(export_dir){
+    dir.create(export_dir, recursive = TRUE, showWarnings = FALSE)
+    
+    img_t1_map   <- file.path(export_dir, "sipsa_tab1_mapa.png")
+    img_t1_bar   <- file.path(export_dir, "sipsa_tab1_barras.png")
+    img_t1_serie <- file.path(export_dir, "sipsa_tab1_serie.png")
+    img_t2_map   <- file.path(export_dir, "sipsa_tab2_mapa.png")
+    img_t2_bar   <- file.path(export_dir, "sipsa_tab2_barras.png")
+    img_t2_serie <- file.path(export_dir, "sipsa_tab2_serie.png")
+    
+    save_widget_png(build_map_widget_t1(),   img_t1_map,   vwidth = 1600, vheight = 1100, delay = 2.0, zoom = 2)
+    save_widget_png(build_bar_widget_t1(),   img_t1_bar,   vwidth = 1600, vheight = 900,  delay = 1.2, zoom = 2)
+    save_widget_png(build_serie_widget_t1(), img_t1_serie, vwidth = 1600, vheight = 900,  delay = 1.2, zoom = 2)
+    
+    save_widget_png(build_map_widget_t2(),   img_t2_map,   vwidth = 1600, vheight = 1100, delay = 2.0, zoom = 2)
+    save_widget_png(build_bar_widget_t2(),   img_t2_bar,   vwidth = 1600, vheight = 900,  delay = 1.2, zoom = 2)
+    save_widget_png(build_serie_widget_t2(), img_t2_serie, vwidth = 1600, vheight = 900,  delay = 1.2, zoom = 2)
+    
+    csv_t1 <- file.path(export_dir, "sipsa_tab1_base_filtrada.csv")
+    csv_t2 <- file.path(export_dir, "sipsa_tab2_base_filtrada.csv")
+    readr::write_csv(datos_t1(), csv_t1)
+    readr::write_csv(datos_t2(), csv_t2)
+    
+    list(
+      img_t1_map = img_t1_map,
+      img_t1_bar = img_t1_bar,
+      img_t1_serie = img_t1_serie,
+      img_t2_map = img_t2_map,
+      img_t2_bar = img_t2_bar,
+      img_t2_serie = img_t2_serie,
+      csv_t1 = csv_t1,
+      csv_t2 = csv_t2
+    )
+  }
+  
+  output$dl_pdf_report <- downloadHandler(
+    filename = function(){
+      paste0("Informe_SIPSA_Abastecimiento_", Sys.Date(), ".pdf")
+    },
+    content = function(file){
+      validate(need(both_tabs_seen(), "Debes haber visualizado las dos pestañas antes de descargar el informe PDF."))
+      
+      rmd_candidates <- c(
+        file.path(app_root, "Informe_descargable.Rmd"),
+        file.path(data_dir, "Informe_descargable.Rmd")
+      )
+      rmd_path <- rmd_candidates[file.exists(rmd_candidates)][1]
+      
+      if (is.na(rmd_path) || !nzchar(rmd_path)) {
+        stop("No encontré 'Informe_descargable.Rmd' ni en la raíz de la app ni en la carpeta data/.")
       }
-      tmp_html <- tempfile(fileext = ".html")
-      htmlwidgets::saveWidget(widget, tmp_html, selfcontained = TRUE)
-      webshot2::webshot(tmp_html, file = file, vwidth = 1200, vheight = 800, zoom = 2)
+      
+      tmp_dir <- tempfile("sipsa_pdf_")
+      dir.create(tmp_dir, recursive = TRUE, showWarnings = FALSE)
+      
+      insumos <- generar_insumos_pdf(tmp_dir)
+      
+      params_list <- list(
+        app_root     = app_root,
+        export_dir   = tmp_dir,
+        filtros_tab1 = filtros_tab1_df(),
+        filtros_tab2 = filtros_tab2_df(),
+        img_t1_map   = basename(insumos$img_t1_map),
+        img_t1_bar   = basename(insumos$img_t1_bar),
+        img_t1_serie = basename(insumos$img_t1_serie),
+        img_t2_map   = basename(insumos$img_t2_map),
+        img_t2_bar   = basename(insumos$img_t2_bar),
+        img_t2_serie = basename(insumos$img_t2_serie)
+      )
+      
+      out_file <- rmarkdown::render(
+        input = rmd_path,
+        output_file = basename(file),
+        output_dir  = dirname(file),
+        params = params_list,
+        envir = new.env(parent = globalenv()),
+        quiet = TRUE
+      )
+      
+      invisible(out_file)
     }
   )
 }
