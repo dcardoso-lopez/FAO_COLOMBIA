@@ -7,6 +7,7 @@
 # + logo leído desde Descargas/LOGO_PLATEA.png
 # + exportación robusta de PNG para informe
 # + retry especial para mapa de clusters
+# + PDF SIN params YAML (lee desde Descargas)
 # =========================================================
 
 # ------------------------------
@@ -91,6 +92,7 @@ IMG_TAB1_RANK  <- file.path(EXPORT_DIR, "eva_tab1_ranking.png")
 IMG_TAB2_MAP   <- file.path(EXPORT_DIR, "eva_tab2_clusters.png")
 IMG_TAB3_BAR   <- file.path(EXPORT_DIR, "eva_tab3_barras.png")
 IMG_TAB3_SER   <- file.path(EXPORT_DIR, "eva_tab3_serie.png")
+FILTERS_CSV    <- file.path(EXPORT_DIR, "filtros_informe.csv")
 
 save_widget_png <- function(widget, out_png, vwidth, vheight, delay = 1.2){
   dir.create(dirname(out_png), recursive = TRUE, showWarnings = FALSE)
@@ -2019,7 +2021,8 @@ server <- function(input, output, session) {
     log_file <- file.path(EXPORT_DIR, "debug_pdf_eva.txt")
     
     write_log <- function(...) {
-      cat(..., "\n", file = log_file, append = TRUE)
+      msg <- paste(..., collapse = " ")
+      cat(msg, "\n", file = log_file, append = TRUE)
     }
     
     write_log("====================================")
@@ -2033,6 +2036,14 @@ server <- function(input, output, session) {
     }
     
     filtros_tbl <- filtros_informe()
+    
+    write_log("Guardando filtros CSV:", FILTERS_CSV)
+    utils::write.csv(
+      filtros_tbl,
+      FILTERS_CSV,
+      row.names = FALSE,
+      fileEncoding = "UTF-8"
+    )
     
     write_log("Generando PNG tab1 mapa")
     ok1 <- save_leaflet_png_retry(
@@ -2123,27 +2134,21 @@ server <- function(input, output, session) {
     write_log("rmd_to_render:", rmd_to_render)
     
     tryCatch({
-      write_log("Iniciando rmarkdown::render()")
+      write_log("Iniciando rmarkdown::render() SIN params")
       
       tmp_pdf <- tempfile(fileext = ".pdf")
       
       rmarkdown::render(
         input         = rmd_to_render,
-        output_format = "pdf_document",
+        output_format = rmarkdown::pdf_document(
+          toc = TRUE,
+          number_sections = TRUE,
+          latex_engine = "xelatex"
+        ),
         output_file   = basename(tmp_pdf),
         output_dir    = dirname(tmp_pdf),
-        quiet         = TRUE,
-        params        = list(
-          app_root      = app_root,
-          export_dir    = "Descargas",
-          filtros       = filtros_tbl,
-          img_tab1_map  = basename(IMG_TAB1_MAP),
-          img_tab1_ser  = basename(IMG_TAB1_SER),
-          img_tab1_rank = basename(IMG_TAB1_RANK),
-          img_tab2_map  = basename(IMG_TAB2_MAP),
-          img_tab3_bar  = basename(IMG_TAB3_BAR),
-          img_tab3_ser  = basename(IMG_TAB3_SER)
-        ),
+        quiet         = FALSE,
+        encoding      = "UTF-8",
         knit_root_dir = app_root,
         envir         = new.env(parent = globalenv())
       )

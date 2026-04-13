@@ -2,6 +2,7 @@
 # Dashboard ICA Pecuaria — Mapa + Serie temporal + Top-10
 # (BOTONES TIPO IDM + PNG + CSV + PDF via Rmarkdown)
 # MOD: PDF SIN GENERAR/EXPORTAR CSV (csv_filtrado = NULL)
+# FIX: conflicto addLegend/.xts_chob corregido con leaflet::
 # =========================================================
 
 # ---- Paquetes ----
@@ -12,7 +13,6 @@ pkgs <- c(
   "htmlwidgets","webshot2","rmarkdown","ragg","ggplot2","readr","stringi"
 )
 
-# FIX robusto: evita símbolos/elementos vacíos que rompen .getNamespace()
 pkgs <- as.character(pkgs)
 pkgs <- pkgs[!is.na(pkgs) & nzchar(pkgs)]
 stopifnot(is.character(pkgs), length(pkgs) > 0)
@@ -93,13 +93,11 @@ dir.create(EXPORT_DIR, recursive = TRUE, showWarnings = FALSE)
 
 ruta_rmd <- file.path(app_root, "Informe_descargable.Rmd")
 
-# Viewport para PNG
 PNG_VWIDTH   <- 3000
 PNG_VHEIGHT  <- 2300
 PNG_DELAY_CO <- 1.4
 PNG_DELAY_MUN <- 2.6
 
-# Nombres fijos (para que el Rmd los encuentre fácil)
 IMG_MAP  <- file.path(EXPORT_DIR, "ica_mapa.png")
 IMG_SER  <- file.path(EXPORT_DIR, "ica_serie.png")
 IMG_TOP  <- file.path(EXPORT_DIR, "ica_top10.png")
@@ -170,8 +168,8 @@ mpios_sf <- mpios_raw %>%
     MUNICIPIO_D = .data[[muni_name_col]]
   ) %>%
   mutate(MUNICIPIO_D = title_case_es(MUNICIPIO_D)) %>%
-  st_transform(4326) %>%
-  st_make_valid()
+  sf::st_transform(4326) %>%
+  sf::st_make_valid()
 
 # --- DEPARTAMENTOS ---
 depto_name_cands <- c("DEPARTAMENTO_D","DPTO_CNMBR","NOMBRE_DPT","NOMBRE_DEPTO","DEPARTAMEN","DEPARTAMENTO","NOMBRE")
@@ -186,8 +184,8 @@ dptos_sf <- dptos_raw %>%
     DEPARTAMENTO_D = .data[[depto_name_col]]
   ) %>%
   mutate(DEPARTAMENTO_D = title_case_es(DEPARTAMENTO_D)) %>%
-  st_transform(4326) %>%
-  st_make_valid()
+  sf::st_transform(4326) %>%
+  sf::st_make_valid()
 
 # =========================================================
 # 2) GOLDEN — estandarizar
@@ -214,7 +212,6 @@ std_golden <- function(df, valor_col, etiqueta){
 }
 need_one <- function(df, opts){ nm <- opts[opts %in% names(df)][1]; if (is.na(nm)) stop(paste("No encuentro:", paste(opts, collapse=", "))); nm }
 
-# Bovinos
 if ("total_bovinos" %in% names(ica_bovino)) {
   bov_total_col <- "total_bovinos"
 } else {
@@ -225,17 +222,14 @@ if ("total_bovinos" %in% names(ica_bovino)) {
 }
 g_bov  <- std_golden(ica_bovino, bov_total_col, "Bovinos")
 
-# Porcinos
 stopifnot("total_porcinos" %in% names(ica_porcino))
 g_porc <- std_golden(ica_porcino, "total_porcinos", "Porcinos")
 
-# BCOE
 g_buf <- std_golden(ica_bcoe, need_one(ica_bcoe, c("total_bufalos","total_búfalos")), "Búfalos")
 g_equ <- std_golden(ica_bcoe, need_one(ica_bcoe, c("total_equinos")), "Equinos")
 g_cap <- std_golden(ica_bcoe, need_one(ica_bcoe, c("total_caprinos")), "Caprinos")
 g_ovi <- std_golden(ica_bcoe, need_one(ica_bcoe, c("total_ovinos")),  "Ovinos")
 
-# Aviar
 prep_aves_combo <- function(df){
   df <- janitor::clean_names(df)
   pick_first <- function(nms, cands){ hit <- cands[cands %in% nms]; if (!length(hit)) NA_character_ else hit[1] }
@@ -474,9 +468,6 @@ server <- function(input, output, session){
     }
   }
   
-  # =========================
-  # UI dinámico filtros
-  # =========================
   output$anio_ui <- renderUI({
     req(input$especie)
     yy <- golden |> dplyr::filter(especie==input$especie) |>
@@ -529,9 +520,6 @@ server <- function(input, output, session){
     updateSelectInput(session,"muni",  selected = "Todos")
   })
   
-  # =========================
-  # Datos base
-  # =========================
   datos_base <- reactive({
     req(input$especie)
     df <- golden |> dplyr::filter(especie==input$especie)
@@ -564,9 +552,6 @@ server <- function(input, output, session){
       dplyr::mutate(valor = ifelse(is.na(valor) | !is.finite(valor), 0, valor))
   })
   
-  # =========================
-  # Títulos
-  # =========================
   output$titulo_mapa <- renderUI({
     req(input$especie, input$anio)
     htmltools::HTML("<strong>¿En cuáles territorios se concentran la mayor cantidad de los inventarios de animales?</strong>")
@@ -579,9 +564,6 @@ server <- function(input, output, session){
     htmltools::HTML("<strong>Top 10 de municipios con mayor inventario de animales</strong>")
   })
   
-  # =========================
-  # BBOX para export
-  # =========================
   bbox_actual <- reactive({
     req(input$especie, input$anio)
     
@@ -598,25 +580,28 @@ server <- function(input, output, session){
     sf::st_bbox(datos_dpto())
   })
   
-  # =========================
-  # MAPA (pantalla)
-  # =========================
   output$mapa <- renderLeaflet({
     req(input$especie, input$anio)
     sf_m <- datos_dpto()
     bl   <- build_bins_labels(sf_m$valor)
     pal  <- bl$pal
     
-    leaflet(sf_m) %>%
-      addProviderTiles(providers$CartoDB.Positron) %>%
-      addPolygons(
+    leaflet::leaflet(sf_m) %>%
+      leaflet::addProviderTiles(leaflet::providers$CartoDB.Positron) %>%
+      leaflet::addPolygons(
         layerId = ~DPTO2,
         fillColor = ~pal(valor),
         weight = 0.7, color = "#3a6b57", fillOpacity = 0.9,
         label  = ~DEPARTAMENTO_D,
         highlightOptions = leaflet::highlightOptions(color="#1f5d46", weight=2, bringToFront=TRUE)
       ) %>%
-      addLegend(position="bottomright", colors=bl$colors, labels=bl$labels, opacity=0.9, title="Cantidad") %>%
+      leaflet::addLegend(
+        position = "bottomright",
+        colors   = bl$colors,
+        labels   = bl$labels,
+        opacity  = 0.9,
+        title    = "Cantidad"
+      ) %>%
       htmlwidgets::onRender("function(el,x){ this.zoomControl.setPosition('topright'); }")
   })
   
@@ -625,16 +610,26 @@ server <- function(input, output, session){
     bl   <- build_bins_labels(sf_m$valor)
     pal  <- bl$pal
     
-    leafletProxy("mapa", data = sf_m) %>%
-      clearShapes() %>% clearControls() %>%
-      addProviderTiles(providers$CartoDB.Positron) %>%
-      addPolygons(
-        layerId=~DPTO2, fillColor=~pal(valor),
-        weight=0.7, color="#3a6b57", fillOpacity=0.9,
-        label=~DEPARTAMENTO_D,
+    leaflet::leafletProxy("mapa", data = sf_m) %>%
+      leaflet::clearShapes() %>%
+      leaflet::clearControls() %>%
+      leaflet::addProviderTiles(leaflet::providers$CartoDB.Positron) %>%
+      leaflet::addPolygons(
+        layerId = ~DPTO2,
+        fillColor = ~pal(valor),
+        weight = 0.7,
+        color = "#3a6b57",
+        fillOpacity = 0.9,
+        label = ~DEPARTAMENTO_D,
         highlightOptions = leaflet::highlightOptions(color="#1f5d46", weight=2, bringToFront=TRUE)
       ) %>%
-      addLegend("bottomright", colors=bl$colors, labels=bl$labels, opacity=0.9, title="Cantidad")
+      leaflet::addLegend(
+        position = "bottomright",
+        colors   = bl$colors,
+        labels   = bl$labels,
+        opacity  = 0.9,
+        title    = "Cantidad"
+      )
   }
   
   dibujar_mpios <- function() {
@@ -646,10 +641,11 @@ server <- function(input, output, session){
     bl  <- build_bins_labels(sf_all$valor)
     pal <- bl$pal
     
-    leafletProxy("mapa", data = sf_all) %>%
-      clearShapes() %>% clearControls() %>%
-      addProviderTiles(providers$CartoDB.Positron) %>%
-      addPolygons(
+    leaflet::leafletProxy("mapa", data = sf_all) %>%
+      leaflet::clearShapes() %>%
+      leaflet::clearControls() %>%
+      leaflet::addProviderTiles(leaflet::providers$CartoDB.Positron) %>%
+      leaflet::addPolygons(
         layerId     = ~CODMUN,
         fillColor   = ~pal(valor),
         weight      = 0.4,
@@ -658,7 +654,13 @@ server <- function(input, output, session){
         label       = ~MUNICIPIO_D,
         highlightOptions = leaflet::highlightOptions(color="#1f5d46", weight=2, bringToFront=TRUE)
       ) %>%
-      addLegend("bottomright", colors=bl$colors, labels=bl$labels, opacity=0.9, title="Cantidad")
+      leaflet::addLegend(
+        position = "bottomright",
+        colors   = bl$colors,
+        labels   = bl$labels,
+        opacity  = 0.9,
+        title    = "Cantidad"
+      )
   }
   
   observeEvent(list(input$especie, input$anio), {
@@ -675,7 +677,7 @@ server <- function(input, output, session){
       geom <- dptos_sf |> dplyr::filter(DPTO2 == input$depto)
       if (nrow(geom) == 1) {
         bb <- sf::st_bbox(geom)
-        leafletProxy("mapa") |> fitBounds(bb["xmin"], bb["ymin"], bb["xmax"], bb["ymax"])
+        leaflet::leafletProxy("mapa") |> leaflet::fitBounds(bb["xmin"], bb["ymin"], bb["xmax"], bb["ymax"])
       }
     }
   }, ignoreInit = TRUE)
@@ -687,7 +689,7 @@ server <- function(input, output, session){
       geom <- mpios_sf |> dplyr::filter(CODMUN == input$muni)
       if (nrow(geom) == 1) {
         bb <- sf::st_bbox(geom)
-        leafletProxy("mapa") |> fitBounds(bb["xmin"], bb["ymin"], bb["xmax"], bb["ymax"])
+        leaflet::leafletProxy("mapa") |> leaflet::fitBounds(bb["xmin"], bb["ymin"], bb["xmax"], bb["ymax"])
       }
     } else {
       if (!is.null(input$depto) && input$depto != "Todos") dibujar_mpios() else dibujar_deptos()
@@ -707,9 +709,6 @@ server <- function(input, output, session){
     }
   })
   
-  # =========================================================
-  # SERIE (plotly)
-  # =========================================================
   build_serie_plotly <- function(){
     req(input$especie)
     df <- golden |> dplyr::filter(especie == input$especie)
@@ -743,9 +742,6 @@ server <- function(input, output, session){
   }
   output$serie <- renderPlotly({ build_serie_plotly() })
   
-  # =========================================================
-  # TOP10 (plotly)
-  # =========================================================
   build_top_plotly <- function(){
     df <- datos_base() |>
       dplyr::mutate(valor = suppressWarnings(as.numeric(valor))) |>
@@ -793,9 +789,6 @@ server <- function(input, output, session){
   }
   output$top10 <- renderPlotly({ build_top_plotly() })
   
-  # =========================================================
-  # MAPA EXPORT (WIDGET DEDICADO, LEYENDA + ZOOM IDM-STYLE)
-  # =========================================================
   map_widget_export <- reactive({
     req(input$especie, input$anio)
     
@@ -826,7 +819,13 @@ server <- function(input, output, session){
           fillColor = ~pal(valor),
           color="#3a6b57", weight=0.7, fillOpacity=0.9
         ) %>%
-        leaflet::addLegend(position="bottomright", colors=bl$colors, labels=bl$labels, opacity=0.9, title="Cantidad")
+        leaflet::addLegend(
+          position = "bottomright",
+          colors   = bl$colors,
+          labels   = bl$labels,
+          opacity  = 0.9,
+          title    = "Cantidad"
+        )
       
     } else {
       sf_all <- datos_mpio()
@@ -842,13 +841,16 @@ server <- function(input, output, session){
           fillColor = ~pal(valor),
           color="#3a6b57", weight=0.4, fillOpacity=0.9
         ) %>%
-        leaflet::addLegend(position="bottomright", colors=bl$colors, labels=bl$labels, opacity=0.9, title="Cantidad")
+        leaflet::addLegend(
+          position = "bottomright",
+          colors   = bl$colors,
+          labels   = bl$labels,
+          opacity  = 0.9,
+          title    = "Cantidad"
+        )
     }
   })
   
-  # =========================================================
-  # TABLA EXPORT (CSV) — solo para botón CSV (NO para PDF)
-  # =========================================================
   tabla_export <- reactive({
     df <- datos_base() |>
       dplyr::mutate(valor = suppressWarnings(as.numeric(valor))) |>
@@ -873,9 +875,6 @@ server <- function(input, output, session){
     df
   })
   
-  # =========================================================
-  # DESCARGAS PNG
-  # =========================================================
   output$dl_png_mapa <- downloadHandler(
     filename = function(){
       dep_tag <- if (is.null(input$depto) || input$depto=="Todos") "Colombia" else input$depto
@@ -909,9 +908,6 @@ server <- function(input, output, session){
     }
   )
   
-  # =========================================================
-  # CSV (solo botón CSV)
-  # =========================================================
   output$dl_csv_expl <- downloadHandler(
     filename = function(){
       dep_tag <- if (is.null(input$depto) || input$depto=="Todos") "Colombia" else input$depto
@@ -923,9 +919,6 @@ server <- function(input, output, session){
     }
   )
   
-  # =========================================================
-  # PDF (SIN CSV)
-  # =========================================================
   output$dl_reporte_pdf <- downloadHandler(
     filename = function(){
       dep_tag <- if (is.null(input$depto) || input$depto=="Todos") "Colombia" else input$depto
@@ -936,13 +929,11 @@ server <- function(input, output, session){
       
       if (!file.exists(ruta_rmd)) stop("No encuentro Informe_descargable.Rmd en la raíz del proyecto.")
       
-      # snapshot inputs
       anio_now <- input$anio
       esp_now  <- input$especie %||% "NA"
       dep_now  <- input$depto %||% "Todos"
       mun_now  <- input$muni  %||% "Todos"
       
-      # 1) PNGs fijos en ./Descargas
       dly_map <- if (!is.null(dep_now) && dep_now != "Todos") PNG_DELAY_MUN else PNG_DELAY_CO
       
       ok_map <- save_widget_png_retry(map_widget_export(), IMG_MAP, vwidth = PNG_VWIDTH, vheight = PNG_VHEIGHT, delay_base = dly_map)
@@ -953,7 +944,6 @@ server <- function(input, output, session){
       if (!ok_ser) stop("No se pudo generar Descargas/ica_serie.png para el informe.")
       if (!ok_top) stop("No se pudo generar Descargas/ica_top10.png para el informe.")
       
-      # 2) Filtros (tabla)
       dep_disp <- if (is.null(dep_now) || dep_now=="Todos") "Todos" else {
         d <- dptos_sf |> sf::st_drop_geometry() |> dplyr::filter(DPTO2 == dep_now) |> dplyr::pull(DEPARTAMENTO_D)
         if (!length(d) || is.na(d[1])) as.character(dep_now) else d[1]
@@ -969,7 +959,6 @@ server <- function(input, output, session){
         stringsAsFactors = FALSE
       )
       
-      # 3) Logo (se mantiene tal cual tu Rmd; esto solo copia por si usas placeholder)
       logo_src <- file.path(app_root, "www", "LOGO_PLATEA.png")
       if (!file.exists(logo_src)) {
         logo_src2 <- file.path(app_root, "WWW", "LOGO_PLATEA.png")
@@ -979,7 +968,6 @@ server <- function(input, output, session){
       if (!is.na(logo_src) && file.exists(logo_src)) file.copy(logo_src, logo_dst, overwrite = TRUE)
       logo_tex <- gsub("\\\\", "/", normalizePath(logo_dst, winslash = "/", mustWork = FALSE))
       
-      # 4) Si el Rmd tiene placeholder del header, crear Rmd temporal reemplazado
       td <- tempfile("rmd_ica_")
       dir.create(td, recursive = TRUE, showWarnings = FALSE)
       
@@ -992,7 +980,6 @@ server <- function(input, output, session){
         rmd_to_render <- rmd_tmp
       }
       
-      # 5) Render DIRECTO al archivo que Shiny entrega (evita .htm)
       rmarkdown::render(
         input         = rmd_to_render,
         output_format = "pdf_document",
@@ -1014,7 +1001,6 @@ server <- function(input, output, session){
           img_serie    = basename(IMG_SER),
           img_ranking  = basename(IMG_TOP),
           
-          # <<< MOD: NO CSV EN EL INFORME
           csv_filtrado = NULL
         ),
         knit_root_dir = app_root,

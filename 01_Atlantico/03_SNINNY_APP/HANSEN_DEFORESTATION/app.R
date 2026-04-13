@@ -7,6 +7,7 @@
 # - nombres fijos en ./Descargas
 # - una sola pestaña
 # - usando filtros actuales
+# - FIX: app_root robusto para no tomar rutas de otra app
 # =========================================================
 
 # 1) Paquetes
@@ -15,7 +16,15 @@ pkgs <- c(
   "plotly","ggplot2","htmltools","webshot2","htmlwidgets",
   "ragg","glue","scales","rmarkdown"
 )
-suppressWarnings(invisible(sapply(pkgs, require, character.only = TRUE)))
+
+pkgs <- as.character(pkgs)
+pkgs <- pkgs[!is.na(pkgs) & nzchar(pkgs)]
+stopifnot(length(pkgs) > 0)
+
+suppressWarnings(invisible(lapply(pkgs, function(p) {
+  suppressPackageStartupMessages(require(p, character.only = TRUE))
+})))
+
 options(stringsAsFactors = FALSE, scipen = 999)
 sf::sf_use_s2(FALSE)
 
@@ -24,9 +33,41 @@ sf::sf_use_s2(FALSE)
 # =========================================================
 `%||%` <- function(x, y) if (is.null(x) || length(x) == 0) y else x
 
-get_app_root <- function(){
-  normalizePath(shiny::getShinyOption("appDir") %||% getwd(), winslash = "/", mustWork = FALSE)
+find_app_root <- function() {
+  candidates <- c(
+    shiny::getShinyOption("appDir"),
+    tryCatch(dirname(sys.frames()[[1]]$ofile), error = function(e) NA_character_),
+    tryCatch(dirname(parent.frame()$ofile), error = function(e) NA_character_),
+    getwd()
+  )
+  
+  candidates <- unique(candidates)
+  candidates <- candidates[!is.na(candidates) & nzchar(candidates)]
+  
+  candidates <- vapply(
+    candidates,
+    function(p) normalizePath(p, winslash = "/", mustWork = FALSE),
+    character(1)
+  )
+  
+  # 1) Preferir un directorio que tenga app.R + RDS + shapefiles
+  for (p in candidates) {
+    has_app <- file.exists(file.path(p, "app.R"))
+    has_rds <- file.exists(file.path(p, "data", "141_HANSEN_DEFORESTATION.rds"))
+    has_shp <- dir.exists(file.path(p, "data", "shp"))
+    if (has_app && has_rds && has_shp) return(p)
+  }
+  
+  # 2) Si no, uno que tenga app.R
+  for (p in candidates) {
+    if (file.exists(file.path(p, "app.R"))) return(p)
+  }
+  
+  # 3) Último recurso
+  normalizePath(getwd(), winslash = "/", mustWork = FALSE)
 }
+
+app_root <- find_app_root()
 
 norm_txt <- function(x){
   x <- as.character(x)
@@ -109,7 +150,6 @@ legend_lab_es <- function(prefix = "", suffix = "", between = " – "){
 # =========================================================
 # EXPORTACIÓN TIPO ICA
 # =========================================================
-app_root   <- get_app_root()
 EXPORT_DIR <- file.path(app_root, "Descargas")
 dir.create(EXPORT_DIR, recursive = TRUE, showWarnings = FALSE)
 
@@ -161,12 +201,31 @@ save_widget_png_retry <- function(widget, out_png, vwidth, vheight, delay_base){
 # =========================================================
 # 2) Rutas de datos
 # =========================================================
-DATA_RDS <- file.path(app_root, "data/141_HANSEN_DEFORESTATION.rds")
-SHP_DIR  <- file.path(app_root, "data/shp")
+DATA_DIR <- file.path(app_root, "data")
+SHP_DIR  <- file.path(DATA_DIR, "shp")
+DATA_RDS <- file.path(DATA_DIR, "141_HANSEN_DEFORESTATION.rds")
 
-if (!file.exists(DATA_RDS)) stop("No encuentro la base RDS en: ", DATA_RDS)
+message("app_root detectado: ", app_root)
+message("DATA_DIR detectado: ", DATA_DIR)
+message("SHP_DIR detectado: ", SHP_DIR)
+message("DATA_RDS detectado: ", DATA_RDS)
+
+if (!dir.exists(DATA_DIR)) {
+  stop("No encuentro la carpeta data en: ", DATA_DIR)
+}
+
+if (!file.exists(DATA_RDS)) {
+  stop("No encuentro la base RDS en: ", DATA_RDS)
+}
+
+if (!dir.exists(SHP_DIR)) {
+  stop("No encuentro la carpeta de shapefiles en: ", SHP_DIR)
+}
+
 shp_files <- list.files(SHP_DIR, pattern = "\\.shp$", full.names = TRUE, recursive = TRUE)
-if (length(shp_files) == 0) stop("No encuentro archivos .shp en: ", SHP_DIR)
+if (length(shp_files) == 0) {
+  stop("No encuentro archivos .shp en: ", SHP_DIR)
+}
 
 # =========================================================
 # 3) Paleta / colores
@@ -726,10 +785,6 @@ server <- function(input, output, session){
     nivel_mapa("depto"); depto_sel(NULL); dibujar_deptos()
   })
   
-  # =========================================================
-  # BUILDERS REUTILIZABLES
-  # =========================================================
-  
   series_data <- reactive({
     base <- eva_df
     if (!is.null(input$f_depto) && input$f_depto!="Todos")
@@ -967,9 +1022,6 @@ server <- function(input, output, session){
     }
   })
   
-  # =========================================================
-  # CSV
-  # =========================================================
   tabla_export <- reactive({
     datos_filtrados() |>
       dplyr::transmute(
@@ -987,9 +1039,6 @@ server <- function(input, output, session){
     content  = function(file) readr::write_csv(tabla_export(), file, na = "")
   )
   
-  # =========================================================
-  # PNG MAPA
-  # =========================================================
   output$dl_png_mapa <- downloadHandler(
     filename = function() paste0("HANSEN_mapa_", Sys.Date(), ".png"),
     content  = function(file){
@@ -999,9 +1048,6 @@ server <- function(input, output, session){
     }
   )
   
-  # =========================================================
-  # PNG SERIE
-  # =========================================================
   output$dl_png_series <- downloadHandler(
     filename = function() paste0("HANSEN_serie_", Sys.Date(), ".png"),
     content  = function(file){
@@ -1010,9 +1056,6 @@ server <- function(input, output, session){
     }
   )
   
-  # =========================================================
-  # PNG RANKING
-  # =========================================================
   output$dl_png_ranking <- downloadHandler(
     filename = function() paste0("HANSEN_ranking_", safe_chr(input$f_anio), "_", Sys.Date(), ".png"),
     content  = function(file){
@@ -1021,9 +1064,6 @@ server <- function(input, output, session){
     }
   )
   
-  # =========================================================
-  # PDF TIPO ICA
-  # =========================================================
   output$dl_reporte_pdf <- downloadHandler(
     filename = function(){
       dep_tag <- if (is.null(input$f_depto) || input$f_depto == "Todos") "Todos" else input$f_depto

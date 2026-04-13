@@ -24,18 +24,6 @@ output:
     number_sections: true
     latex_engine: xelatex
 geometry: margin=1in
-
-params:
-  app_root: !r getwd()
-  export_dir: "Descargas"
-  filtros: NULL
-
-  img_tab1_map: "eva_tab1_mapa.png"
-  img_tab1_ser: "eva_tab1_serie.png"
-  img_tab1_rank: "eva_tab1_ranking.png"
-  img_tab2_map: "eva_tab2_clusters.png"
-  img_tab3_bar: "eva_tab3_barras.png"
-  img_tab3_ser: "eva_tab3_serie.png"
 ---
 
 ```{r setup, include=FALSE}
@@ -48,40 +36,40 @@ knitr::opts_chunk$set(
   dpi = 150
 )
 
-`%||%` <- function(x, y) if (is.null(x) || length(x) == 0) y else x
-
-app_root   <- params$app_root %||% getwd()
-export_dir <- params$export_dir %||% "Descargas"
-light_dir  <- export_dir
+app_root   <- getwd()
+export_dir <- file.path(app_root, "Descargas")
 
 safe_path <- function(fname){
-  if (is.null(fname) || is.na(fname) || !nzchar(fname)) return(NA_character_)
-  p <- file.path(light_dir, fname)
-  if (!file.exists(file.path(app_root, p))) return(NA_character_)
+  p <- file.path(export_dir, fname)
+  if (!file.exists(p)) return(NA_character_)
   p
 }
 
 img_use <- list(
-  tab1_map  = safe_path(params$img_tab1_map),
-  tab1_ser  = safe_path(params$img_tab1_ser),
-  tab1_rank = safe_path(params$img_tab1_rank),
-  tab2_map  = safe_path(params$img_tab2_map),
-  tab3_bar  = safe_path(params$img_tab3_bar),
-  tab3_ser  = safe_path(params$img_tab3_ser)
+  tab1_map  = safe_path("eva_tab1_mapa.png"),
+  tab1_ser  = safe_path("eva_tab1_serie.png"),
+  tab1_rank = safe_path("eva_tab1_ranking.png"),
+  tab2_map  = safe_path("eva_tab2_clusters.png"),
+  tab3_bar  = safe_path("eva_tab3_barras.png"),
+  tab3_ser  = safe_path("eva_tab3_serie.png")
 )
 
 safe_include <- function(p, txt = "No se encontró la imagen correspondiente."){
-  if (is.na(p) || !nzchar(p) || !file.exists(file.path(app_root, p))) {
+  if (is.na(p) || !nzchar(p) || !file.exists(p)) {
     cat(txt, "\n")
   } else {
     knitr::include_graphics(p)
   }
 }
 
-if (!is.null(params$filtros) &&
-    is.data.frame(params$filtros) &&
-    all(c("Parametro","Valor") %in% names(params$filtros))) {
-  filtros_tbl <- params$filtros
+filtros_path <- file.path(export_dir, "filtros_informe.csv")
+
+if (file.exists(filtros_path)) {
+  filtros_tbl <- utils::read.csv(
+    filtros_path,
+    stringsAsFactors = FALSE,
+    fileEncoding = "UTF-8"
+  )
 } else {
   filtros_tbl <- data.frame(
     Parametro = c("Filtro", "Valor"),
@@ -123,7 +111,6 @@ knitr::kable(
   caption = "Filtros aplicados al momento de generar el informe"
 )
 ```
-\clearpage
 
 # Resultados
 

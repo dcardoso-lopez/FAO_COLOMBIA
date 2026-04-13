@@ -1,0 +1,65 @@
+==================================== 
+Inicio render PDF: 2026-04-13 10:31:41.862835 
+ruta_rmd: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/SIPSA_ABASTECIMIENTO/Informe_descargable.Rmd 
+archivo destino: C:\Users\Dell\AppData\Local\Temp\RtmpoDPHbC\file3b00614d422f.pdf 
+Generando PNG tab1 mapa 
+Generando PNG tab1 serie 
+Generando PNG tab1 ranking 
+Generando PNG tab2 clusters 
+Generando PNG tab3 barras 
+Generando PNG tab3 serie 
+rmd_to_render: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/SIPSA_ABASTECIMIENTO/Informe_descargable.Rmd 
+Iniciando rmarkdown::render() 
+ERROR EN RENDER: render params not declared in YAML: filtros, img_tab1_map, img_tab1_ser, img_tab1_rank, img_tab2_map, img_tab3_bar, img_tab3_ser 
+==================================== 
+Inicio render PDF: 2026-04-13 10:32:40.545028 
+ruta_rmd: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/SIPSA_ABASTECIMIENTO/Informe_descargable.Rmd 
+archivo destino: C:\Users\Dell\AppData\Local\Temp\RtmpoDPHbC\file3b0057125635.pdf 
+Generando PNG tab1 mapa 
+Generando PNG tab1 serie 
+Generando PNG tab1 ranking 
+Generando PNG tab2 clusters 
+Generando PNG tab3 barras 
+Generando PNG tab3 serie 
+rmd_to_render: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/SIPSA_ABASTECIMIENTO/Informe_descargable.Rmd 
+Iniciando rmarkdown::render() 
+ERROR EN RENDER: render params not declared in YAML: filtros, img_tab1_map, img_tab1_ser, img_tab1_rank, img_tab2_map, img_tab3_bar, img_tab3_ser 
+==================================== 
+Inicio render PDF: 2026-04-13 10:40:16.951386 
+ruta_rmd: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/SIPSA_ABASTECIMIENTO/Informe_descargable.Rmd 
+archivo destino: C:\Users\Dell\AppData\Local\Temp\RtmpoDPHbC\file3b0025ea727b.pdf 
+Generando PNG tab1 mapa 
+Generando PNG tab1 serie 
+Generando PNG tab1 ranking 
+Generando PNG tab2 clusters 
+Generando PNG tab3 barras 
+Generando PNG tab3 serie 
+rmd_to_render: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/SIPSA_ABASTECIMIENTO/Informe_descargable.Rmd 
+Iniciando rmarkdown::render() 
+ERROR EN RENDER: render params not declared in YAML: filtros, img_tab1_map, img_tab1_ser, img_tab1_rank, img_tab2_map, img_tab3_bar, img_tab3_ser 
+==================================== 
+Inicio render PDF: 2026-04-13 10:55:57.434012 
+ruta_rmd: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/SIPSA_ABASTECIMIENTO/Informe_descargable.Rmd 
+archivo destino: C:\Users\Dell\AppData\Local\Temp\RtmpoDPHbC\file3b006a95501a.pdf 
+Generando PNG tab1 mapa 
+Generando PNG tab1 serie 
+Generando PNG tab1 ranking 
+Generando PNG tab2 clusters 
+Generando PNG tab3 barras 
+Generando PNG tab3 serie 
+rmd_to_render: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/SIPSA_ABASTECIMIENTO/Informe_descargable.Rmd 
+Iniciando rmarkdown::render() 
+ERROR EN RENDER: render params not declared in YAML: filtros, img_tab1_map, img_tab1_ser, img_tab1_rank, img_tab2_map, img_tab3_bar, img_tab3_ser 
+==================================== 
+Inicio render PDF: 2026-04-13 10:59:56.351551 
+ruta_rmd: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/SIPSA_ABASTECIMIENTO/Informe_descargable.Rmd 
+archivo destino: C:\Users\Dell\AppData\Local\Temp\RtmpoDPHbC\file3b006eb9718b.pdf 
+Generando PNG tab1 mapa 
+Generando PNG tab1 serie 
+Generando PNG tab1 ranking 
+Generando PNG tab2 clusters 
+Generando PNG tab3 barras 
+Generando PNG tab3 serie 
+rmd_to_render: C:/Users/Dell/Universidad de los andes/FAO-SAT - Documentos/General/06_Scripts/FAO_COLOMBIA/01_Atlantico/03_SNINNY_APP/SIPSA_ABASTECIMIENTO/Informe_descargable.Rmd 
+Iniciando rmarkdown::render() 
+ERROR EN RENDER: render params not declared in YAML: filtros, img_tab1_map, img_tab1_ser, img_tab1_rank, img_tab2_map, img_tab3_bar, img_tab3_ser 
